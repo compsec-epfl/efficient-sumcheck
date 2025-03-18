@@ -3,13 +3,14 @@ use ark_std::vec::Vec;
 
 use crate::{
     hypercube::Hypercube, interpolation::LagrangePolynomial, messages::VerifierMessages,
-    streams::Stream,
+    streams::{OrderStrategy, Stream, StreamIterator},
 };
 
-pub struct BlendyProductProver<F: Field, S: Stream<F>> {
+pub struct BlendyProductProver<F: Field, S: Stream<F>, O: OrderStrategy> {
     pub claim: F,
     pub current_round: usize,
     pub streams: Vec<S>,
+    pub stream_iterators: Vec<StreamIterator<F, S, O>>,
     pub num_stages: usize,
     pub num_variables: usize,
     pub max_rounds_phase1: usize,
@@ -25,7 +26,7 @@ pub struct BlendyProductProver<F: Field, S: Stream<F>> {
     pub prev_table_size: usize,
 }
 
-impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
+impl<F: Field, S: Stream<F>, O: OrderStrategy> BlendyProductProver<F, S, O> {
     pub fn is_initial_round(&self) -> bool {
         self.current_round == 0
     }
@@ -126,7 +127,6 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
         };
 
         if p && !self.is_initial_round() {
-            let time1 = std::time::Instant::now();
             let j_prime = self.prev_table_round_num;
             let t = self.prev_table_size;
 
@@ -148,8 +148,6 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
             let x_num_vars = j_prime - 1;
             let x_index_left_shift = t + b_num_vars;
 
-            println!("table computation on round: {}, j_prime: {}, t: {}", j, j_prime, t);
-
             for (b_index, _) in Hypercube::new(b_num_vars) {
                 for (b_prime_index, _) in Hypercube::new(t) {
                     self.x_table[b_prime_index] = F::ZERO;
@@ -165,6 +163,7 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                         let lag_poly = sequential_lag_poly.next().unwrap();
                         self.x_table[b_prime_index] +=
                             lag_poly * self.streams[0].evaluation(evaluation_point);
+                        assert_eq!(self.streams[0].evaluation(evaluation_point), self.stream_iterators[0].next().unwrap());
                         self.y_table[b_prime_index] +=
                             lag_poly * self.streams[1].evaluation(evaluation_point);
                     }
@@ -176,8 +175,6 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                     }
                 }
             }
-            let time2 = std::time::Instant::now();
-            println!("table computation took: {:?}", time2 - time1);
         }
     }
 }

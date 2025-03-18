@@ -4,10 +4,10 @@ use crate::{
     messages::VerifierMessages,
     multilinear_product::{BlendyProductProver, BlendyProductProverConfig},
     prover::Prover,
-    streams::Stream,
+    streams::{OrderStrategy, Stream, StreamIterator},
 };
 
-impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
+impl<F: Field, S: Stream<F>, O: OrderStrategy> Prover<F> for BlendyProductProver<F, S, O> {
     type ProverConfig = BlendyProductProverConfig<F, S>;
     type ProverMessage = Option<(F, F, F)>;
     type VerifierMessage = Option<F>;
@@ -21,11 +21,13 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
         let num_stages: usize = prover_config.num_stages;
         let stage_size: usize = num_variables / num_stages;
         let max_rounds_phase1: usize = num_variables.div_ceil(2 * num_stages);
+        let stream_iterators = prover_config.streams.iter().cloned().map(|s| StreamIterator::new(s)).collect();
         // return the BlendyProver instance
         Self {
             claim: prover_config.claim,
             current_round: 0,
             streams: prover_config.streams,
+            stream_iterators,
             num_stages,
             num_variables,
             max_rounds_phase1,
@@ -74,12 +76,11 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        multilinear_product::BlendyProductProver,
-        tests::{multilinear_product::consistency_test, BenchStream, F64},
+        multilinear_product::BlendyProductProver, streams::GraycodeOrder, tests::{multilinear_product::consistency_test, BenchStream, F64}
     };
 
     #[test]
     fn parity_with_basic_prover() {
-        consistency_test::<F64, BenchStream<F64>, BlendyProductProver<F64, BenchStream<F64>>>();
+        consistency_test::<F64, BenchStream<F64>, BlendyProductProver<F64, BenchStream<F64>, GraycodeOrder>>();
     }
 }
