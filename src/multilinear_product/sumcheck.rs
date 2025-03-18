@@ -61,12 +61,18 @@ impl<F: Field> ProductSumcheck<F> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        multilinear_product::{BlendyProductProver, TimeProductProver}, streams::GraycodeOrder, tests::{multilinear_product::consistency_test, BenchStream, F64}
+        multilinear_product::{BlendyProductProver, TimeProductProver},
+        streams::GraycodeOrder,
+        tests::{multilinear_product::consistency_test, BenchStream, F64},
     };
 
     #[test]
     fn algorithm_consistency() {
         consistency_test::<F64, BenchStream<F64>, TimeProductProver<F64, BenchStream<F64>>>();
-        consistency_test::<F64, BenchStream<F64>, BlendyProductProver<F64, BenchStream<F64>, GraycodeOrder>>();
+        consistency_test::<
+            F64,
+            BenchStream<F64>,
+            BlendyProductProver<F64, BenchStream<F64>, GraycodeOrder>,
+        >();
     }
 }

@@ -21,7 +21,12 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> Prover<F> for BlendyProductProver
         let num_stages: usize = prover_config.num_stages;
         let stage_size: usize = num_variables / num_stages;
         let max_rounds_phase1: usize = num_variables.div_ceil(2 * num_stages);
-        let stream_iterators = prover_config.streams.iter().cloned().map(|s| StreamIterator::new(s)).collect();
+        let stream_iterators = prover_config
+            .streams
+            .iter()
+            .cloned()
+            .map(|s| StreamIterator::new(s))
+            .collect();
         // return the BlendyProver instance
         Self {
             claim: prover_config.claim,
@@ -31,7 +36,9 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> Prover<F> for BlendyProductProver
             num_stages,
             num_variables,
             max_rounds_phase1,
-            last_round_phase1: (1usize << (num_variables.div_ceil(num_stages)).ilog2()) + max_rounds_phase1 - 1,
+            last_round_phase1: (1usize << (num_variables.div_ceil(num_stages)).ilog2())
+                + max_rounds_phase1
+                - 1,
             verifier_messages: VerifierMessages::new(&vec![]),
             verifier_messages_round_comp: VerifierMessages::new(&vec![]),
             x_table: vec![],
@@ -76,11 +83,17 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> Prover<F> for BlendyProductProver
 #[cfg(test)]
 mod tests {
     use crate::{
-        multilinear_product::BlendyProductProver, streams::GraycodeOrder, tests::{multilinear_product::consistency_test, BenchStream, F64}
+        multilinear_product::BlendyProductProver,
+        streams::GraycodeOrder,
+        tests::{multilinear_product::consistency_test, BenchStream, F64},
     };
 
     #[test]
     fn parity_with_basic_prover() {
-        consistency_test::<F64, BenchStream<F64>, BlendyProductProver<F64, BenchStream<F64>, GraycodeOrder>>();
+        consistency_test::<
+            F64,
+            BenchStream<F64>,
+            BlendyProductProver<F64, BenchStream<F64>, GraycodeOrder>,
+        >();
     }
 }

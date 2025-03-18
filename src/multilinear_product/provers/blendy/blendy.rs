@@ -2,7 +2,9 @@ use ark_ff::Field;
 use ark_std::vec::Vec;
 
 use crate::{
-    hypercube::Hypercube, interpolation::LagrangePolynomial, messages::VerifierMessages,
+    hypercube::Hypercube,
+    interpolation::LagrangePolynomial,
+    messages::VerifierMessages,
     streams::{OrderStrategy, Stream, StreamIterator},
 };
 
@@ -53,11 +55,10 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> BlendyProductProver<F, S, O> {
     }
 
     pub fn compute_round(&self) -> (F, F, F) {
-
         let mut sum_0 = F::ZERO;
         let mut sum_1 = F::ZERO;
         let mut sum_half = F::ZERO;
-        
+
         // if first round, then no table is computed, need to compute sums from the streams
         if self.is_initial_round() {
             for (x_index, _) in Hypercube::new(self.num_variables - 1) {
@@ -74,7 +75,8 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> BlendyProductProver<F, S, O> {
         } else {
             // things to help iterating
             let b_prime_num_vars = self.current_round + 1 - self.prev_table_round_num;
-            let v_num_vars: usize = self.prev_table_size + self.prev_table_round_num - self.current_round - 2;
+            let v_num_vars: usize =
+                self.prev_table_size + self.prev_table_round_num - self.current_round - 2;
             let b_prime_index_left_shift = v_num_vars + 1;
 
             // Lag Poly
@@ -97,12 +99,14 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> BlendyProductProver<F, S, O> {
                     for (v_index, _) in Hypercube::new(v_num_vars) {
                         let b_prime_0_v =
                             b_prime_index << b_prime_index_left_shift | 0 << v_num_vars | v_index;
-                        let b_prime_prime_0_v =
-                            b_prime_prime_index << b_prime_index_left_shift | 0 << v_num_vars | v_index;
+                        let b_prime_prime_0_v = b_prime_prime_index << b_prime_index_left_shift
+                            | 0 << v_num_vars
+                            | v_index;
                         let b_prime_1_v =
                             b_prime_index << b_prime_index_left_shift | 1 << v_num_vars | v_index;
-                        let b_prime_prime_1_v =
-                            b_prime_prime_index << b_prime_index_left_shift | 1 << v_num_vars | v_index;
+                        let b_prime_prime_1_v = b_prime_prime_index << b_prime_index_left_shift
+                            | 1 << v_num_vars
+                            | v_index;
                         sum_0 += lag_poly * self.j_prime_table[b_prime_0_v][b_prime_prime_0_v];
                         sum_1 += lag_poly * self.j_prime_table[b_prime_1_v][b_prime_prime_1_v];
                         sum_half += lag_poly
@@ -158,12 +162,14 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> BlendyProductProver<F, S, O> {
                     let partial_point = b_prime_index << b_num_vars | b_index;
                     for (x_index, _) in Hypercube::new(x_num_vars) {
                         // I imagine it's this loop taking lots of runtime
-                        let evaluation_point =
-                            x_index << x_index_left_shift | partial_point;
+                        let evaluation_point = x_index << x_index_left_shift | partial_point;
                         let lag_poly = sequential_lag_poly.next().unwrap();
                         self.x_table[b_prime_index] +=
                             lag_poly * self.streams[0].evaluation(evaluation_point);
-                        assert_eq!(self.streams[0].evaluation(evaluation_point), self.stream_iterators[0].next().unwrap());
+                        assert_eq!(
+                            self.streams[0].evaluation(evaluation_point),
+                            self.stream_iterators[0].next().unwrap()
+                        );
                         self.y_table[b_prime_index] +=
                             lag_poly * self.streams[1].evaluation(evaluation_point);
                     }
