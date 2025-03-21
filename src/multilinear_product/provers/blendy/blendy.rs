@@ -1,9 +1,10 @@
 use ark_ff::Field;
 use ark_std::vec::Vec;
-
+use std::collections::BTreeSet;
 use crate::{
     hypercube::Hypercube, interpolation::LagrangePolynomial, messages::VerifierMessages,
     streams::Stream,
+    multilinear_product::TimeProductProver,
 };
 
 pub struct BlendyProductProver<F: Field, S: Stream<F>> {
@@ -12,7 +13,6 @@ pub struct BlendyProductProver<F: Field, S: Stream<F>> {
     pub streams: Vec<S>,
     pub num_stages: usize,
     pub num_variables: usize,
-    pub max_rounds_phase1: usize,
     pub last_round_phase1: usize,
     pub verifier_messages: VerifierMessages<F>,
     pub verifier_messages_round_comp: VerifierMessages<F>,
@@ -23,6 +23,9 @@ pub struct BlendyProductProver<F: Field, S: Stream<F>> {
     pub inverse_four: F,
     pub prev_table_round_num: usize,
     pub prev_table_size: usize,
+    pub state_comp_set: BTreeSet<usize>,
+    pub switched_to_vsbw: bool,
+    pub vsbw_prover: TimeProductProver<F, S>,
 }
 
 impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
@@ -36,19 +39,19 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
 
     pub fn init_round_vars(&mut self) {
         let n = self.num_variables;
-        let l = self.max_rounds_phase1;
         let j = self.current_round + 1;
-        let (j_prime, t) = if j <= self.last_round_phase1 {
-            let j_prime = 1usize << j.ilog2();
-            let t = std::cmp::min(j_prime, n + 1 - j_prime);
-            (j_prime, t)
+
+        if let Some(&prev_round) = self.state_comp_set.range(..=j).next_back() {
+            self.prev_table_round_num = prev_round;
+            if let Some(&next_round) = self.state_comp_set.range((j+1)..).next() {
+                self.prev_table_size = next_round - prev_round;
+            } else {
+                self.prev_table_size = n + 1 - prev_round;
+            }
         } else {
-            let j_prime = self.last_round_phase1 + 1 + l * ((j - self.last_round_phase1 - 1) / l);
-            let t = std::cmp::min(l, n + 1 - j_prime);
-            (j_prime, t)
-        };
-        self.prev_table_round_num = j_prime;
-        self.prev_table_size = t;
+            self.prev_table_round_num = 0;
+            self.prev_table_size = 0;
+        }
     }
 
     pub fn compute_round(&self) -> (F, F, F) {
@@ -56,22 +59,60 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
         let mut sum_0 = F::ZERO;
         let mut sum_1 = F::ZERO;
         let mut sum_half = F::ZERO;
-        
-        // if first round, then no table is computed, need to compute sums from the streams
-        if self.is_initial_round() {
-            for (x_index, _) in Hypercube::new(self.num_variables - 1) {
-                let evaluation_point_0 = 0 << (self.num_variables - 1) | x_index;
-                let evaluation_point_1 = 1 << (self.num_variables - 1) | x_index;
-                let p0 = self.streams[0].evaluation(evaluation_point_0);
-                let q0 = self.streams[1].evaluation(evaluation_point_0);
-                let p1 = self.streams[0].evaluation(evaluation_point_1);
-                let q1 = self.streams[1].evaluation(evaluation_point_1);
-                sum_0 += p0 * q0;
-                sum_1 += p1 * q1;
-                sum_half += (p0 + p1) * (q0 + q1);
+
+        // in the last rounds, we switch to the memory intensive prover
+        if self.switched_to_vsbw {
+            (sum_0, sum_1, sum_half) = self.vsbw_prover.vsbw_evaluate();
+        } 
+        // if first few rounds, then no table is computed, need to compute sums from the streams
+        else if self.current_round + 1 <= self.last_round_phase1 {
+            let time1 = std::time::Instant::now();
+            let mut sequential_lag_poly: LagrangePolynomial<F> =
+                        LagrangePolynomial::new(&self.verifier_messages_round_comp);
+                let lag_polys_len = Hypercube::stop_value(self.current_round);
+                let mut lag_polys: Vec<F> = vec![F::ONE; lag_polys_len];
+            for (x_index, _) in Hypercube::new(self.num_variables - self.current_round - 1) {
+                
+                // can avoid unnecessary additions for first round since there is no lag poly: gives a small speedup
+                if self.is_initial_round() {
+                    let evaluation_point_0 = 0 << (self.num_variables - self.current_round - 1) | x_index;
+                    let evaluation_point_1 = 1 << (self.num_variables - self.current_round - 1) | x_index;
+                    let p0 = self.streams[0].evaluation(evaluation_point_0);
+                    let q0 = self.streams[1].evaluation(evaluation_point_0);
+                    let p1 = self.streams[0].evaluation(evaluation_point_1);
+                    let q1 = self.streams[1].evaluation(evaluation_point_1);
+                    sum_0 += p0 * q0;
+                    sum_1 += p1 * q1;
+                    sum_half += (p0 + p1) * (q0 + q1);
+                } else {
+                    let mut partial_sum_p_0 = F::ZERO;
+                    let mut partial_sum_p_1 = F::ZERO;
+                    let mut partial_sum_q_0 = F::ZERO;
+                    let mut partial_sum_q_1 = F::ZERO;
+                    for (b_index, _) in Hypercube::new(self.current_round) {
+                        if x_index == 0 {
+                            lag_polys[b_index] = sequential_lag_poly.next().unwrap();
+                        }
+                        let lag_poly = lag_polys[b_index];
+                        let evaluation_point_0 = (b_index << (self.num_variables - self.current_round)) | (0 << (self.num_variables - self.current_round - 1)) | x_index;
+                        let evaluation_point_1 = (b_index << (self.num_variables - self.current_round)) | (1 << (self.num_variables - self.current_round - 1)) | x_index;
+                        partial_sum_p_0 += self.streams[0].evaluation(evaluation_point_0) * lag_poly;
+                        partial_sum_p_1 += self.streams[0].evaluation(evaluation_point_1) * lag_poly;
+                        partial_sum_q_0 += self.streams[1].evaluation(evaluation_point_0) * lag_poly;
+                        partial_sum_q_1 += self.streams[1].evaluation(evaluation_point_1) * lag_poly;
+                    }
+                    sum_0 += partial_sum_p_0 * partial_sum_q_0;
+                    sum_1 += partial_sum_p_1 * partial_sum_q_1;
+                    sum_half += (partial_sum_p_0 + partial_sum_p_1) * (partial_sum_q_0 + partial_sum_q_1);
+                }
             }
-        } else {
-            // things to help iterating
+            sum_half = sum_half * self.inverse_four;
+            let time2 = std::time::Instant::now();
+            println!("round computation from stream took: {:?}", time2 - time1);
+        } 
+        // computing evaluations from the cross product tables
+        else {
+             // things to help iterating
             let b_prime_num_vars = self.current_round + 1 - self.prev_table_round_num;
             let v_num_vars: usize = self.prev_table_size + self.prev_table_round_num - self.current_round - 2;
             let b_prime_index_left_shift = v_num_vars + 1;
@@ -82,7 +123,6 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
             let lag_polys_len = Hypercube::stop_value(b_prime_num_vars);
             let mut lag_polys: Vec<F> = vec![F::ONE; lag_polys_len];
 
-            // Sums
             for (b_prime_index, _) in Hypercube::new(b_prime_num_vars) {
                 for (b_prime_prime_index, _) in Hypercube::new(b_prime_num_vars) {
                     // doing it like this, for each hypercube member lag_poly is computed exactly once
@@ -112,29 +152,25 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                     }
                 }
             }
+            sum_half = sum_half * self.inverse_four;
         }
-        sum_half = sum_half * self.inverse_four;
         (sum_0, sum_1, sum_half)
     }
 
     pub fn compute_state(&mut self) {
         let j = self.current_round + 1;
-        let p = if j <= self.last_round_phase1 {
-            (1 << j.ilog2()) == j // j is a power of 2
-        } else {
-            (j - self.last_round_phase1 - 1) % self.max_rounds_phase1 == 0 // the number of rounds since the last phase 1 round is a multiple of max_rounds_phase1
-        };
-
-        if p && !self.is_initial_round() {
+        let p = self.state_comp_set.contains(&j); 
+        let is_largest = self.state_comp_set.range((j+1)..).next().is_none();
+        if p && !is_largest {
             let time1 = std::time::Instant::now();
             let j_prime = self.prev_table_round_num;
             let t = self.prev_table_size;
 
+            println!("table computation on round: {}, j_prime: {}, t: {}", j, j_prime, t);
+
             // zero out the table
             let table_len = Hypercube::stop_value(t);
             self.j_prime_table = vec![vec![F::ZERO; table_len]; table_len];
-            self.x_table = vec![F::ZERO; table_len];
-            self.y_table = vec![F::ZERO; table_len];
 
             // basically, this needs to get "zeroed" out at the beginning of state computation
             self.verifier_messages_round_comp = VerifierMessages::new_from_self(
@@ -148,12 +184,10 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
             let x_num_vars = j_prime - 1;
             let x_index_left_shift = t + b_num_vars;
 
-            println!("table computation on round: {}, j_prime: {}, t: {}", j, j_prime, t);
-
             for (b_index, _) in Hypercube::new(b_num_vars) {
+                self.x_table = vec![F::ZERO; table_len];
+                self.y_table = vec![F::ZERO; table_len];
                 for (b_prime_index, _) in Hypercube::new(t) {
-                    self.x_table[b_prime_index] = F::ZERO;
-                    self.y_table[b_prime_index] = F::ZERO;
                     // LagPoly
                     let mut sequential_lag_poly: LagrangePolynomial<F> =
                         LagrangePolynomial::new(&self.verifier_messages);
@@ -178,6 +212,35 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
             }
             let time2 = std::time::Instant::now();
             println!("table computation took: {:?}", time2 - time1);
+        }
+        else if p && is_largest {
+            // switch to the memory intensive sumcheck on the last round computation
+            let num_variables_new = self.num_variables - j + 1;
+            self.switched_to_vsbw = true;
+
+            println!("switched to vsbw on round: {}, num_vars_new: {}", j, num_variables_new);
+
+            // initialize the evaluations for the memory-intensive implementation for the final rounds of the protocol
+            let mut evaluations_p = vec![F::ZERO; 1 << num_variables_new];
+            let mut evaluations_q = vec![F::ZERO; 1 << num_variables_new];
+
+            for (b_prime_index, _) in Hypercube::new(num_variables_new) {
+                let mut sequential_lag_poly: LagrangePolynomial<F> = LagrangePolynomial::new(&self.verifier_messages);
+                for (b_index, _) in Hypercube::new(j-1) {
+                    let lag_poly = sequential_lag_poly.next().unwrap();
+                    let evaluation_point = b_index << num_variables_new | b_prime_index;
+                    evaluations_p[b_prime_index] += lag_poly * self.streams[0].evaluation(evaluation_point);
+                    evaluations_q[b_prime_index] += lag_poly * self.streams[1].evaluation(evaluation_point);
+                }
+            }
+            self.vsbw_prover.evaluations[0] = Some(evaluations_p);
+            self.vsbw_prover.evaluations[1] = Some(evaluations_q);
+        } else if self.switched_to_vsbw {
+            let verifier_message = self.verifier_messages.messages[self.current_round - 1];
+            self.vsbw_prover.vsbw_reduce_evaluations(
+                verifier_message,
+                F::ONE - verifier_message,
+            );
         }
     }
 }
