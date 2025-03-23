@@ -62,7 +62,7 @@ impl<F: Field> ProductSumcheck<F> {
 mod tests {
     use crate::{
         multilinear_product::{BlendyProductProver, TimeProductProver},
-        streams::GraycodeOrder,
+        order_strategy::GraycodeOrder,
         tests::{multilinear_product::consistency_test, BenchStream, F64},
     };
 

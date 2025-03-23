@@ -4,6 +4,7 @@ use crate::{
     hypercube::Hypercube,
     messages::VerifierMessages,
     multilinear::{BlendyProver, BlendyProverConfig},
+    order_strategy::GraycodeOrder,
     prover::Prover,
     streams::Stream,
 };
@@ -26,9 +27,9 @@ where
             num_stages: prover_config.num_stages,
             num_variables: prover_config.num_variables,
             verifier_messages: VerifierMessages::new(&vec![]),
-            sums: vec![F::ZERO; Hypercube::stop_value(stage_size)],
-            lag_polys: vec![F::ONE; Hypercube::stop_value(stage_size)],
-            lag_polys_update: vec![F::ONE; Hypercube::stop_value(stage_size)],
+            sums: vec![F::ZERO; Hypercube::<GraycodeOrder>::stop_value(stage_size)],
+            lag_polys: vec![F::ONE; Hypercube::<GraycodeOrder>::stop_value(stage_size)],
+            lag_polys_update: vec![F::ONE; Hypercube::<GraycodeOrder>::stop_value(stage_size)],
             stage_size,
         }
     }

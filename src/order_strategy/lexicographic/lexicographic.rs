@@ -1,15 +1,17 @@
-use crate::{hypercube::Hypercube, streams::order_strategy::OrderStrategy};
+use crate::{hypercube::Hypercube, order_strategy::OrderStrategy};
 
 pub struct LexicographicOrder {
     current_index: usize,
     stop_value: usize, // exclusive
+    num_vars: usize,
 }
 
 impl OrderStrategy for LexicographicOrder {
-    fn new(num_variables: usize) -> Self {
+    fn new(num_vars: usize) -> Self {
         Self {
             current_index: 0,
-            stop_value: Hypercube::stop_value(num_variables), // exclusive
+            stop_value: Hypercube::<Self>::stop_value(num_vars), // exclusive
+            num_vars,
         }
     }
 
@@ -21,5 +23,9 @@ impl OrderStrategy for LexicographicOrder {
         } else {
             None
         }
+    }
+
+    fn num_vars(&self) -> usize {
+        self.num_vars
     }
 }

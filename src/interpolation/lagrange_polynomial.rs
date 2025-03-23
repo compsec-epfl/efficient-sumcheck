@@ -1,6 +1,7 @@
 use crate::{
     hypercube::{Hypercube, HypercubeMember},
     messages::VerifierMessages,
+    order_strategy::GraycodeOrder,
 };
 use ark_ff::Field;
 
@@ -21,7 +22,7 @@ impl<'a, F: Field> LagrangePolynomial<'a, F> {
             position: 0,
             value: verifier_messages.product_of_message_hats,
             verifier_messages,
-            stop_position: Hypercube::stop_value(num_vars),
+            stop_position: Hypercube::<GraycodeOrder>::stop_value(num_vars),
         }
     }
     pub fn lag_poly(x: Vec<F>, x_hat: Vec<F>, b: HypercubeMember) -> F {
@@ -74,14 +75,14 @@ impl<'a, F: Field> Iterator for LagrangePolynomial<'a, F> {
             != self.verifier_messages.zero_ones_mask
         {
             // NOTICE! we do not update last_position in this case
-            self.position = Hypercube::next_gray_code(self.position);
+            self.position = GraycodeOrder::next_gray_code(self.position);
             return Some(F::ZERO);
         }
 
         // Step 3: check if position is 0, which is a special case
         // Notice! step 2 could apply when position == 0
         if self.position == 0 {
-            self.position = Hypercube::next_gray_code(self.position);
+            self.position = GraycodeOrder::next_gray_code(self.position);
             return Some(self.value);
         }
 
@@ -106,7 +107,7 @@ impl<'a, F: Field> Iterator for LagrangePolynomial<'a, F> {
 
         // Step 5: increment positions
         self.last_position = self.position;
-        self.position = Hypercube::next_gray_code(self.position);
+        self.position = GraycodeOrder::next_gray_code(self.position);
 
         // Step 6: return
         Some(self.value)

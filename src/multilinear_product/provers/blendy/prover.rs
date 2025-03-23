@@ -3,8 +3,9 @@ use ark_ff::Field;
 use crate::{
     messages::VerifierMessages,
     multilinear_product::{BlendyProductProver, BlendyProductProverConfig},
+    order_strategy::OrderStrategy,
     prover::Prover,
-    streams::{OrderStrategy, Stream, StreamIterator},
+    streams::{Stream, StreamIterator},
 };
 
 impl<F: Field, S: Stream<F>, O: OrderStrategy> Prover<F> for BlendyProductProver<F, S, O> {
@@ -84,7 +85,7 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> Prover<F> for BlendyProductProver
 mod tests {
     use crate::{
         multilinear_product::BlendyProductProver,
-        streams::GraycodeOrder,
+        order_strategy::GraycodeOrder,
         tests::{multilinear_product::consistency_test, BenchStream, F64},
     };
 

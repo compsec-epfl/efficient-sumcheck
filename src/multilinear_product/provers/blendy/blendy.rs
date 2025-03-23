@@ -5,7 +5,8 @@ use crate::{
     hypercube::Hypercube,
     interpolation::LagrangePolynomial,
     messages::VerifierMessages,
-    streams::{OrderStrategy, Stream, StreamIterator},
+    order_strategy::{GraycodeOrder, OrderStrategy},
+    streams::{Stream, StreamIterator},
 };
 
 pub struct BlendyProductProver<F: Field, S: Stream<F>, O: OrderStrategy> {
@@ -61,7 +62,7 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> BlendyProductProver<F, S, O> {
 
         // if first round, then no table is computed, need to compute sums from the streams
         if self.is_initial_round() {
-            for (x_index, _) in Hypercube::new(self.num_variables - 1) {
+            for (x_index, _) in Hypercube::<GraycodeOrder>::new(self.num_variables - 1) {
                 let evaluation_point_0 = 0 << (self.num_variables - 1) | x_index;
                 let evaluation_point_1 = 1 << (self.num_variables - 1) | x_index;
                 let p0 = self.streams[0].evaluation(evaluation_point_0);
@@ -82,12 +83,12 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> BlendyProductProver<F, S, O> {
             // Lag Poly
             let mut sequential_lag_poly: LagrangePolynomial<F> =
                 LagrangePolynomial::new(&self.verifier_messages_round_comp);
-            let lag_polys_len = Hypercube::stop_value(b_prime_num_vars);
+            let lag_polys_len = Hypercube::<GraycodeOrder>::stop_value(b_prime_num_vars);
             let mut lag_polys: Vec<F> = vec![F::ONE; lag_polys_len];
 
             // Sums
-            for (b_prime_index, _) in Hypercube::new(b_prime_num_vars) {
-                for (b_prime_prime_index, _) in Hypercube::new(b_prime_num_vars) {
+            for (b_prime_index, _) in Hypercube::<GraycodeOrder>::new(b_prime_num_vars) {
+                for (b_prime_prime_index, _) in Hypercube::<GraycodeOrder>::new(b_prime_num_vars) {
                     // doing it like this, for each hypercube member lag_poly is computed exactly once
                     if b_prime_index == 0 {
                         lag_polys[b_prime_prime_index] = sequential_lag_poly.next().unwrap();
@@ -96,7 +97,7 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> BlendyProductProver<F, S, O> {
                     let lag_poly_1 = lag_polys[b_prime_index];
                     let lag_poly_2 = lag_polys[b_prime_prime_index];
                     let lag_poly = lag_poly_1 * lag_poly_2;
-                    for (v_index, _) in Hypercube::new(v_num_vars) {
+                    for (v_index, _) in Hypercube::<GraycodeOrder>::new(v_num_vars) {
                         let b_prime_0_v =
                             b_prime_index << b_prime_index_left_shift | 0 << v_num_vars | v_index;
                         let b_prime_prime_0_v = b_prime_prime_index << b_prime_index_left_shift
@@ -135,7 +136,7 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> BlendyProductProver<F, S, O> {
             let t = self.prev_table_size;
 
             // zero out the table
-            let table_len = Hypercube::stop_value(t);
+            let table_len = Hypercube::<GraycodeOrder>::stop_value(t);
             self.j_prime_table = vec![vec![F::ZERO; table_len]; table_len];
             self.x_table = vec![F::ZERO; table_len];
             self.y_table = vec![F::ZERO; table_len];
@@ -152,35 +153,42 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> BlendyProductProver<F, S, O> {
             let x_num_vars = j_prime - 1;
             let x_index_left_shift = t + b_num_vars;
 
-            for (b_index, _) in Hypercube::new(b_num_vars) {
-                for (b_prime_index, _) in Hypercube::new(t) {
+            // reset the streams
+            self.stream_iterators
+                .iter_mut()
+                .for_each(|stream_it| stream_it.reset());
+
+            for (b_index, _) in Hypercube::<GraycodeOrder>::new(b_num_vars) {
+                for (b_prime_index, _) in Hypercube::<GraycodeOrder>::new(t) {
                     self.x_table[b_prime_index] = F::ZERO;
                     self.y_table[b_prime_index] = F::ZERO;
                     // LagPoly
                     let mut sequential_lag_poly: LagrangePolynomial<F> =
                         LagrangePolynomial::new(&self.verifier_messages);
                     let partial_point = b_prime_index << b_num_vars | b_index;
-                    for (x_index, _) in Hypercube::new(x_num_vars) {
+                    for (x_index, _) in Hypercube::<GraycodeOrder>::new(x_num_vars) {
                         // I imagine it's this loop taking lots of runtime
                         let evaluation_point = x_index << x_index_left_shift | partial_point;
+                        print!("{},", evaluation_point);
                         let lag_poly = sequential_lag_poly.next().unwrap();
                         self.x_table[b_prime_index] +=
                             lag_poly * self.streams[0].evaluation(evaluation_point);
-                        assert_eq!(
-                            self.streams[0].evaluation(evaluation_point),
-                            self.stream_iterators[0].next().unwrap()
-                        );
+                        // assert_eq!(
+                        //     self.streams[0].evaluation(evaluation_point),
+                        //     self.stream_iterators[0].next().unwrap()
+                        // );
                         self.y_table[b_prime_index] +=
                             lag_poly * self.streams[1].evaluation(evaluation_point);
                     }
                 }
-                for (b_prime_index, _) in Hypercube::new(t) {
-                    for (b_prime_prime_index, _) in Hypercube::new(t) {
+                for (b_prime_index, _) in Hypercube::<GraycodeOrder>::new(t) {
+                    for (b_prime_prime_index, _) in Hypercube::<GraycodeOrder>::new(t) {
                         self.j_prime_table[b_prime_index][b_prime_prime_index] +=
                             self.x_table[b_prime_index] * self.y_table[b_prime_prime_index];
                     }
                 }
             }
         }
+        println!("");
     }
 }

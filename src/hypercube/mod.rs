@@ -1,2 +1,5 @@
 mod hypercube;
-pub use hypercube::{Hypercube, HypercubeMember};
+mod hypercube_member;
+
+pub use hypercube::Hypercube;
+pub use hypercube_member::HypercubeMember;
