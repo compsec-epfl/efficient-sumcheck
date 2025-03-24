@@ -81,7 +81,7 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> BlendyProductProver<F, S, O> {
             let b_prime_index_left_shift = v_num_vars + 1;
 
             // Lag Poly
-            let mut sequential_lag_poly: LagrangePolynomial<F> =
+            let mut sequential_lag_poly: LagrangePolynomial<F, GraycodeOrder> =
                 LagrangePolynomial::new(&self.verifier_messages_round_comp);
             let lag_polys_len = Hypercube::<GraycodeOrder>::stop_value(b_prime_num_vars);
             let mut lag_polys: Vec<F> = vec![F::ONE; lag_polys_len];
@@ -163,7 +163,7 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> BlendyProductProver<F, S, O> {
                     self.x_table[b_prime_index] = F::ZERO;
                     self.y_table[b_prime_index] = F::ZERO;
                     // LagPoly
-                    let mut sequential_lag_poly: LagrangePolynomial<F> =
+                    let mut sequential_lag_poly: LagrangePolynomial<F, GraycodeOrder> =
                         LagrangePolynomial::new(&self.verifier_messages);
                     let partial_point = b_prime_index << b_num_vars | b_index;
                     for (x_index, _) in Hypercube::<GraycodeOrder>::new(x_num_vars) {

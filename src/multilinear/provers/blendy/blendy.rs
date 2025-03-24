@@ -106,7 +106,7 @@ where
         // we reuse self.sums we just have to zero out on the first access SEE BELOW
 
         // 2. Initialize st := LagInit((s - l)l, r)
-        let mut sequential_lag_poly: LagrangePolynomial<F> =
+        let mut sequential_lag_poly: LagrangePolynomial<F, GraycodeOrder> =
             LagrangePolynomial::new(&self.verifier_messages);
 
         // 3. For each b1 ∈ {0,1}^(s-1)l

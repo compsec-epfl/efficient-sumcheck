@@ -30,7 +30,7 @@ impl<F: Field, S: Stream<F>> SpaceProver<F, S> {
         // Outer loop over a subset of variables
         for (index_outer, outer) in Hypercube::<GraycodeOrder>::new(num_vars_outer_loop) {
             // Calculate the weight using Lagrange polynomial
-            let lag_poly: F = LagrangePolynomial::lag_poly(
+            let lag_poly: F = LagrangePolynomial::<F, GraycodeOrder>::lag_poly(
                 self.verifier_messages.clone(),
                 self.verifier_message_hats.clone(),
                 outer,

@@ -1,12 +1,13 @@
 use crate::{
     hypercube::{Hypercube, HypercubeMember},
     messages::VerifierMessages,
-    order_strategy::GraycodeOrder,
+    order_strategy::{GraycodeOrder, OrderStrategy},
 };
 use ark_ff::Field;
 
 #[derive(Debug)]
-pub struct LagrangePolynomial<'a, F: Field> {
+pub struct LagrangePolynomial<'a, F: Field, O: OrderStrategy> {
+    order: O,
     last_position: usize,
     position: usize,
     value: F,
@@ -14,10 +15,12 @@ pub struct LagrangePolynomial<'a, F: Field> {
     stop_position: usize,
 }
 
-impl<'a, F: Field> LagrangePolynomial<'a, F> {
+impl<'a, F: Field, O: OrderStrategy> LagrangePolynomial<'a, F, O> {
     pub fn new(verifier_messages: &'a VerifierMessages<F>) -> Self {
         let num_vars = verifier_messages.messages.len();
+        let order = O::new(num_vars);
         Self {
+            order,
             last_position: 0,
             position: 0,
             value: verifier_messages.product_of_message_hats,
@@ -61,7 +64,7 @@ impl<'a, F: Field> LagrangePolynomial<'a, F> {
     }
 }
 
-impl<'a, F: Field> Iterator for LagrangePolynomial<'a, F> {
+impl<'a, F: Field, O: OrderStrategy> Iterator for LagrangePolynomial<'a, F, O> {
     type Item = F;
     fn next(&mut self) -> Option<Self::Item> {
         // Step 1: check if finished iterating
@@ -118,7 +121,7 @@ impl<'a, F: Field> Iterator for LagrangePolynomial<'a, F> {
 mod tests {
     use crate::{
         hypercube::HypercubeMember, interpolation::LagrangePolynomial, messages::VerifierMessages,
-        tests::F19,
+        order_strategy::GraycodeOrder, tests::F19,
     };
 
     #[test]
@@ -131,9 +134,9 @@ mod tests {
             .map(|message| F19::from(1) - message)
             .collect();
         let vm = VerifierMessages::new(&vec![F19::from(13), F19::from(0), F19::from(7)]);
-        let mut lag_poly: LagrangePolynomial<F19> = LagrangePolynomial::new(&vm);
+        let mut lag_poly: LagrangePolynomial<F19, GraycodeOrder> = LagrangePolynomial::new(&vm);
         for gray_code_index in [0, 1, 3, 2, 6, 7, 5, 4] {
-            let exp = LagrangePolynomial::lag_poly(
+            let exp = LagrangePolynomial::<F19, GraycodeOrder>::lag_poly(
                 messages.clone(),
                 message_hats.clone(),
                 HypercubeMember::new(3, gray_code_index),
@@ -152,9 +155,9 @@ mod tests {
             .map(|message| F19::from(1) - message)
             .collect();
         let vm = VerifierMessages::new(&vec![F19::from(0), F19::from(1), F19::from(1)]);
-        let mut lag_poly: LagrangePolynomial<F19> = LagrangePolynomial::new(&vm);
+        let mut lag_poly: LagrangePolynomial<F19, GraycodeOrder> = LagrangePolynomial::new(&vm);
         for gray_code_index in [0, 1, 3, 2, 6, 7, 5, 4] {
-            let exp = LagrangePolynomial::lag_poly(
+            let exp = LagrangePolynomial::<F19, GraycodeOrder>::lag_poly(
                 messages.clone(),
                 message_hats.clone(),
                 HypercubeMember::new(3, gray_code_index),
