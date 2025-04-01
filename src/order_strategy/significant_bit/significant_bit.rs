@@ -1,12 +1,22 @@
 use crate::{hypercube::Hypercube, order_strategy::OrderStrategy};
 
-pub struct LexicographicOrder {
+pub struct SignificantBitOrder {
     current_index: usize,
     stop_value: usize, // exclusive
     num_vars: usize,
 }
 
-impl OrderStrategy for LexicographicOrder {
+// we're using the usize like a vec<bool>, so we can't just reverse the whole thing .reverse_bits()
+fn reverse_lsb(x: usize, n: u32) -> usize {
+    let mut result = 0;
+    for i in 0..n {
+        let bit = (x >> i) & 1;
+        result |= bit << (n - 1 - i);
+    }
+    result
+}
+
+impl OrderStrategy for SignificantBitOrder {
     fn new(num_vars: usize) -> Self {
         Self {
             current_index: 0,
@@ -17,7 +27,7 @@ impl OrderStrategy for LexicographicOrder {
 
     fn next_index(&mut self) -> Option<usize> {
         if self.current_index < self.stop_value {
-            let this_index = Some(self.current_index);
+            let this_index = Some(reverse_lsb(self.current_index, self.num_vars as u32));
             self.current_index += 1;
             this_index
         } else {
@@ -30,7 +40,7 @@ impl OrderStrategy for LexicographicOrder {
     }
 }
 
-impl Iterator for LexicographicOrder {
+impl Iterator for SignificantBitOrder {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {

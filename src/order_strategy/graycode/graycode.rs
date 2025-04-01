@@ -39,3 +39,11 @@ impl OrderStrategy for GraycodeOrder {
         self.num_vars
     }
 }
+
+impl Iterator for GraycodeOrder {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_index()
+    }
+}

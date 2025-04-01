@@ -3,12 +3,12 @@ use ark_ff::Field;
 use crate::{
     messages::VerifierMessages,
     multilinear_product::{BlendyProductProver, BlendyProductProverConfig},
-    order_strategy::OrderStrategy,
+    order_strategy::LexicographicOrder,
     prover::Prover,
     streams::{Stream, StreamIterator},
 };
 
-impl<F: Field, S: Stream<F>, O: OrderStrategy> Prover<F> for BlendyProductProver<F, S, O> {
+impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
     type ProverConfig = BlendyProductProverConfig<F, S>;
     type ProverMessage = Option<(F, F, F)>;
     type VerifierMessage = Option<F>;
@@ -26,7 +26,7 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> Prover<F> for BlendyProductProver
             .streams
             .iter()
             .cloned()
-            .map(|s| StreamIterator::new(s))
+            .map(|s| StreamIterator::<F, S, LexicographicOrder>::new(s))
             .collect();
         // return the BlendyProver instance
         Self {
@@ -83,18 +83,73 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> Prover<F> for BlendyProductProver
 
 #[cfg(test)]
 mod tests {
+    use ark_poly::multivariate::{SparsePolynomial, SparseTerm};
+
     use crate::{
-        multilinear_product::BlendyProductProver,
-        order_strategy::GraycodeOrder,
-        tests::{multilinear_product::consistency_test, BenchStream, F64},
+        multilinear_product::{BlendyProductProver, BlendyProductProverConfig},
+        order_strategy::SignificantBitOrder,
+        prover::{ProductProverConfig, Prover},
+        streams::{multivariate_product_claim, MemoryStream, Stream},
+        tests::{
+            multilinear_product::{consistency_test, BasicProductProver, BasicProductProverConfig},
+            polynomials::Polynomial,
+            BenchStream, F64,
+        },
+        ProductSumcheck,
     };
 
+    // the stream has to be in SigBit order for this to work
+    // #[test]
+    // fn parity_with_basic_prover() {
+    //     consistency_test::<F64, BenchStream<F64>, BlendyProductProver<F64, BenchStream<F64>>>();
+    // }
+
     #[test]
-    fn parity_with_basic_prover() {
-        consistency_test::<
-            F64,
-            BenchStream<F64>,
-            BlendyProductProver<F64, BenchStream<F64>, GraycodeOrder>,
-        >();
+    fn consistency_test_with_next_iterator() {
+        // get evals in lexicographic order
+        let num_variables = 8;
+        let s_tmp: BenchStream<F64> = BenchStream::<F64>::new(num_variables).into();
+        let mut evals: Vec<F64> = Vec::with_capacity(1 << num_variables);
+        for i in 0..(1 << num_variables) {
+            evals.push(s_tmp.evaluation(i));
+        }
+
+        // create the stream in SigBit order
+        let s: MemoryStream<F64> =
+            MemoryStream::new_from_lex::<SignificantBitOrder>(evals.clone()).into();
+        let claim: F64 = multivariate_product_claim(vec![s.clone(), s.clone()]);
+
+        // get transcript from Blendy prover
+        let prover_transcript: ProductSumcheck<F64> = ProductSumcheck::<F64>::prove::<
+            MemoryStream<F64>,
+            BlendyProductProver<F64, MemoryStream<F64>>,
+        >(
+            &mut Prover::<F64>::new(BlendyProductProverConfig::default(
+                claim,
+                num_variables,
+                vec![s.clone(), s],
+            )),
+            &mut ark_std::test_rng(),
+        );
+
+        // get transcript from SanityProver
+        let p: SparsePolynomial<F64, SparseTerm> =
+            <SparsePolynomial<F64, SparseTerm> as Polynomial<F64>>::from_hypercube_evaluations(
+                evals,
+            );
+        let mut sanity_prover = BasicProductProver::<F64>::new(BasicProductProverConfig::new(
+            claim.clone(),
+            num_variables,
+            p.clone(),
+            p,
+        ));
+        let sanity_prover_transcript = ProductSumcheck::<F64>::prove::<
+            MemoryStream<F64>,
+            BasicProductProver<F64>,
+        >(&mut sanity_prover, &mut ark_std::test_rng());
+
+        // ensure the transcript is identical
+        assert_eq!(prover_transcript.is_accepted, true);
+        assert_eq!(prover_transcript, sanity_prover_transcript);
     }
 }
