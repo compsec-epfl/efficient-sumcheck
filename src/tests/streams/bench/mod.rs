@@ -28,6 +28,16 @@ impl<F: Field> BenchStream<F> {
         }
     }
 }
+
+impl<F: Field> Default for BenchStream<F> {
+    fn default() -> Self {
+        Self {
+            num_variables: 0,
+            claimed_sum: F::ZERO,
+        }
+    }
+}
+
 impl<F: Field> Stream<F> for BenchStream<F> {
     fn evaluation(&self, point: usize) -> F {
         F::from(point as u64)

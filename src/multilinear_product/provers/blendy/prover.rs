@@ -1,9 +1,10 @@
 use ark_ff::Field;
+use std::collections::BTreeSet;
 
 use crate::{
     messages::VerifierMessages,
-    multilinear_product::{BlendyProductProver, BlendyProductProverConfig},
-    order_strategy::LexicographicOrder,
+    multilinear_product::{BlendyProductProver, BlendyProductProverConfig, TimeProductProver},
+    order_strategy::SignificantBitOrder,
     prover::Prover,
     streams::{Stream, StreamIterator},
 };
@@ -21,12 +22,40 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
         let num_variables: usize = prover_config.num_variables;
         let num_stages: usize = prover_config.num_stages;
         let stage_size: usize = num_variables / num_stages;
-        let max_rounds_phase1: usize = num_variables.div_ceil(2 * num_stages);
+        let max_rounds_phase2: usize = num_variables.div_ceil(2 * num_stages);
+
+        let last_round_phase1: usize = 2;
+        let last_round_phase3: usize = num_variables - num_variables.div_ceil(num_stages);
+
+        let state_comp_set: BTreeSet<usize> = {
+            let mut current_round: usize = last_round_phase1 + 1;
+            let mut state_comp_set: BTreeSet<usize> = BTreeSet::new();
+            while current_round <= last_round_phase3 {
+                state_comp_set.insert(current_round);
+                current_round =
+                    std::cmp::min(current_round + max_rounds_phase2, current_round * 2 - 1); // the minus one is a time-efficiency optimization
+                current_round = std::cmp::max(current_round, 2);
+            }
+            // println!("state_comp_set: {:?}", state_comp_set);
+            state_comp_set
+        };
+        assert!(state_comp_set.len() > 0);
+
+        let last_round: usize = *state_comp_set.iter().max().unwrap();
+        let vsbw_prover = TimeProductProver::<F, S> {
+            claim: prover_config.claim,
+            current_round: 0,
+            evaluations: vec![None; 2],
+            streams: prover_config.streams.clone(),
+            num_variables: num_variables - last_round + 1,
+            inverse_four: F::from(4_u32).inverse().unwrap(),
+        };
+
         let stream_iterators = prover_config
             .streams
             .iter()
             .cloned()
-            .map(|s| StreamIterator::<F, S, LexicographicOrder>::new(s))
+            .map(|s| StreamIterator::<F, S, SignificantBitOrder>::new(s))
             .collect();
         // return the BlendyProver instance
         Self {
@@ -36,10 +65,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
             stream_iterators,
             num_stages,
             num_variables,
-            max_rounds_phase1,
-            last_round_phase1: (1usize << (num_variables.div_ceil(num_stages)).ilog2())
-                + max_rounds_phase1
-                - 1,
+            last_round_phase1,
             verifier_messages: VerifierMessages::new(&vec![]),
             verifier_messages_round_comp: VerifierMessages::new(&vec![]),
             x_table: vec![],
@@ -49,6 +75,9 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
             inverse_four: F::from(4_u32).inverse().unwrap(),
             prev_table_round_num: 0,
             prev_table_size: 0,
+            state_comp_set,
+            switched_to_vsbw: false,
+            vsbw_prover,
         }
     }
 
@@ -75,7 +104,9 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
 
         // Increment the round counter
         self.current_round += 1;
-
+        if self.switched_to_vsbw {
+            self.vsbw_prover.current_round += 1;
+        }
         // Return the computed polynomial sums
         Some(sums)
     }
