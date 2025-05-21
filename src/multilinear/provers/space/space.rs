@@ -1,6 +1,9 @@
 use ark_ff::Field;
 
-use crate::{hypercube::Hypercube, interpolation::LagrangePolynomial, streams::Stream};
+use crate::{
+    hypercube::Hypercube, interpolation::LagrangePolynomial, order_strategy::GraycodeOrder,
+    streams::Stream,
+};
 
 pub struct SpaceProver<F: Field, S: Stream<F>> {
     pub claim: F,
@@ -25,9 +28,9 @@ impl<F: Field, S: Stream<F>> SpaceProver<F, S> {
         let num_vars_inner_loop = self.num_variables - num_vars_outer_loop;
 
         // Outer loop over a subset of variables
-        for (index_outer, outer) in Hypercube::new(num_vars_outer_loop) {
+        for (index_outer, outer) in Hypercube::<GraycodeOrder>::new(num_vars_outer_loop) {
             // Calculate the weight using Lagrange polynomial
-            let lag_poly: F = LagrangePolynomial::lag_poly(
+            let lag_poly: F = LagrangePolynomial::<F, GraycodeOrder>::lag_poly(
                 self.verifier_messages.clone(),
                 self.verifier_message_hats.clone(),
                 outer,
@@ -39,7 +42,7 @@ impl<F: Field, S: Stream<F>> SpaceProver<F, S> {
             }
 
             // Inner loop over all possible evaluations for the remaining variables
-            for (index_inner, _inner) in Hypercube::new(num_vars_inner_loop) {
+            for (index_inner, _inner) in Hypercube::<GraycodeOrder>::new(num_vars_inner_loop) {
                 // Calculate the evaluation index
                 let evaluation_index = index_outer << num_vars_inner_loop | index_inner;
 

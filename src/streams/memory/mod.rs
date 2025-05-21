@@ -1,3 +1,3 @@
 mod memory;
 
-pub use memory::MemoryStream;
+pub use memory::{reorder_vec, MemoryStream};

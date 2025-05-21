@@ -6,6 +6,7 @@ pub mod interpolation;
 pub mod messages;
 pub mod multilinear;
 pub mod multilinear_product;
+pub mod order_strategy;
 pub mod prover;
 pub mod streams;
 
