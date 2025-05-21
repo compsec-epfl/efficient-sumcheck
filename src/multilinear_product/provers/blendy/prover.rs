@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use crate::{
     messages::VerifierMessages,
     multilinear_product::{BlendyProductProver, BlendyProductProverConfig, TimeProductProver},
-    order_strategy::LexicographicOrder,
+    order_strategy::SignificantBitOrder,
     prover::Prover,
     streams::{Stream, StreamIterator},
 };
@@ -32,10 +32,11 @@ impl<F: Field, S: Stream<F> + Default> Prover<F> for BlendyProductProver<F, S> {
             let mut state_comp_set: BTreeSet<usize> = BTreeSet::new();
             while current_round <= last_round_phase3 {
                 state_comp_set.insert(current_round);
-                current_round = std::cmp::min(current_round + max_rounds_phase2, current_round * 2 - 1); // the minus one is a time-efficiency optimization
+                current_round =
+                    std::cmp::min(current_round + max_rounds_phase2, current_round * 2 - 1); // the minus one is a time-efficiency optimization
                 current_round = std::cmp::max(current_round, 2);
             }
-            println!("state_comp_set: {:?}", state_comp_set);
+            // println!("state_comp_set: {:?}", state_comp_set);
             state_comp_set
         };
         assert!(state_comp_set.len() > 0);
@@ -54,7 +55,7 @@ impl<F: Field, S: Stream<F> + Default> Prover<F> for BlendyProductProver<F, S> {
             .streams
             .iter()
             .cloned()
-            .map(|s| StreamIterator::<F, S, LexicographicOrder>::new(s))
+            .map(|s| StreamIterator::<F, S, SignificantBitOrder>::new(s))
             .collect();
         // return the BlendyProver instance
         Self {
