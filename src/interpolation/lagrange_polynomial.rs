@@ -1,7 +1,7 @@
 use crate::{
     hypercube::{Hypercube, HypercubeMember},
     messages::VerifierMessages,
-    order_strategy::{GraycodeOrder, OrderStrategy},
+    order_strategy::{GraycodeOrder, SignificantBitOrder, OrderStrategy},
 };
 use ark_ff::Field;
 
@@ -25,7 +25,7 @@ impl<'a, F: Field, O: OrderStrategy> LagrangePolynomial<'a, F, O> {
             position: 0,
             value: verifier_messages.product_of_message_hats,
             verifier_messages,
-            stop_position: Hypercube::<GraycodeOrder>::stop_value(num_vars),
+            stop_position: Hypercube::<O>::stop_value(num_vars),
         }
     }
     pub fn lag_poly(x: Vec<F>, x_hat: Vec<F>, b: HypercubeMember) -> F {
@@ -64,7 +64,7 @@ impl<'a, F: Field, O: OrderStrategy> LagrangePolynomial<'a, F, O> {
     }
 }
 
-impl<'a, F: Field, O: OrderStrategy> Iterator for LagrangePolynomial<'a, F, O> {
+impl<'a, F: Field> Iterator for LagrangePolynomial<'a, F, GraycodeOrder> {
     type Item = F;
     fn next(&mut self) -> Option<Self::Item> {
         // Step 1: check if finished iterating
@@ -111,6 +111,49 @@ impl<'a, F: Field, O: OrderStrategy> Iterator for LagrangePolynomial<'a, F, O> {
         // Step 5: increment positions
         self.last_position = self.position;
         self.position = GraycodeOrder::next_gray_code(self.position);
+
+        // Step 6: return
+        Some(self.value)
+    }
+}
+
+impl<'a, F: Field> Iterator for LagrangePolynomial<'a, F, SignificantBitOrder> {
+    type Item = F;
+    fn next(&mut self) -> Option<Self::Item> {
+        // Step 1: check if finished iterating
+        if self.position >= self.stop_position {
+            return None;
+        }
+
+        // Step 2: check if this iteration yields zero, in which case we skip processing
+        let bit_agreement = !(self.verifier_messages.messages_zeros_and_ones_usize ^ self.position);
+        if bit_agreement & self.verifier_messages.zero_ones_mask
+            != self.verifier_messages.zero_ones_mask
+        {
+            // NOTICE! we do not update last_position in this case
+            self.position = SignificantBitOrder::next_value_in_msb_order(self.position, self.order.num_vars() as u32);
+            return Some(F::ZERO);
+        }
+        // Step 3: check if position is 0, which is a special case
+        // Notice! step 2 could apply when position == 0
+        if self.position == 0 {
+            self.position = SignificantBitOrder::next_value_in_msb_order(self.position, self.order.num_vars() as u32);
+            return Some(self.value);
+        }
+        // Step 3: update the value
+        let len = self.verifier_messages.messages.len();
+        for i in (0..len).rev() {
+            if self.position >> i == 0 {
+                self.value *= self.verifier_messages.message_hat_and_message_inverses[len - i - 1];
+            } else {
+                self.value *= self.verifier_messages.message_and_message_hat_inverses[len - i - 1];
+                break;
+            }
+        }
+
+        // Step 5: increment positions
+        self.last_position = self.position;
+        self.position = SignificantBitOrder::next_value_in_msb_order(self.position, self.order.num_vars() as u32);
 
         // Step 6: return
         Some(self.value)

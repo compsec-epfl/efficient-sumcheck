@@ -7,7 +7,7 @@ use space_efficient_sumcheck::{
         TimeProverConfig,
     }, multilinear_product::{
         BlendyProductProver, BlendyProductProverConfig, TimeProductProver, TimeProductProverConfig,
-    }, order_strategy::GraycodeOrder, prover::{Prover, ProverConfig}, streams::{multivariate_claim, multivariate_product_claim}, tests::{BenchStream, F128, F64}, ProductSumcheck, Sumcheck
+    }, prover::{Prover, ProverConfig}, streams::{multivariate_claim, multivariate_product_claim}, tests::{BenchStream, F128, F64}, ProductSumcheck, Sumcheck
 };
 
 pub mod validation;
@@ -84,9 +84,9 @@ fn run_on_field<F: Field>(bench_args: BenchArgs) {
                 };
             let transcript = ProductSumcheck::<F>::prove::<
                 BenchStream<F>,
-                BlendyProductProver<F, BenchStream<F>, GraycodeOrder>,
+                BlendyProductProver<F, BenchStream<F>>,
             >(
-                &mut BlendyProductProver::<F, BenchStream<F>, GraycodeOrder>::new(config),
+                &mut BlendyProductProver::<F, BenchStream<F>>::new(config),
                 &mut rng,
             );
             assert!(transcript.is_accepted);

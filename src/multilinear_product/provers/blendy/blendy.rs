@@ -136,7 +136,7 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
             let t = self.prev_table_size;
 
             // zero out the table
-            let table_len = Hypercube::<GraycodeOrder>::stop_value(t);
+            let table_len = Hypercube::<SignificantBitOrder>::stop_value(t);
             self.j_prime_table = vec![vec![F::ZERO; table_len]; table_len];
             self.x_table = vec![F::ZERO; table_len];
             self.y_table = vec![F::ZERO; table_len];
@@ -152,6 +152,18 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
             let b_num_vars: usize = self.num_variables + 1 - j_prime - t;
             let x_num_vars = j_prime - 1;
 
+            // Lag Poly
+            let mut sequential_lag_poly: LagrangePolynomial<F, SignificantBitOrder> =
+                LagrangePolynomial::new(&self.verifier_messages);
+
+            assert!(x_num_vars == self.verifier_messages.messages.len());
+            let lag_polys_len = Hypercube::<SignificantBitOrder>::stop_value(x_num_vars);
+            let mut lag_polys: Vec<F> = vec![F::ONE; lag_polys_len];
+
+            for (i, _) in Hypercube::<SignificantBitOrder>::new(x_num_vars) {
+                lag_polys[i] = sequential_lag_poly.next().unwrap();
+            }
+
             // reset the streams
             self.stream_iterators
                 .iter_mut()
@@ -161,17 +173,18 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                 for (b_prime_index, _) in Hypercube::<SignificantBitOrder>::new(t) {
                     self.x_table[b_prime_index] = F::ZERO;
                     self.y_table[b_prime_index] = F::ZERO;
-                    for (_, x) in Hypercube::<SignificantBitOrder>::new(x_num_vars) {
+
+                    for (i, _) in Hypercube::<SignificantBitOrder>::new(x_num_vars) {
                         // I imagine it's this loop taking lots of runtime
-                        let lag_poly = LagrangePolynomial::<F, SignificantBitOrder>::lag_poly(
-                            self.verifier_messages.messages.clone(),
-                            self.verifier_messages.message_hats.clone(),
-                            x,
-                        );
+                        // let lag_poly = LagrangePolynomial::<F, SignificantBitOrder>::lag_poly(
+                        //     self.verifier_messages.messages.clone(),
+                        //     self.verifier_messages.message_hats.clone(),
+                        //     x,
+                        // );
                         self.x_table[b_prime_index] +=
-                            lag_poly * self.stream_iterators[0].next().unwrap();
+                            lag_polys[i] * self.stream_iterators[0].next().unwrap();
                         self.y_table[b_prime_index] +=
-                            lag_poly * self.stream_iterators[1].next().unwrap();
+                            lag_polys[i] * self.stream_iterators[1].next().unwrap();
                     }
                 }
                 for (b_prime_index, _) in Hypercube::<SignificantBitOrder>::new(t) {
