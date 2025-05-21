@@ -1,7 +1,10 @@
 use ark_ff::Field;
 use ark_poly::multivariate::{SparsePolynomial, SparseTerm};
 
-use crate::{hypercube::Hypercube, messages::VerifierMessages, tests::polynomials::Polynomial};
+use crate::{
+    hypercube::Hypercube, messages::VerifierMessages, order_strategy::GraycodeOrder,
+    tests::polynomials::Polynomial,
+};
 pub struct BasicProductProver<F: Field> {
     pub claim: F,
     pub current_round: usize,
@@ -15,7 +18,7 @@ pub struct BasicProductProver<F: Field> {
 impl<F: Field> BasicProductProver<F> {
     pub fn compute_round(&self) -> (F, F, F) {
         let mut m: ((F, F), (F, F)) = ((F::ZERO, F::ZERO), (F::ZERO, F::ZERO));
-        for (_, b) in Hypercube::new(self.num_variables - self.current_round - 1) {
+        for (_, b) in Hypercube::<GraycodeOrder>::new(self.num_variables - self.current_round - 1) {
             let partial_point: Vec<F> = b
                 .to_vec_bool()
                 .into_iter()

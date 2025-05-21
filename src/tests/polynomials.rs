@@ -1,4 +1,7 @@
-use crate::hypercube::{Hypercube, HypercubeMember};
+use crate::{
+    hypercube::{Hypercube, HypercubeMember},
+    order_strategy::GraycodeOrder,
+};
 use ark_ff::Field;
 use ark_poly::{
     multivariate::{self, SparsePolynomial, SparseTerm, Term},
@@ -111,7 +114,7 @@ impl<F: Field> Polynomial<F> for SparsePolynomial<F, SparseTerm> {
 
     fn to_evaluations(&self) -> Vec<F> {
         let num_vars = DenseMVPolynomial::<F>::num_vars(self);
-        let total_points = Hypercube::stop_value(num_vars);
+        let total_points = Hypercube::<GraycodeOrder>::stop_value(num_vars);
         let mut evaluations = Vec::with_capacity(total_points);
 
         // Iterate through each index of the hypercube.
