@@ -5,9 +5,14 @@ use space_efficient_sumcheck::{
     multilinear::{
         BlendyProver, BlendyProverConfig, SpaceProver, SpaceProverConfig, TimeProver,
         TimeProverConfig,
-    }, multilinear_product::{
+    },
+    multilinear_product::{
         BlendyProductProver, BlendyProductProverConfig, TimeProductProver, TimeProductProverConfig,
-    }, prover::{Prover, ProverConfig}, streams::{multivariate_claim, multivariate_product_claim}, tests::{BenchStream, F128, F64}, ProductSumcheck, Sumcheck
+    },
+    prover::{Prover, ProverConfig},
+    streams::{multivariate_claim, multivariate_product_claim},
+    tests::{BenchStream, F128, F64},
+    ProductSumcheck, Sumcheck,
 };
 
 pub mod validation;
