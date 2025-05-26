@@ -21,7 +21,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for TimeProductProver<F, S> {
             claim: prover_config.claim,
             current_round: 0,
             evaluations: vec![None; prover_config.streams.len()],
-            streams: prover_config.streams,
+            streams: Some(prover_config.streams),
             num_variables,
             inverse_four: F::from(4_u32).inverse().unwrap(),
         }

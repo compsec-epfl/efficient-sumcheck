@@ -46,7 +46,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
             claim: prover_config.claim,
             current_round: 0,
             evaluations: vec![None; 2],
-            streams: prover_config.streams.clone(),
+            streams: None,
             num_variables: num_variables - last_round + 1,
             inverse_four: F::from(4_u32).inverse().unwrap(),
         };

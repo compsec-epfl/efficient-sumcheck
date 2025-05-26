@@ -7,7 +7,7 @@ pub struct TimeProductProver<F: Field, S: Stream<F>> {
     pub claim: F,
     pub current_round: usize,
     pub evaluations: Vec<Option<Vec<F>>>,
-    pub streams: Vec<S>,
+    pub streams: Option<Vec<S>>,
     pub num_variables: usize,
     pub inverse_four: F,
 }
@@ -34,7 +34,12 @@ impl<'a, F: Field, S: Stream<F>> TimeProductProver<F, S> {
         // Determine the length of evaluations to iterate through
         let evaluations_len = match &self.evaluations[0] {
             Some(evaluations) => evaluations.len(),
-            None => 2usize.pow(self.streams[0].num_variables() as u32),
+            None => match &self.streams {
+                Some(streams) => 2usize.pow(streams[0].num_variables() as u32),
+                None => panic!(
+                    "Both streams and evaluations cannot be None"
+                ),
+            },
         };
 
         // Iterate through evaluations
@@ -45,19 +50,39 @@ impl<'a, F: Field, S: Stream<F>> TimeProductProver<F, S> {
 
             // get all the values
             let p_zero = match &self.evaluations[0] {
-                None => self.streams[0].evaluation(i),
+                None => match &self.streams {
+                    Some(streams) => streams[0].evaluation(i),
+                    None => panic!(
+                        "Both streams and evaluations cannot be None"
+                    ),
+                },
                 Some(evaluations_p) => evaluations_p[i],
             };
             let q_zero = match &self.evaluations[1] {
-                None => self.streams[1].evaluation(i),
+                None => match &self.streams {
+                    Some(streams) => streams[1].evaluation(i),
+                    None => panic!(
+                        "Both streams and evaluations cannot be None"
+                    ),
+                },
                 Some(evaluations_q) => evaluations_q[i],
             };
             let p_one = match &self.evaluations[0] {
-                None => self.streams[0].evaluation(i | bitmask),
+                None => match &self.streams {
+                    Some(streams) => streams[0].evaluation(i | bitmask),
+                    None => panic!(
+                        "Both streams and evaluations cannot be None"
+                    ),
+                },
                 Some(evaluations_p) => evaluations_p[i | bitmask],
             };
             let q_one = match &self.evaluations[1] {
-                None => self.streams[1].evaluation(i | bitmask),
+                None => match &self.streams {
+                    Some(streams) => streams[1].evaluation(i | bitmask),
+                    None => panic!(
+                        "Both streams and evaluations cannot be None"
+                    ),
+                },
                 Some(evaluations_q) => evaluations_q[i | bitmask],
             };
 
@@ -84,15 +109,20 @@ impl<'a, F: Field, S: Stream<F>> TimeProductProver<F, S> {
         (sum_0, sum_1, sum_half)
     }
     pub fn vsbw_reduce_evaluations(&mut self, verifier_message: F, verifier_message_hat: F) {
-        for i in 0..self.streams.len() {
+        for i in 0..self.evaluations.len() {
             // Clone or initialize the evaluations vector
             let mut evaluations = match &self.evaluations[i] {
                 Some(evaluations) => evaluations.clone(),
                 None => {
-                    vec![
-                        F::ZERO;
-                        2usize.pow(self.streams[i].num_variables().try_into().unwrap()) / 2
-                    ]
+                    match &self.streams {
+                        Some(streams) => vec![
+                            F::ZERO;
+                            2usize.pow(streams[i].num_variables().try_into().unwrap()) / 2
+                        ],
+                        None => panic!(
+                            "Both streams and evaluations cannot be None"
+                        ),
+                    }
                 }
             };
 
@@ -111,11 +141,21 @@ impl<'a, F: Field, S: Stream<F>> TimeProductProver<F, S> {
 
                 // Get point evaluations for indices i0 and i1
                 let point_evaluation_i0 = match &self.evaluations[i] {
-                    None => self.streams[i].evaluation(i0),
+                    None => match &self.streams {
+                        Some(streams) => streams[i].evaluation(i0),
+                        None => panic!(
+                            "Both streams and evaluations cannot be None"
+                        ),
+                    },
                     Some(evaluations) => evaluations[i0],
                 };
                 let point_evaluation_i1 = match &self.evaluations[i] {
-                    None => self.streams[i].evaluation(i1),
+                    None => match &self.streams {
+                        Some(streams) => streams[i].evaluation(i1),
+                        None => panic!(
+                            "Both streams and evaluations cannot be None"
+                        ),
+                    },
                     Some(evaluations) => evaluations[i1],
                 };
                 // Update the i0-th evaluation based on the reduction operation

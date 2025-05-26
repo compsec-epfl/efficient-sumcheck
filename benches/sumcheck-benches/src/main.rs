@@ -8,7 +8,8 @@ use space_efficient_sumcheck::{
         TimeProverConfig,
     },
     multilinear_product::{
-        BlendyProductProver, BlendyProductProverConfig, TimeProductProver, TimeProductProverConfig,
+        BlendyProductProver, BlendyProductProverConfig, TimeProductProver, TimeProductProverConfig, SpaceProductProver,
+        SpaceProductProverConfig,
     },
     order_strategy::SignificantBitOrder,
     prover::{Prover, ProverConfig},
@@ -101,6 +102,22 @@ fn run_on_field<F: Field>(bench_args: BenchArgs) {
                 BlendyProductProver<F, MemoryStream<F>>,
             >(
                 &mut BlendyProductProver::<F, MemoryStream<F>>::new(config),
+                &mut rng,
+            );
+            assert!(transcript.is_accepted);
+        }
+        AlgorithmLabel::ProductCTY => {
+            let config: SpaceProductProverConfig<F, MemoryStream<F>> =
+                SpaceProductProverConfig::<F, MemoryStream<F>> {
+                    claim: multivariate_product_claim(vec![s.clone(), s.clone()]),
+                    num_variables: bench_args.num_variables,
+                    streams: vec![s.clone(), s],
+                };
+            let transcript = ProductSumcheck::<F>::prove::<
+                MemoryStream<F>,
+                SpaceProductProver<F, MemoryStream<F>>,
+            >(
+                &mut SpaceProductProver::<F, MemoryStream<F>>::new(config),
                 &mut rng,
             );
             assert!(transcript.is_accepted);

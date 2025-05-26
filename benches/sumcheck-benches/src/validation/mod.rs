@@ -12,6 +12,7 @@ pub enum AlgorithmLabel {
     Blendy,
     ProductBlendy,
     ProductVSBW,
+    ProductCTY,
 }
 
 pub struct BenchArgs {
@@ -42,13 +43,14 @@ pub fn validate_and_format_command_line_args(argsv: Vec<String>) -> BenchArgs {
         || argsv[1] == "VSBW"
         || argsv[1] == "Blendy"
         || argsv[1] == "ProductBlendy"
-        || argsv[1] == "ProductVSBW")
+        || argsv[1] == "ProductVSBW"
+        || argsv[1] == "ProductCTY")
     {
         eprintln!(
             "Usage: {} field_label algorithm_label num_variables stage_size",
             argsv[0]
         );
-        eprintln!("Invalid input: algorithm_label must be one of (CTY, VSBW, Blendy, ProductVSBW, ProductBlendy)");
+        eprintln!("Invalid input: algorithm_label must be one of (CTY, VSBW, Blendy, ProductVSBW, ProductBlendy, ProductCTY)");
         std::process::exit(1);
     }
     let algorithm_label = match argsv[1].as_str() {
@@ -56,6 +58,7 @@ pub fn validate_and_format_command_line_args(argsv: Vec<String>) -> BenchArgs {
         "VSBW" => AlgorithmLabel::VSBW,
         "Blendy" => AlgorithmLabel::Blendy,
         "ProductVSBW" => AlgorithmLabel::ProductVSBW,
+        "ProductCTY" => AlgorithmLabel::ProductCTY,
         _ => AlgorithmLabel::ProductBlendy, // this is checked in previous line
     };
     // field_label
