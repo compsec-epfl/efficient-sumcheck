@@ -36,9 +36,7 @@ impl<'a, F: Field, S: Stream<F>> TimeProductProver<F, S> {
             Some(evaluations) => evaluations.len(),
             None => match &self.streams {
                 Some(streams) => 2usize.pow(streams[0].num_variables() as u32),
-                None => panic!(
-                    "Both streams and evaluations cannot be None"
-                ),
+                None => panic!("Both streams and evaluations cannot be None"),
             },
         };
 
@@ -52,36 +50,28 @@ impl<'a, F: Field, S: Stream<F>> TimeProductProver<F, S> {
             let p_zero = match &self.evaluations[0] {
                 None => match &self.streams {
                     Some(streams) => streams[0].evaluation(i),
-                    None => panic!(
-                        "Both streams and evaluations cannot be None"
-                    ),
+                    None => panic!("Both streams and evaluations cannot be None"),
                 },
                 Some(evaluations_p) => evaluations_p[i],
             };
             let q_zero = match &self.evaluations[1] {
                 None => match &self.streams {
                     Some(streams) => streams[1].evaluation(i),
-                    None => panic!(
-                        "Both streams and evaluations cannot be None"
-                    ),
+                    None => panic!("Both streams and evaluations cannot be None"),
                 },
                 Some(evaluations_q) => evaluations_q[i],
             };
             let p_one = match &self.evaluations[0] {
                 None => match &self.streams {
                     Some(streams) => streams[0].evaluation(i | bitmask),
-                    None => panic!(
-                        "Both streams and evaluations cannot be None"
-                    ),
+                    None => panic!("Both streams and evaluations cannot be None"),
                 },
                 Some(evaluations_p) => evaluations_p[i | bitmask],
             };
             let q_one = match &self.evaluations[1] {
                 None => match &self.streams {
                     Some(streams) => streams[1].evaluation(i | bitmask),
-                    None => panic!(
-                        "Both streams and evaluations cannot be None"
-                    ),
+                    None => panic!("Both streams and evaluations cannot be None"),
                 },
                 Some(evaluations_q) => evaluations_q[i | bitmask],
             };
@@ -113,17 +103,14 @@ impl<'a, F: Field, S: Stream<F>> TimeProductProver<F, S> {
             // Clone or initialize the evaluations vector
             let mut evaluations = match &self.evaluations[i] {
                 Some(evaluations) => evaluations.clone(),
-                None => {
-                    match &self.streams {
-                        Some(streams) => vec![
-                            F::ZERO;
-                            2usize.pow(streams[i].num_variables().try_into().unwrap()) / 2
-                        ],
-                        None => panic!(
-                            "Both streams and evaluations cannot be None"
-                        ),
-                    }
-                }
+                None => match &self.streams {
+                    Some(streams) => vec![
+                        F::ZERO;
+                        2usize.pow(streams[i].num_variables().try_into().unwrap())
+                            / 2
+                    ],
+                    None => panic!("Both streams and evaluations cannot be None"),
+                },
             };
 
             // Determine the length of evaluations to iterate through
@@ -143,18 +130,14 @@ impl<'a, F: Field, S: Stream<F>> TimeProductProver<F, S> {
                 let point_evaluation_i0 = match &self.evaluations[i] {
                     None => match &self.streams {
                         Some(streams) => streams[i].evaluation(i0),
-                        None => panic!(
-                            "Both streams and evaluations cannot be None"
-                        ),
+                        None => panic!("Both streams and evaluations cannot be None"),
                     },
                     Some(evaluations) => evaluations[i0],
                 };
                 let point_evaluation_i1 = match &self.evaluations[i] {
                     None => match &self.streams {
                         Some(streams) => streams[i].evaluation(i1),
-                        None => panic!(
-                            "Both streams and evaluations cannot be None"
-                        ),
+                        None => panic!("Both streams and evaluations cannot be None"),
                     },
                     Some(evaluations) => evaluations[i1],
                 };

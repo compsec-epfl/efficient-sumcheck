@@ -1,9 +1,9 @@
 use ark_ff::Field;
 
 use crate::{
-    messages::VerifierMessages,
     hypercube::Hypercube,
     interpolation::LagrangePolynomial,
+    messages::VerifierMessages,
     order_strategy::SignificantBitOrder,
     streams::{Stream, StreamIterator},
 };

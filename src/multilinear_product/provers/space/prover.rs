@@ -3,9 +3,9 @@ use ark_ff::Field;
 use crate::{
     messages::VerifierMessages,
     multilinear_product::{SpaceProductProver, SpaceProductProverConfig},
+    order_strategy::SignificantBitOrder,
     prover::Prover,
     streams::{Stream, StreamIterator},
-    order_strategy::SignificantBitOrder,
 };
 
 impl<F: Field, S: Stream<F>> Prover<F> for SpaceProductProver<F, S> {
@@ -18,7 +18,6 @@ impl<F: Field, S: Stream<F>> Prover<F> for SpaceProductProver<F, S> {
     }
 
     fn new(prover_config: Self::ProverConfig) -> Self {
-
         let stream_iterators = prover_config
             .streams
             .iter()

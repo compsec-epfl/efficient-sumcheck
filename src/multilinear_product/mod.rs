@@ -3,7 +3,7 @@ mod sumcheck;
 
 pub use provers::{
     blendy::{BlendyProductProver, BlendyProductProverConfig},
-    time::{TimeProductProver, TimeProductProverConfig},
     space::{SpaceProductProver, SpaceProductProverConfig},
+    time::{TimeProductProver, TimeProductProverConfig},
 };
 pub use sumcheck::ProductSumcheck;
