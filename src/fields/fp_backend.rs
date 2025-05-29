@@ -1,6 +1,6 @@
-use crate::{
-    AdditiveGroup, BigInt, BigInteger, FftField, Field, LegendreSymbol, One, PrimeField,
-    SqrtPrecomputation, Zero,
+use ark_ff::{
+    BigInt, BigInteger, FftField, Field, LegendreSymbol, One, PrimeField, SqrtPrecomputation,
+    UniformRand, Zero,
 };
 use ark_serialize::{
     buffer_byte_size, CanonicalDeserialize, CanonicalDeserializeWithFlags, CanonicalSerialize,
@@ -8,24 +8,89 @@ use ark_serialize::{
 };
 use ark_std::{
     cmp::*,
-    fmt::{Display, Formatter, Result as FmtResult},
+    fmt::{Debug, Display, Formatter, Result as FmtResult},
+    hash::Hash,
     marker::PhantomData,
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
     str::FromStr,
     string::*,
 };
 use core::iter;
+use educe::Educe;
 use itertools::Itertools;
+use zeroize::Zeroize;
 
-#[macro_use]
-mod montgomery_backend;
-pub use montgomery_backend::*;
+// ! warning: this will be removed later
+pub trait AdditiveGroup:
+    Eq
+    + 'static
+    + Sized
+    + CanonicalSerialize
+    + CanonicalDeserialize
+    + Copy
+    + Clone
+    + Default
+    + Send
+    + Sync
+    + Hash
+    + Debug
+    + Display
+    + UniformRand
+    + Zeroize
+    + Zero
+    + Neg<Output = Self>
+    + Add<Self, Output = Self>
+    + Sub<Self, Output = Self>
+    + Mul<<Self as AdditiveGroup>::Scalar, Output = Self>
+    + AddAssign<Self>
+    + SubAssign<Self>
+    + MulAssign<<Self as AdditiveGroup>::Scalar>
+    + for<'a> Add<&'a Self, Output = Self>
+    + for<'a> Sub<&'a Self, Output = Self>
+    + for<'a> Mul<&'a <Self as AdditiveGroup>::Scalar, Output = Self>
+    + for<'a> AddAssign<&'a Self>
+    + for<'a> SubAssign<&'a Self>
+    + for<'a> MulAssign<&'a <Self as AdditiveGroup>::Scalar>
+    + for<'a> Add<&'a mut Self, Output = Self>
+    + for<'a> Sub<&'a mut Self, Output = Self>
+    + for<'a> Mul<&'a mut <Self as AdditiveGroup>::Scalar, Output = Self>
+    + for<'a> AddAssign<&'a mut Self>
+    + for<'a> SubAssign<&'a mut Self>
+    + for<'a> MulAssign<&'a mut <Self as AdditiveGroup>::Scalar>
+    + ark_std::iter::Sum<Self>
+    + for<'a> ark_std::iter::Sum<&'a Self>
+{
+    type Scalar: Field;
+
+    /// The additive identity of the field.
+    const ZERO: Self;
+
+    /// Doubles `self`.
+    #[must_use]
+    fn double(&self) -> Self {
+        let mut copy = *self;
+        copy.double_in_place();
+        copy
+    }
+    /// Doubles `self` in place.
+    fn double_in_place(&mut self) -> &mut Self {
+        *self += *self;
+        self
+    }
+
+    /// Negates `self` in place.
+    fn neg_in_place(&mut self) -> &mut Self {
+        *self = -(*self);
+        self
+    }
+}
 
 /// A trait that specifies the configuration of a prime field.
 /// Also specifies how to perform arithmetic on field elements.
+#[macro_use]
 pub trait FpConfig<const N: usize>: Send + Sync + 'static + Sized {
     /// The modulus of the field.
-    const MODULUS: crate::BigInt<N>;
+    const MODULUS: BigInt<N>;
 
     /// A multiplicative generator of the field.
     /// `Self::GENERATOR` is an element having multiplicative order
@@ -189,7 +254,7 @@ impl<P: FpConfig<N>, const N: usize> AdditiveGroup for Fp<P, N> {
     #[inline]
     fn double(&self) -> Self {
         let mut temp = *self;
-        temp.double_in_place();
+        AdditiveGroup::double_in_place(&mut temp);
         temp
     }
 
@@ -208,9 +273,11 @@ impl<P: FpConfig<N>, const N: usize> AdditiveGroup for Fp<P, N> {
 
 impl<P: FpConfig<N>, const N: usize> Field for Fp<P, N> {
     type BasePrimeField = Self;
+    type BasePrimeFieldIter = std::iter::Once<Self::BasePrimeField>;
 
     const SQRT_PRECOMP: Option<SqrtPrecomputation<Self>> = P::SQRT_PRECOMP;
     const ONE: Self = P::ONE;
+    const ZERO: Self = P::ZERO;
 
     fn extension_degree() -> u64 {
         1
@@ -220,14 +287,12 @@ impl<P: FpConfig<N>, const N: usize> Field for Fp<P, N> {
         elem
     }
 
-    fn to_base_prime_field_elements(&self) -> impl Iterator<Item = Self::BasePrimeField> {
+    fn to_base_prime_field_elements(&self) -> Self::BasePrimeFieldIter {
         iter::once(*self)
     }
 
-    fn from_base_prime_field_elems(
-        elems: impl IntoIterator<Item = Self::BasePrimeField>,
-    ) -> Option<Self> {
-        elems.into_iter().exactly_one().ok()
+    fn from_base_prime_field_elems(elems: &[Self::BasePrimeField]) -> Option<Self> {
+        elems.into_iter().exactly_one().ok().copied()
     }
 
     #[inline]
@@ -246,7 +311,7 @@ impl<P: FpConfig<N>, const N: usize> Field for Fp<P, N> {
             None
         } else {
             let shave_bits = Self::num_bits_to_shave();
-            let mut result_bytes = crate::const_helpers::SerBuffer::<N>::zeroed();
+            let mut result_bytes = crate::fields::const_helpers::SerBuffer::<N>::zeroed();
             // Copy the input into a temporary buffer.
             result_bytes.copy_from_u8_slice(bytes);
             // This mask retains everything in the last limb
@@ -327,10 +392,25 @@ impl<P: FpConfig<N>, const N: usize> Field for Fp<P, N> {
         }
     }
 
-    /// Fp is already a "BasePrimeField", so it's just mul by self
-    #[inline]
-    fn mul_by_base_prime_field(&self, elem: &Self::BasePrimeField) -> Self {
-        *self * elem
+    // Fp is already a "BasePrimeField", so it's just mul by self
+    // #[inline]
+    // fn mul_by_base_prime_field(&self, elem: &Self::BasePrimeField) -> Self {
+    //     *self * elem
+    // }
+
+    fn double(&self) -> Self {
+        let res = *self + *self;
+        res
+    }
+
+    fn double_in_place(&mut self) -> &mut Self {
+        *self += *self;
+        self
+    }
+
+    fn neg_in_place(&mut self) -> &mut Self {
+        *self -= *self;
+        self
     }
 }
 
@@ -560,7 +640,7 @@ impl<P: FpConfig<N>, const N: usize> CanonicalSerializeWithFlags for Fp<P, N> {
         // Write out `self` to a temporary buffer.
         // The size of the buffer is $byte_size + 1 because `F::BIT_SIZE`
         // is at most 8 bits.
-        let mut bytes = crate::const_helpers::SerBuffer::zeroed();
+        let mut bytes = crate::fields::const_helpers::SerBuffer::zeroed();
         bytes.copy_from_u64_slice(&self.into_bigint().0);
         // Mask out the bits of the last byte that correspond to the flag.
         bytes[output_byte_size - 1] |= flags.u8_bitmask();
@@ -607,7 +687,7 @@ impl<P: FpConfig<N>, const N: usize> CanonicalDeserializeWithFlags for Fp<P, N> 
         // serialized with `flags`.
         let output_byte_size = Self::zero().serialized_size_with_flags::<F>();
 
-        let mut masked_bytes = crate::const_helpers::SerBuffer::zeroed();
+        let mut masked_bytes = crate::fields::const_helpers::SerBuffer::zeroed();
         masked_bytes.read_exact_up_to(reader, output_byte_size)?;
         let flags = F::from_u8_remove_flags(&mut masked_bytes[output_byte_size - 1])
             .ok_or(SerializationError::UnexpectedFlags)?;
@@ -644,7 +724,9 @@ impl<P: FpConfig<N>, const N: usize> FromStr for Fp<P, N> {
         use num_bigint::{BigInt, BigUint};
         use num_traits::Signed;
 
-        let modulus = BigInt::from(P::MODULUS);
+        // ! warning: this is a hot-fix
+        let modulus_u = BigUint::from(P::MODULUS);
+        let modulus = BigInt::from(modulus_u);
         let mut a = BigInt::from_str(s).map_err(|_| ())? % &modulus;
         if a.is_negative() {
             a += modulus

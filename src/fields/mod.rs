@@ -1,3 +1,4 @@
+mod const_helpers;
 mod fp_backend;
 mod m31;
 mod vec_ops;
