@@ -1,0 +1,15 @@
+[package]
+name = "fields_macro"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+syn = "2.0.0"
+quote = "1.0.0"
+ark-ff = "0.4.0"
+num-bigint = "0.4"
+num-traits = "0.2"
+proc-macro2 = "1.0.36"
+
+[lib]
+proc-macro = true

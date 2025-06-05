@@ -85,6 +85,17 @@ pub trait AdditiveGroup:
     }
 }
 
+pub trait FpConfig2 {
+    type UInt: Copy + std::fmt::Debug;
+
+    const MODULUS: Self::UInt;
+    const GENERATOR: Self::UInt;
+
+    fn hello_macro();
+
+    fn add_assign(a: &mut Self::UInt, b: &Self::UInt);
+}
+
 /// A trait that specifies the configuration of a prime field.
 /// Also specifies how to perform arithmetic on field elements.
 #[macro_use]
