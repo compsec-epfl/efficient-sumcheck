@@ -1,9 +1,9 @@
 use core::convert::Into;
 use proc_macro::TokenStream;
 use quote::quote;
+// use space_efficeint_sumcheck::fields::small_fp_backend::SmallFp;
 
-use proc_macro2::Span;
-use syn::{Expr, ExprLit, Lit, LitInt, Meta};
+use syn::{Expr, ExprLit, Lit, Meta};
 
 extern crate proc_macro;
 pub(crate) mod utils;
@@ -33,66 +33,10 @@ fn fetch_attr(name: &str, attrs: &[syn::Attribute]) -> Option<String> {
     None
 }
 
-// #[proc_macro_derive(FpConfig2, attributes(modulus, generator))]
-// pub fn fp_config(input: TokenStream) -> TokenStream {
-//     let ast: syn::DeriveInput = syn::parse(input).unwrap();
-
-//     // Fetch the modulus and generator attributes
-//     let modulus: u128 = fetch_attr("modulus", &ast.attrs)
-//         .expect("Please supply a modulus attribute")
-//         .parse()
-//         .expect("Modulus should be a number");
-
-//     let generator: u128 = fetch_attr("generator", &ast.attrs)
-//         .expect("Please supply a generator attribute")
-//         .parse()
-//         .expect("Generator should be a number");
-
-//     // Determine the smallest type for the modulus
-//     let ty = {
-//         let u8_max = u128::from(u8::MAX);
-//         let u16_max = u128::from(u16::MAX);
-//         let u32_max = u128::from(u32::MAX);
-//         let u64_max = u128::from(u64::MAX);
-
-//         if modulus <= u8_max {
-//             quote! { u8 }
-//         } else if modulus <= u16_max {
-//             quote! { u16 }
-//         } else if modulus <= u32_max {
-//             quote! { u32 }
-//         } else if modulus <= u64_max {
-//             quote! { u64 }
-//         } else {
-//             quote! { u128 }
-//         }
-//     };
-
-//     let modulus_str = modulus.to_string();
-//     let generator_str = generator.to_string();
-
-//     // Generate the implementation of the trait
-//     let expanded = quote! {
-//         impl FpConfig2 for #ast.ident {
-//             const MODULUS: #ty = #modulus_str as #ty;
-//             const GENERATOR: #ty = #generator_str as #ty;
-
-//             fn hello_macro() {
-//                 println!("Hello, Macro! My name is {}!", stringify!(#ast.ident));
-//             }
-//         }
-//     };
-
-//     TokenStream::from(expanded)
-// }
-
-#[proc_macro_derive(FpConfig2, attributes(modulus, generator))]
+#[proc_macro_derive(SmallFpConfig, attributes(modulus, generator))]
 pub fn fp_config(input: TokenStream) -> TokenStream {
-    // Construct a representation of Rust code as a syntax tree
-    // that we can manipulate
     let ast: syn::DeriveInput = syn::parse(input).unwrap();
 
-    // Fetch the modulus and generator attributes
     let modulus: u128 = fetch_attr("modulus", &ast.attrs)
         .expect("Please supply a modulus attribute")
         .parse()
@@ -103,7 +47,6 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
         .parse()
         .expect("Generator should be a number");
 
-    // Determine the smallest type for the modulus
     let (ty, suffix) = {
         let u8_max = u128::from(u8::MAX);
         let u16_max = u128::from(u16::MAX);
@@ -123,24 +66,73 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
         }
     };
 
-    // Build the trait implementation
     let name = &ast.ident;
     let gen = quote! {
+        impl SmallFpConfig for #name {
+            type T = #ty;
 
-        impl FpConfig2 for #name {
-            type UInt = #ty;
+            const MODULUS: Self::T = #modulus as Self::T;
 
-            const MODULUS: Self::UInt = #modulus as Self::UInt;
-            const GENERATOR: Self::UInt = #generator as Self::UInt;
+            const GENERATOR: SmallFp<Self> = SmallFp::new(#generator as Self::T);
+            const ZERO: SmallFp<Self> = SmallFp::new(0 as Self::T);
+            const ONE: SmallFp<Self> = SmallFp::new(1 as Self::T);
+            const TWO_ADIC_ROOT_OF_UNITY: SmallFp<Self> = SmallFp::new(1 as Self::T);
 
-            fn hello_macro() {
-                println!("Hello, Macro! My name is {}!", stringify!(#name));
+            const TWO_ADICITY: u32 = 0;
+            const SQRT_PRECOMP: Option<SqrtPrecomputation<SmallFp<Self>>> = None;
+
+            fn add_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
+                a.value = (a.value + b.value) % Self::MODULUS;
             }
 
-            fn add_assign(a: &mut Self::UInt, b: &Self::UInt) {
-                *a = a.wrapping_add(*b);
+            fn sub_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
+                if a.value >= b.value {
+                    a.value -= b.value;
+                } else {
+                    a.value = Self::MODULUS - (b.value - a.value);
+                }
             }
 
+            fn double_in_place(a: &mut SmallFp<Self>) {
+                a.value = (a.value + a.value) % Self::MODULUS;
+            }
+
+            fn neg_in_place(a: &mut SmallFp<Self>) {
+                if a.value == (0 as Self::T) {
+                    a.value = 0 as Self::T;
+                } else {
+                    a.value = Self::MODULUS - a.value;
+                }
+            }
+
+            fn mul_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
+                let product = (a.value as u128) * (b.value as u128);
+                a.value = (product % (Self::MODULUS as u128)) as Self::T;
+            }
+
+            fn sum_of_products<const T: usize>(
+                a: &[SmallFp<Self>; T],
+                b: &[SmallFp<Self>; T],) -> SmallFp<Self> {
+                a.iter().zip(b.iter()).map(|(x, y)| *x * *y).sum()
+            }
+
+            fn square_in_place(a: &mut SmallFp<Self>) {
+                 let product = (a.value as u128) * (a.value as u128);
+                 a.value = (product % (Self::MODULUS as u128)) as Self::T;
+            }
+
+
+            fn inverse(a: &SmallFp<Self>) -> Option<SmallFp<Self>> {
+                None
+            }
+
+            fn from_bigint(_: BigInt<1>) -> Option<SmallFp<Self>> {
+                None
+            }
+
+            fn into_bigint(_: SmallFp<Self>) -> BigInt<1> {
+                BigInt::new([0])
+            }
         }
     };
     gen.into()

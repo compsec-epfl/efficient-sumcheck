@@ -1,6 +1,7 @@
 mod const_helpers;
 pub mod fp_backend;
 mod m31;
+pub mod small_fp_backend;
 mod vec_ops;
 
 #[cfg(target_arch = "aarch64")]

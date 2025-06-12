@@ -147,6 +147,13 @@ impl<P: SmallFpConfig> SmallFp<P> {
     fn num_bits_to_shave() -> usize {
         0
     }
+
+    pub const fn new(value: P::T) -> Self {
+        Self {
+            value,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<P: SmallFpConfig> ark_std::fmt::Debug for SmallFp<P> {
