@@ -10,7 +10,7 @@ use ark_std::{
     fmt::{Debug, Display, Formatter, Result as FmtResult},
     hash::Hash,
     marker::PhantomData,
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, Sub, SubAssign},
     str::FromStr,
     string::*,
 };
@@ -38,7 +38,9 @@ pub trait SmallFpConfig: Send + Sync + 'static + Sized {
         + std::ops::Sub<Output = Self::T>
         + std::ops::Mul<Output = Self::T>
         + std::ops::Div<Output = Self::T>
-        + std::ops::Rem<Output = Self::T>;
+        + std::ops::Rem<Output = Self::T>
+        + Into<u128>
+        + TryFrom<u128>;
 
     /// The modulus of the field.
     const MODULUS: Self::T;
@@ -136,16 +138,8 @@ impl<P: SmallFpConfig> SmallFp<P> {
     }
 
     #[inline]
-    // TODO: think about this
-    fn subtract_modulus(&mut self) {}
-
-    #[inline]
-    // TODO: think about this
-    fn subtract_modulus_with_carry(&mut self, carry: bool) {}
-
-    // TODO: think about this
-    fn num_bits_to_shave() -> usize {
-        0
+    fn subtract_modulus(&mut self) {
+        self.value = self.value.sub(P::MODULUS);
     }
 
     pub const fn new(value: P::T) -> Self {
@@ -213,7 +207,11 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
     // TODO: think about this
     #[inline]
     fn characteristic() -> &'static [u64] {
-        // P::MODULUS.as_ref()
+        // if P::MODULUS <= u64::MAX {
+        //     &[P::MODULUS]
+        // } else {
+        //     &[0]
+        // }
         &[0]
     }
 
@@ -227,7 +225,7 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
         if F::BIT_SIZE > 8 {
             None
         } else {
-            let shave_bits = Self::num_bits_to_shave();
+            let shave_bits = 0;
 
             // TODO: think about this
             let mut result_bytes = crate::fields::const_helpers::SerBuffer::<1>::zeroed();
@@ -393,10 +391,18 @@ impl<P: SmallFpConfig> PartialOrd for SmallFp<P> {
     }
 }
 
-// TODO: think about this
 impl<P: SmallFpConfig> From<u128> for SmallFp<P> {
-    fn from(mut other: u128) -> Self {
-        P::ZERO
+    fn from(other: u128) -> Self {
+        let other_as_t = match P::T::try_from(other.into()) {
+            Ok(val) => val,
+            Err(_) => {
+                let modulus_as_u128: u128 = P::MODULUS.into();
+                let reduced = other % modulus_as_u128;
+                P::T::try_from(reduced).unwrap_or_else(|_| panic!("Reduced value should fit in T"))
+            }
+        };
+        let val = other_as_t % P::MODULUS;
+        SmallFp::new(val)
     }
 }
 
@@ -411,17 +417,28 @@ impl<P: SmallFpConfig> From<i128> for SmallFp<P> {
     }
 }
 
-// TODO: think about this
 impl<P: SmallFpConfig> From<bool> for SmallFp<P> {
     fn from(other: bool) -> Self {
-        P::ZERO
+        if other == true {
+            P::ONE
+        } else {
+            P::ZERO
+        }
     }
 }
 
-// TODO: think about this
 impl<P: SmallFpConfig> From<u64> for SmallFp<P> {
     fn from(other: u64) -> Self {
-        P::ZERO
+        let other_as_t = match P::T::try_from(other.into()) {
+            Ok(val) => val,
+            Err(_) => {
+                let modulus_as_u128: u128 = P::MODULUS.into();
+                let reduced = (other as u128) % modulus_as_u128;
+                P::T::try_from(reduced).unwrap_or_else(|_| panic!("Reduced value should fit in T"))
+            }
+        };
+        let val = other_as_t % P::MODULUS;
+        SmallFp::new(val)
     }
 }
 
@@ -436,10 +453,18 @@ impl<P: SmallFpConfig> From<i64> for SmallFp<P> {
     }
 }
 
-// TODO: think about this
 impl<P: SmallFpConfig> From<u32> for SmallFp<P> {
     fn from(other: u32) -> Self {
-        P::ZERO
+        let other_as_t = match P::T::try_from(other.into()) {
+            Ok(val) => val,
+            Err(_) => {
+                let modulus_as_u128: u128 = P::MODULUS.into();
+                let reduced = (other as u128) % modulus_as_u128;
+                P::T::try_from(reduced).unwrap_or_else(|_| panic!("Reduced value should fit in T"))
+            }
+        };
+        let val = other_as_t % P::MODULUS;
+        SmallFp::new(val)
     }
 }
 
@@ -454,10 +479,18 @@ impl<P: SmallFpConfig> From<i32> for SmallFp<P> {
     }
 }
 
-// TODO: think about this
 impl<P: SmallFpConfig> From<u16> for SmallFp<P> {
     fn from(other: u16) -> Self {
-        P::ZERO
+        let other_as_t = match P::T::try_from(other.into()) {
+            Ok(val) => val,
+            Err(_) => {
+                let modulus_as_u128: u128 = P::MODULUS.into();
+                let reduced = (other as u128) % modulus_as_u128;
+                P::T::try_from(reduced).unwrap_or_else(|_| panic!("Reduced value should fit in T"))
+            }
+        };
+        let val = other_as_t % P::MODULUS;
+        SmallFp::new(val)
     }
 }
 
@@ -472,10 +505,18 @@ impl<P: SmallFpConfig> From<i16> for SmallFp<P> {
     }
 }
 
-// TODO: think about this
 impl<P: SmallFpConfig> From<u8> for SmallFp<P> {
     fn from(other: u8) -> Self {
-        P::ZERO
+        let other_as_t = match P::T::try_from(other.into()) {
+            Ok(val) => val,
+            Err(_) => {
+                let modulus_as_u128: u128 = P::MODULUS.into();
+                let reduced = (other as u128) % modulus_as_u128;
+                P::T::try_from(reduced).unwrap_or_else(|_| panic!("Reduced value should fit in T"))
+            }
+        };
+        let val = other_as_t % P::MODULUS;
+        SmallFp::new(val)
     }
 }
 
