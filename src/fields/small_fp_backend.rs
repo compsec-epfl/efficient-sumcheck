@@ -32,6 +32,7 @@ pub trait SmallFpConfig: Send + Sync + 'static + Sized {
         + Sync
         + Send
         + PartialOrd
+        + Display
         + Unsigned
         + std::fmt::Debug
         + std::ops::Add<Output = Self::T>
@@ -663,7 +664,7 @@ impl<P: SmallFpConfig> FromStr for SmallFp<P> {
 impl<P: SmallFpConfig> Display for SmallFp<P> {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let string = self.into_bigint().to_string();
+        let string = self.value.to_string();
         write!(f, "{}", string)
     }
 }
