@@ -9,11 +9,15 @@ use space_efficient_sumcheck::fields::small_fp_backend::SmallFpConfig;
 struct SomeField;
 
 fn main() {
+    println!(
+        "MOD: {} GENERATOR: {}",
+        SomeField::MODULUS,
+        SomeField::GENERATOR
+    );
     let mut a = SomeField::ONE;
-    let b = SomeField::GENERATOR;
-    let c = SomeField::add_assign(&mut a, &b);
-
-    println!("{:?}", a);
-    println!("{:?}", b);
-    println!("{:?}", c);
+    let b = SomeField::ONE;
+    let c = SomeField::new(4);
+    a += b;
+    a += c;
+    println!("{}", a);
 }

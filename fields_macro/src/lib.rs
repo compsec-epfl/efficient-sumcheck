@@ -134,6 +134,13 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
                 BigInt::new([0, 0])
             }
         }
+
+        impl #name {
+            pub fn new(value: <Self as SmallFpConfig>::T) -> SmallFp<Self> {
+                SmallFp::new(value % <Self as SmallFpConfig>::MODULUS)
+            }
+        }
+
     };
     gen.into()
 }
