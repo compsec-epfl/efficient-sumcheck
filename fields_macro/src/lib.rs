@@ -126,12 +126,12 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
                 None
             }
 
-            fn from_bigint(_: BigInt<1>) -> Option<SmallFp<Self>> {
+            fn from_bigint(_: BigInt<2>) -> Option<SmallFp<Self>> {
                 None
             }
 
-            fn into_bigint(_: SmallFp<Self>) -> BigInt<1> {
-                BigInt::new([0])
+            fn into_bigint(_: SmallFp<Self>) -> BigInt<2> {
+                BigInt::new([0, 0])
             }
         }
     };

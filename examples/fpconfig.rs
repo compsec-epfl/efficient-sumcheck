@@ -11,6 +11,9 @@ struct SomeField;
 fn main() {
     let mut a = SomeField::ONE;
     let b = SomeField::GENERATOR;
+    let c = SomeField::add_assign(&mut a, &b);
 
-    println!("{:?}", SomeField::add_assign(&mut a, &b));
+    println!("{:?}", a);
+    println!("{:?}", b);
+    println!("{:?}", c);
 }

@@ -115,11 +115,11 @@ pub trait SmallFpConfig: Send + Sync + 'static + Sized {
     /// Construct a field element from an integer in the range
     /// `0..(Self::MODULUS - 1)`. Returns `None` if the integer is outside
     /// this range.
-    fn from_bigint(other: BigInt<1>) -> Option<SmallFp<Self>>;
+    fn from_bigint(other: BigInt<2>) -> Option<SmallFp<Self>>;
 
     /// Convert a field element to an integer in the range `0..(Self::MODULUS -
     /// 1)`.
-    fn into_bigint(other: SmallFp<Self>) -> BigInt<1>;
+    fn into_bigint(other: SmallFp<Self>) -> BigInt<2>;
 }
 
 /// Represents an element of the prime field F_p, where `p == P::MODULUS`.
@@ -336,24 +336,31 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
     }
 }
 
+const fn const_to_bigint(_: usize) -> BigInt<2> {
+    BigInt::<2>::new([0, 1])
+}
+
 // TODO: think about this
 impl<P: SmallFpConfig> PrimeField for SmallFp<P> {
-    type BigInt = BigInt<1>;
+    type BigInt = BigInt<2>;
 
+    // let temp = Self::new(P::MODULUS);
     // these will all compile without needing a From<i32> impl:
-    const MODULUS: Self::BigInt = BigInt::new([0]);
-    const MODULUS_MINUS_ONE_DIV_TWO: Self::BigInt = BigInt::new([1]);
+    const MODULUS: Self::BigInt = const_to_bigint(2);
+
+    // how do I access this modulus?
+    const MODULUS_MINUS_ONE_DIV_TWO: Self::BigInt = Self::MODULUS.divide_by_2_round_down();
     const MODULUS_BIT_SIZE: u32 = 0;
-    const TRACE: Self::BigInt = BigInt::new([0]);
-    const TRACE_MINUS_ONE_DIV_TWO: Self::BigInt = Self::TRACE.divide_by_2_round_down();
+    const TRACE: Self::BigInt = BigInt::new([0, 0]);
+    const TRACE_MINUS_ONE_DIV_TWO: Self::BigInt = BigInt::new([0, 0]);
 
     #[inline]
-    fn from_bigint(r: BigInt<1>) -> Option<Self> {
+    fn from_bigint(_: BigInt<2>) -> Option<Self> {
         None
     }
 
-    fn into_bigint(self) -> BigInt<1> {
-        BigInt::new([0])
+    fn into_bigint(self) -> BigInt<2> {
+        BigInt::new([0, 0])
     }
 }
 
@@ -978,7 +985,7 @@ impl<P: SmallFpConfig> From<SmallFp<P>> for num_bigint::BigUint {
 }
 
 // TODO: think about this
-impl<P: SmallFpConfig> From<SmallFp<P>> for BigInt<1> {
+impl<P: SmallFpConfig> From<SmallFp<P>> for BigInt<2> {
     #[inline(always)]
     fn from(fp: SmallFp<P>) -> Self {
         fp.into_bigint()
@@ -986,10 +993,10 @@ impl<P: SmallFpConfig> From<SmallFp<P>> for BigInt<1> {
 }
 
 // TODO: think about this
-impl<P: SmallFpConfig> From<BigInt<1>> for SmallFp<P> {
+impl<P: SmallFpConfig> From<BigInt<2>> for SmallFp<P> {
     /// Converts `Self::BigInteger` into `Self`
     #[inline(always)]
-    fn from(int: BigInt<1>) -> Self {
+    fn from(int: BigInt<2>) -> Self {
         Self::from_bigint(int).unwrap()
     }
 }
