@@ -1,6 +1,4 @@
-use ark_ff::{
-    BigInt, FftField, Field, LegendreSymbol, One, PrimeField, SqrtPrecomputation, UniformRand, Zero,
-};
+use ark_ff::{BigInt, FftField, Field, LegendreSymbol, One, PrimeField, SqrtPrecomputation, Zero};
 use ark_serialize::{
     buffer_byte_size, CanonicalDeserialize, CanonicalDeserializeWithFlags, CanonicalSerialize,
     CanonicalSerializeWithFlags, Compress, EmptyFlags, Flags, SerializationError, Valid, Validate,
@@ -149,6 +147,10 @@ impl<P: SmallFpConfig> SmallFp<P> {
             _phantom: PhantomData,
         }
     }
+    // TODO: Constant 2 is here becuase we fixed BigInt<2> this will be generic in the future
+    fn num_bits_to_shave() -> usize {
+        64 * 2 - (Self::MODULUS_BIT_SIZE as usize)
+    }
 }
 
 impl<P: SmallFpConfig> ark_std::fmt::Debug for SmallFp<P> {
@@ -205,7 +207,6 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
         elems.into_iter().exactly_one().ok().copied()
     }
 
-    // TODO: think about this
     #[inline]
     fn characteristic() -> &'static [u64] {
         // if P::MODULUS <= u64::MAX {
@@ -226,11 +227,9 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
         if F::BIT_SIZE > 8 {
             None
         } else {
-            let shave_bits = 0;
-
-            // TODO: think about this
-            let mut result_bytes = crate::fields::const_helpers::SerBuffer::<1>::zeroed();
-
+            let shave_bits = Self::num_bits_to_shave();
+            let mut result_bytes: super::const_helpers::SerBuffer<2> =
+                crate::fields::const_helpers::SerBuffer::zeroed();
             // Copy the input into a temporary buffer.
             result_bytes.copy_from_u8_slice(bytes);
             // This mask retains everything in the last limb
@@ -247,8 +246,8 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
             let flag_location = output_byte_size - 1;
 
             // At which byte is the flag located in the last limb?
-            // TODO: think about this
-            let flag_location_in_last_limb = 0;
+            // TODO: Constant 2 is here becuase we fixed BigInt<2> this will be generic in the future
+            let flag_location_in_last_limb = flag_location.saturating_sub(8 * (2 - 1));
 
             // Take all but the last 9 bytes.
             let last_bytes = result_bytes.last_n_plus_1_bytes_mut();
@@ -265,9 +264,8 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
                 }
                 *b &= m;
             }
-
-            // TODO: think about this
-            Self::deserialize_compressed(&result_bytes.as_slice()[..(1 * 8)])
+            // TODO: Constant 2 is here becuase we fixed BigInt<2> this will be generic in the future
+            Self::deserialize_compressed(&result_bytes.as_slice()[..(2 * 8)])
                 .ok()
                 .and_then(|f| F::from_u8(flags).map(|flag| (f, flag)))
         }
@@ -314,12 +312,6 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
         }
     }
 
-    // Fp is already a "BasePrimeField", so it's just mul by self
-    // #[inline]
-    // fn mul_by_base_prime_field(&self, elem: &Self::BasePrimeField) -> Self {
-    //     *self * elem
-    // }
-
     fn double(&self) -> Self {
         let res = *self + *self;
         res
@@ -342,7 +334,7 @@ const fn const_to_bigint(value: u128) -> BigInt<2> {
     BigInt::<2>::new([high, low])
 }
 
-// TODO: think about this
+// TODO: Make this generic for BigInt<N>
 impl<P: SmallFpConfig> PrimeField for SmallFp<P> {
     type BigInt = BigInt<2>;
 
@@ -541,14 +533,10 @@ impl<P: SmallFpConfig> ark_std::rand::distributions::Distribution<SmallFp<P>>
     for ark_std::rand::distributions::Standard
 {
     #[inline]
+    // TODO: fix this
     fn sample<R: ark_std::rand::Rng + ?Sized>(&self, rng: &mut R) -> SmallFp<P> {
         loop {
-            // TODO: think about this
-            // let mut tmp = Fp(
-            //     rng.sample(ark_std::rand::distributions::Standard),
-            //     PhantomData,
-            // );
-            let mut tmp = SmallFp::from(1);
+            let tmp = SmallFp::from(1);
 
             return tmp;
         }
@@ -650,17 +638,30 @@ impl<P: SmallFpConfig> CanonicalDeserialize for SmallFp<P> {
     }
 }
 
+pub enum ParseSmallFpError {
+    Empty,
+    InvalidFormat,
+    InvalidLeadingZero,
+}
+
 impl<P: SmallFpConfig> FromStr for SmallFp<P> {
-    type Err = ();
+    type Err = ParseSmallFpError;
 
     /// Interpret a string of numbers as a (congruent) prime field element.
     /// Does not accept unnecessary leading zeroes or a blank string.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use num_bigint::{BigInt, BigUint};
-        use num_traits::Signed;
+        if s.is_empty() {
+            return Err(ParseSmallFpError::Empty);
+        }
+        if s.starts_with('0') && s.len() > 1 {
+            return Err(ParseSmallFpError::InvalidLeadingZero);
+        }
 
-        // TODO: think about this
-        Ok(SmallFp::from(0))
+        match s.parse::<u128>() {
+            // TODO: This should not be u128 but P::T
+            Ok(val) => Ok(SmallFp::from(val)),
+            Err(_) => Err(ParseSmallFpError::InvalidFormat),
+        }
     }
 }
 
@@ -981,18 +982,13 @@ impl<P: SmallFpConfig> From<SmallFp<P>> for num_bigint::BigUint {
     }
 }
 
-// TODO: think about this
 impl<P: SmallFpConfig> From<SmallFp<P>> for BigInt<2> {
-    #[inline(always)]
     fn from(fp: SmallFp<P>) -> Self {
         fp.into_bigint()
     }
 }
 
-// TODO: think about this
 impl<P: SmallFpConfig> From<BigInt<2>> for SmallFp<P> {
-    /// Converts `Self::BigInteger` into `Self`
-    #[inline(always)]
     fn from(int: BigInt<2>) -> Self {
         Self::from_bigint(int).unwrap()
     }
