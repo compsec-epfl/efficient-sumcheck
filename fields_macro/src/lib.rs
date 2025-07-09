@@ -157,9 +157,25 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
                  a.value = (product % (Self::MODULUS as u128)) as Self::T;
             }
 
-
+            // TODO: Do the EE algorithm in #ty
             fn inverse(a: &SmallFp<Self>) -> Option<SmallFp<Self>> {
-                None
+                if a.value == 0 {
+                    return None;
+                }
+
+                let mut base: #ty = a.value;
+                let mut exp: u128 = (Self::MODULUS_128 - 2);
+                let mut acc: u128 = 1;
+                let m: u128 = Self::MODULUS_128;
+
+                while exp > 0 {
+                    if (exp & 1) == 1 {
+                        acc = (acc * (base as u128)) % m;
+                    }
+                    base = (((base as u128) * (base as u128)) % m) as #ty;
+                    exp >>= 1;
+                }
+                Some(SmallFp::new(acc as Self::T))
             }
 
             #from_bigint_impl
