@@ -66,12 +66,48 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
         }
     };
 
+    // Type u128 has two limbs all other have only one
+    let (from_bigint_impl, into_bigint_impl) = if suffix == "u128" {
+        (
+            quote! {
+                fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
+                    let val = (a[0] as u128) + ((a[1] as u128) << 64);
+                    Some(SmallFp::new(val as Self::T))
+                }
+            },
+            quote! {
+                fn into_bigint(a: SmallFp<Self>) -> BigInt<2> {
+                    ark_ff::BigInt([(a.value as u64), (a.value >> 64) as u64])
+                }
+            },
+        )
+    } else {
+        (
+            quote! {
+                fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
+                    if a[1] != 0 || a[0] >= (Self::MODULUS as u64) {
+                        None
+                    } else {
+                        Some(SmallFp::new(a[0] as Self::T))
+                    }
+                }
+            },
+            quote! {
+                fn into_bigint(a: SmallFp<Self>) -> BigInt<2> {
+                    ark_ff::BigInt([0, a.value as u64])
+                }
+            },
+        )
+    };
+
     let name = &ast.ident;
     let gen = quote! {
         impl SmallFpConfig for #name {
             type T = #ty;
 
             const MODULUS: Self::T = #modulus as Self::T;
+            const MODULUS_128: u128 = #modulus;
+
 
             const GENERATOR: SmallFp<Self> = SmallFp::new(#generator as Self::T);
             const ZERO: SmallFp<Self> = SmallFp::new(0 as Self::T);
@@ -126,13 +162,9 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
                 None
             }
 
-            fn from_bigint(_: BigInt<2>) -> Option<SmallFp<Self>> {
-                None
-            }
+            #from_bigint_impl
 
-            fn into_bigint(_: SmallFp<Self>) -> BigInt<2> {
-                BigInt::new([0, 0])
-            }
+            #into_bigint_impl
         }
 
         impl #name {
@@ -140,6 +172,7 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
                 SmallFp::new(value % <Self as SmallFpConfig>::MODULUS)
             }
         }
+
 
     };
     gen.into()

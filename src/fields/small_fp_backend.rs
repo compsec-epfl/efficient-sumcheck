@@ -7,10 +7,10 @@ use ark_serialize::{
 };
 use ark_std::{
     cmp::*,
-    fmt::{Debug, Display, Formatter, Result as FmtResult},
+    fmt::{Display, Formatter, Result as FmtResult},
     hash::Hash,
     marker::PhantomData,
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, Sub, SubAssign},
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
     str::FromStr,
     string::*,
 };
@@ -18,7 +18,6 @@ use core::iter;
 use educe::Educe;
 use itertools::Itertools;
 use num_traits::Unsigned;
-use zeroize::Zeroize;
 
 /// A trait that specifies the configuration of a prime field.
 /// Also specifies how to perform arithmetic on field elements.
@@ -45,6 +44,7 @@ pub trait SmallFpConfig: Send + Sync + 'static + Sized {
 
     /// The modulus of the field.
     const MODULUS: Self::T;
+    const MODULUS_128: u128;
 
     /// A multiplicative generator of the field.
     /// `Self::GENERATOR` is an element having multiplicative order
@@ -336,31 +336,29 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
     }
 }
 
-const fn const_to_bigint(_: usize) -> BigInt<2> {
-    BigInt::<2>::new([0, 1])
+const fn const_to_bigint(value: u128) -> BigInt<2> {
+    let low = (value & 0xFFFFFFFFFFFFFFFF) as u64;
+    let high = (value >> 64) as u64;
+    BigInt::<2>::new([high, low])
 }
 
 // TODO: think about this
 impl<P: SmallFpConfig> PrimeField for SmallFp<P> {
     type BigInt = BigInt<2>;
 
-    // let temp = Self::new(P::MODULUS);
-    // these will all compile without needing a From<i32> impl:
-    const MODULUS: Self::BigInt = const_to_bigint(2);
-
-    // how do I access this modulus?
+    const MODULUS: Self::BigInt = const_to_bigint(P::MODULUS_128);
     const MODULUS_MINUS_ONE_DIV_TWO: Self::BigInt = Self::MODULUS.divide_by_2_round_down();
-    const MODULUS_BIT_SIZE: u32 = 0;
-    const TRACE: Self::BigInt = BigInt::new([0, 0]);
-    const TRACE_MINUS_ONE_DIV_TWO: Self::BigInt = BigInt::new([0, 0]);
+    const MODULUS_BIT_SIZE: u32 = Self::MODULUS.const_num_bits();
+    const TRACE: Self::BigInt = Self::MODULUS.two_adic_coefficient();
+    const TRACE_MINUS_ONE_DIV_TWO: Self::BigInt = Self::TRACE.divide_by_2_round_down();
 
     #[inline]
-    fn from_bigint(_: BigInt<2>) -> Option<Self> {
-        None
+    fn from_bigint(r: BigInt<2>) -> Option<Self> {
+        P::from_bigint(r)
     }
 
     fn into_bigint(self) -> BigInt<2> {
-        BigInt::new([0, 0])
+        P::into_bigint(self)
     }
 }
 
@@ -964,7 +962,6 @@ impl<P: SmallFpConfig> core::ops::DivAssign<Self> for SmallFp<P> {
 impl<P: SmallFpConfig> zeroize::Zeroize for SmallFp<P> {
     // The phantom data does not contain element-specific data
     // and thus does not need to be zeroized.
-    // TODO: think about this
     fn zeroize(&mut self) {
         self.value = P::ZERO.value;
     }
