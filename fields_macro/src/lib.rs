@@ -71,7 +71,7 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
         (
             quote! {
                 fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
-                    let val = (a[0] as u128) + ((a[1] as u128) << 64);
+                    let val = (a.0[0] as u128) + ((a.0[0] as u128) << 64);
                     Some(SmallFp::new(val as Self::T))
                 }
             },
@@ -85,10 +85,10 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
         (
             quote! {
                 fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
-                    if a[1] != 0 || a[0] >= (Self::MODULUS as u64) {
+                    if a.0[0] >= (Self::MODULUS as u64) {
                         None
                     } else {
-                        Some(SmallFp::new(a[0] as Self::T))
+                        Some(SmallFp::new(a.0[0] as Self::T))
                     }
                 }
             },
