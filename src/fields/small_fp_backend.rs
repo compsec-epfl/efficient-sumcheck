@@ -1,4 +1,7 @@
-use ark_ff::{BigInt, FftField, Field, LegendreSymbol, One, PrimeField, SqrtPrecomputation, Zero};
+use ark_ff::{
+    AdditiveGroup, BigInt, FftField, Field, LegendreSymbol, One, PrimeField, SqrtPrecomputation,
+    Zero,
+};
 use ark_serialize::{
     buffer_byte_size, CanonicalDeserialize, CanonicalDeserializeWithFlags, CanonicalSerialize,
     CanonicalSerializeWithFlags, Compress, EmptyFlags, Flags, SerializationError, Valid, Validate,
@@ -19,7 +22,6 @@ use num_traits::Unsigned;
 
 /// A trait that specifies the configuration of a prime field.
 /// Also specifies how to perform arithmetic on field elements.
-#[macro_use]
 pub trait SmallFpConfig: Send + Sync + 'static + Sized {
     type T: Copy
         + Default
@@ -183,13 +185,37 @@ impl<P: SmallFpConfig> One for SmallFp<P> {
     }
 }
 
+impl<P: SmallFpConfig> AdditiveGroup for SmallFp<P> {
+    type Scalar = Self;
+    const ZERO: Self = P::ZERO;
+
+    #[inline]
+    fn double(&self) -> Self {
+        let mut temp = *self;
+        AdditiveGroup::double_in_place(&mut temp);
+        temp
+    }
+
+    #[inline]
+    fn double_in_place(&mut self) -> &mut Self {
+        P::double_in_place(self);
+        self
+    }
+
+    #[inline]
+    fn neg_in_place(&mut self) -> &mut Self {
+        P::neg_in_place(self);
+        self
+    }
+}
+
 impl<P: SmallFpConfig> Field for SmallFp<P> {
     type BasePrimeField = Self;
-    type BasePrimeFieldIter = std::iter::Once<Self::BasePrimeField>;
+    // type BasePrimeFieldIter = std::iter::Once<Self::BasePrimeField>;
 
     const SQRT_PRECOMP: Option<SqrtPrecomputation<Self>> = P::SQRT_PRECOMP;
     const ONE: Self = P::ONE;
-    const ZERO: Self = P::ZERO;
+    // const ZERO: Self = P::ZERO;
 
     fn extension_degree() -> u64 {
         1
@@ -199,13 +225,19 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
         elem
     }
 
-    fn to_base_prime_field_elements(&self) -> Self::BasePrimeFieldIter {
+    fn to_base_prime_field_elements(&self) -> impl Iterator<Item = <Self as ark_ff::Field>::BasePrimeField> {
         iter::once(*self)
     }
 
-    fn from_base_prime_field_elems(elems: &[Self::BasePrimeField]) -> Option<Self> {
-        elems.into_iter().exactly_one().ok().copied()
+    fn from_base_prime_field_elems(
+        elems: impl IntoIterator<Item = Self::BasePrimeField>,
+    ) -> Option<Self> {
+        todo!()
     }
+
+    // fn from_base_prime_field_elems(elems: &[Self::BasePrimeField]) -> Option<Self> {
+    //     elems.into_iter().exactly_one().ok().copied()
+    // }
 
     #[inline]
     fn characteristic() -> &'static [u64] {
@@ -312,19 +344,55 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
         }
     }
 
-    fn double(&self) -> Self {
-        let res = *self + *self;
+    fn mul_by_base_prime_field(&self, elem: &Self::BasePrimeField) -> Self {
+        todo!()
+    }
+
+    fn from_random_bytes(bytes: &[u8]) -> Option<Self> {
+        Self::from_random_bytes_with_flags::<EmptyFlags>(bytes).map(|f| f.0)
+    }
+
+    fn sqrt(&self) -> Option<Self> {
+        match Self::SQRT_PRECOMP {
+            Some(tv) => tv.sqrt(self),
+            None => std::unimplemented!(),
+        }
+    }
+
+    fn sqrt_in_place(&mut self) -> Option<&mut Self> {
+        (*self).sqrt().map(|sqrt| {
+            *self = sqrt;
+            self
+        })
+    }
+
+    fn frobenius_map(&self, power: usize) -> Self {
+        let mut this = *self;
+        this.frobenius_map_in_place(power);
+        this
+    }
+
+    fn pow<S: AsRef<[u64]>>(&self, exp: S) -> Self {
+        let mut res = Self::one();
+
+        for i in ark_ff::BitIteratorBE::without_leading_zeros(exp) {
+            res.square_in_place();
+
+            if i {
+                res *= self;
+            }
+        }
         res
     }
 
-    fn double_in_place(&mut self) -> &mut Self {
-        *self += *self;
-        self
-    }
-
-    fn neg_in_place(&mut self) -> &mut Self {
-        *self -= *self;
-        self
+    fn pow_with_table<S: AsRef<[u64]>>(powers_of_2: &[Self], exp: S) -> Option<Self> {
+        let mut res = Self::one();
+        for (pow, bit) in ark_ff::BitIteratorLE::without_trailing_zeros(exp).enumerate() {
+            if bit {
+                res *= powers_of_2.get(pow)?;
+            }
+        }
+        Some(res)
     }
 }
 

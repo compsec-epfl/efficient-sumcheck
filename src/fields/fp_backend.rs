@@ -1,6 +1,6 @@
 use ark_ff::{
-    BigInt, BigInteger, FftField, Field, LegendreSymbol, One, PrimeField, SqrtPrecomputation,
-    UniformRand, Zero,
+    AdditiveGroup, BigInt, BigInteger, FftField, Field, LegendreSymbol, One, PrimeField,
+    SqrtPrecomputation, Zero,
 };
 use ark_serialize::{
     buffer_byte_size, CanonicalDeserialize, CanonicalDeserializeWithFlags, CanonicalSerialize,
@@ -8,97 +8,92 @@ use ark_serialize::{
 };
 use ark_std::{
     cmp::*,
-    fmt::{Debug, Display, Formatter, Result as FmtResult},
-    hash::Hash,
+    fmt::{Display, Formatter, Result as FmtResult},
     marker::PhantomData,
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
     str::FromStr,
     string::*,
 };
-use core::iter;
 use educe::Educe;
-use itertools::Itertools;
-use zeroize::Zeroize;
 
 // ! warning: this will be removed later
-pub trait AdditiveGroup:
-    Eq
-    + 'static
-    + Sized
-    + CanonicalSerialize
-    + CanonicalDeserialize
-    + Copy
-    + Clone
-    + Default
-    + Send
-    + Sync
-    + Hash
-    + Debug
-    + Display
-    + UniformRand
-    + Zeroize
-    + Zero
-    + Neg<Output = Self>
-    + Add<Self, Output = Self>
-    + Sub<Self, Output = Self>
-    + Mul<<Self as AdditiveGroup>::Scalar, Output = Self>
-    + AddAssign<Self>
-    + SubAssign<Self>
-    + MulAssign<<Self as AdditiveGroup>::Scalar>
-    + for<'a> Add<&'a Self, Output = Self>
-    + for<'a> Sub<&'a Self, Output = Self>
-    + for<'a> Mul<&'a <Self as AdditiveGroup>::Scalar, Output = Self>
-    + for<'a> AddAssign<&'a Self>
-    + for<'a> SubAssign<&'a Self>
-    + for<'a> MulAssign<&'a <Self as AdditiveGroup>::Scalar>
-    + for<'a> Add<&'a mut Self, Output = Self>
-    + for<'a> Sub<&'a mut Self, Output = Self>
-    + for<'a> Mul<&'a mut <Self as AdditiveGroup>::Scalar, Output = Self>
-    + for<'a> AddAssign<&'a mut Self>
-    + for<'a> SubAssign<&'a mut Self>
-    + for<'a> MulAssign<&'a mut <Self as AdditiveGroup>::Scalar>
-    + ark_std::iter::Sum<Self>
-    + for<'a> ark_std::iter::Sum<&'a Self>
-{
-    type Scalar: Field;
+// pub trait AdditiveGroup:
+//     Eq
+//     + 'static
+//     + Sized
+//     + CanonicalSerialize
+//     + CanonicalDeserialize
+//     + Copy
+//     + Clone
+//     + Default
+//     + Send
+//     + Sync
+//     + Hash
+//     + Debug
+//     + Display
+//     + UniformRand
+//     + Zeroize
+//     + Zero
+//     + Neg<Output = Self>
+//     + Add<Self, Output = Self>
+//     + Sub<Self, Output = Self>
+//     + Mul<<Self as AdditiveGroup>::Scalar, Output = Self>
+//     + AddAssign<Self>
+//     + SubAssign<Self>
+//     + MulAssign<<Self as AdditiveGroup>::Scalar>
+//     + for<'a> Add<&'a Self, Output = Self>
+//     + for<'a> Sub<&'a Self, Output = Self>
+//     + for<'a> Mul<&'a <Self as AdditiveGroup>::Scalar, Output = Self>
+//     + for<'a> AddAssign<&'a Self>
+//     + for<'a> SubAssign<&'a Self>
+//     + for<'a> MulAssign<&'a <Self as AdditiveGroup>::Scalar>
+//     + for<'a> Add<&'a mut Self, Output = Self>
+//     + for<'a> Sub<&'a mut Self, Output = Self>
+//     + for<'a> Mul<&'a mut <Self as AdditiveGroup>::Scalar, Output = Self>
+//     + for<'a> AddAssign<&'a mut Self>
+//     + for<'a> SubAssign<&'a mut Self>
+//     + for<'a> MulAssign<&'a mut <Self as AdditiveGroup>::Scalar>
+//     + ark_std::iter::Sum<Self>
+//     + for<'a> ark_std::iter::Sum<&'a Self>
+// {
+//     type Scalar: Field;
 
-    /// The additive identity of the field.
-    const ZERO: Self;
+//     /// The additive identity of the field.
+//     const ZERO: Self;
 
-    /// Doubles `self`.
-    #[must_use]
-    fn double(&self) -> Self {
-        let mut copy = *self;
-        copy.double_in_place();
-        copy
-    }
-    /// Doubles `self` in place.
-    fn double_in_place(&mut self) -> &mut Self {
-        *self += *self;
-        self
-    }
+//     /// Doubles `self`.
+//     #[must_use]
+//     fn double(&self) -> Self {
+//         let mut copy = *self;
+//         copy.double_in_place();
+//         copy
+//     }
+//     /// Doubles `self` in place.
+//     fn double_in_place(&mut self) -> &mut Self {
+//         *self += *self;
+//         self
+//     }
 
-    /// Negates `self` in place.
-    fn neg_in_place(&mut self) -> &mut Self {
-        *self = -(*self);
-        self
-    }
-}
+//     /// Negates `self` in place.
+//     fn neg_in_place(&mut self) -> &mut Self {
+//         *self = -(*self);
+//         self
+//     }
+// }
 
-pub trait FpConfig2 {
-    type UInt: Copy + std::fmt::Debug;
+// pub trait FpConfig2 {
+//     type UInt: Copy + std::fmt::Debug;
 
-    const MODULUS: Self::UInt;
-    const GENERATOR: Self::UInt;
+//     const MODULUS: Self::UInt;
+//     const GENERATOR: Self::UInt;
 
-    fn hello_macro();
+//     fn hello_macro();
 
-    fn add_assign(a: &mut Self::UInt, b: &Self::UInt);
-}
+//     fn add_assign(a: &mut Self::UInt, b: &Self::UInt);
+// }
 
 /// A trait that specifies the configuration of a prime field.
 /// Also specifies how to perform arithmetic on field elements.
-#[macro_use]
 pub trait FpConfig<const N: usize>: Send + Sync + 'static + Sized {
     /// The modulus of the field.
     const MODULUS: BigInt<N>;
@@ -284,11 +279,9 @@ impl<P: FpConfig<N>, const N: usize> AdditiveGroup for Fp<P, N> {
 
 impl<P: FpConfig<N>, const N: usize> Field for Fp<P, N> {
     type BasePrimeField = Self;
-    type BasePrimeFieldIter = std::iter::Once<Self::BasePrimeField>;
 
     const SQRT_PRECOMP: Option<SqrtPrecomputation<Self>> = P::SQRT_PRECOMP;
     const ONE: Self = P::ONE;
-    const ZERO: Self = P::ZERO;
 
     fn extension_degree() -> u64 {
         1
@@ -296,14 +289,6 @@ impl<P: FpConfig<N>, const N: usize> Field for Fp<P, N> {
 
     fn from_base_prime_field(elem: Self::BasePrimeField) -> Self {
         elem
-    }
-
-    fn to_base_prime_field_elements(&self) -> Self::BasePrimeFieldIter {
-        iter::once(*self)
-    }
-
-    fn from_base_prime_field_elems(elems: &[Self::BasePrimeField]) -> Option<Self> {
-        elems.into_iter().exactly_one().ok().copied()
     }
 
     #[inline]
@@ -403,25 +388,65 @@ impl<P: FpConfig<N>, const N: usize> Field for Fp<P, N> {
         }
     }
 
-    // Fp is already a "BasePrimeField", so it's just mul by self
-    // #[inline]
-    // fn mul_by_base_prime_field(&self, elem: &Self::BasePrimeField) -> Self {
-    //     *self * elem
-    // }
+    fn mul_by_base_prime_field(&self, elem: &Self::BasePrimeField) -> Self {
+        todo!()
+    }
 
-    fn double(&self) -> Self {
-        let res = *self + *self;
+    fn from_random_bytes(bytes: &[u8]) -> Option<Self> {
+        Self::from_random_bytes_with_flags::<EmptyFlags>(bytes).map(|f| f.0)
+    }
+
+    fn sqrt(&self) -> Option<Self> {
+        match Self::SQRT_PRECOMP {
+            Some(tv) => tv.sqrt(self),
+            None => std::unimplemented!(),
+        }
+    }
+
+    fn sqrt_in_place(&mut self) -> Option<&mut Self> {
+        (*self).sqrt().map(|sqrt| {
+            *self = sqrt;
+            self
+        })
+    }
+
+    fn frobenius_map(&self, power: usize) -> Self {
+        let mut this = *self;
+        this.frobenius_map_in_place(power);
+        this
+    }
+
+    fn pow<S: AsRef<[u64]>>(&self, exp: S) -> Self {
+        let mut res = Self::one();
+
+        for i in ark_ff::BitIteratorBE::without_leading_zeros(exp) {
+            res.square_in_place();
+
+            if i {
+                res *= self;
+            }
+        }
         res
     }
 
-    fn double_in_place(&mut self) -> &mut Self {
-        *self += *self;
-        self
+    fn pow_with_table<S: AsRef<[u64]>>(powers_of_2: &[Self], exp: S) -> Option<Self> {
+        let mut res = Self::one();
+        for (pow, bit) in ark_ff::BitIteratorLE::without_trailing_zeros(exp).enumerate() {
+            if bit {
+                res *= powers_of_2.get(pow)?;
+            }
+        }
+        Some(res)
     }
 
-    fn neg_in_place(&mut self) -> &mut Self {
-        *self -= *self;
-        self
+    fn to_base_prime_field_elements(&self) -> std::iter::Once<Self::BasePrimeField> {
+        todo!()
+    }
+
+    fn from_base_prime_field_elems(
+        elems: impl IntoIterator<Item = Self::BasePrimeField>,
+    ) -> Option<Self> {
+        todo!()
     }
 }
 
