@@ -1,11 +1,11 @@
 use ark_ff::Field;
 
-use crate::{prover::ProverConfig, streams::EvaluationStream};
+use crate::{prover::ProverConfig, streams::Stream};
 
 pub struct BlendyProverConfig<F, S>
 where
     F: Field,
-    S: EvaluationStream<F>,
+    S: Stream<F>,
 {
     pub num_stages: usize,
     pub num_variables: usize,
@@ -16,7 +16,7 @@ where
 impl<'a, F, S> BlendyProverConfig<F, S>
 where
     F: Field,
-    S: EvaluationStream<F>,
+    S: Stream<F>,
 {
     pub fn new(claim: F, num_stages: usize, num_variables: usize, stream: S) -> Self {
         Self {
@@ -28,7 +28,7 @@ where
     }
 }
 
-impl<F: Field, S: EvaluationStream<F>> ProverConfig<F, S> for BlendyProverConfig<F, S> {
+impl<F: Field, S: Stream<F>> ProverConfig<F, S> for BlendyProverConfig<F, S> {
     fn default(claim: F, num_variables: usize, stream: S) -> Self {
         Self {
             claim,

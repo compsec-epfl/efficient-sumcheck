@@ -1,11 +1,11 @@
 use ark_ff::Field;
 
-use crate::{prover::ProverConfig, streams::EvaluationStream};
+use crate::{prover::ProverConfig, streams::Stream};
 
 pub struct TimeProverConfig<F, S>
 where
     F: Field,
-    S: EvaluationStream<F>,
+    S: Stream<F>,
 {
     pub num_variables: usize,
     pub claim: F,
@@ -15,7 +15,7 @@ where
 impl<'a, F, S> TimeProverConfig<F, S>
 where
     F: Field,
-    S: EvaluationStream<F>,
+    S: Stream<F>,
 {
     pub fn new(claim: F, num_variables: usize, stream: S) -> Self {
         Self {
@@ -26,7 +26,7 @@ where
     }
 }
 
-impl<F: Field, S: EvaluationStream<F>> ProverConfig<F, S> for TimeProverConfig<F, S> {
+impl<F: Field, S: Stream<F>> ProverConfig<F, S> for TimeProverConfig<F, S> {
     fn default(claim: F, num_variables: usize, stream: S) -> Self {
         Self {
             claim,

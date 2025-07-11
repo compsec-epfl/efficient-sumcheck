@@ -3,10 +3,10 @@ use ark_ff::Field;
 use crate::{
     multilinear::{SpaceProver, SpaceProverConfig},
     prover::Prover,
-    streams::EvaluationStream,
+    streams::Stream,
 };
 
-impl<F: Field, S: EvaluationStream<F>> Prover<F> for SpaceProver<F, S> {
+impl<F: Field, S: Stream<F>> Prover<F> for SpaceProver<F, S> {
     type ProverConfig = SpaceProverConfig<F, S>;
     type ProverMessage = Option<(F, F)>;
     type VerifierMessage = Option<F>;
@@ -53,12 +53,12 @@ impl<F: Field, S: EvaluationStream<F>> Prover<F> for SpaceProver<F, S> {
 mod tests {
     use crate::{
         multilinear::SpaceProver,
-        tests::{multilinear::sanity_test, BasicEvaluationStream, F19},
+        streams::MemoryStream,
+        tests::{multilinear::sanity_test, F19},
     };
 
     #[test]
     fn sumcheck() {
-        sanity_test::<F19, BasicEvaluationStream<F19>, SpaceProver<F19, BasicEvaluationStream<F19>>>(
-        );
+        sanity_test::<F19, MemoryStream<F19>, SpaceProver<F19, MemoryStream<F19>>>();
     }
 }

@@ -4,14 +4,15 @@ use crate::{
     hypercube::Hypercube,
     messages::VerifierMessages,
     multilinear::{BlendyProver, BlendyProverConfig},
+    order_strategy::GraycodeOrder,
     prover::Prover,
-    streams::EvaluationStream,
+    streams::Stream,
 };
 
 impl<'a, F, S> Prover<F> for BlendyProver<F, S>
 where
     F: Field,
-    S: EvaluationStream<F>,
+    S: Stream<F>,
 {
     type ProverConfig = BlendyProverConfig<F, S>;
     type ProverMessage = Option<(F, F)>;
@@ -26,9 +27,9 @@ where
             num_stages: prover_config.num_stages,
             num_variables: prover_config.num_variables,
             verifier_messages: VerifierMessages::new(&vec![]),
-            sums: vec![F::ZERO; Hypercube::stop_value(stage_size)],
-            lag_polys: vec![F::ONE; Hypercube::stop_value(stage_size)],
-            lag_polys_update: vec![F::ONE; Hypercube::stop_value(stage_size)],
+            sums: vec![F::ZERO; Hypercube::<GraycodeOrder>::stop_value(stage_size)],
+            lag_polys: vec![F::ONE; Hypercube::<GraycodeOrder>::stop_value(stage_size)],
+            lag_polys_update: vec![F::ONE; Hypercube::<GraycodeOrder>::stop_value(stage_size)],
             stage_size,
         }
     }
@@ -71,12 +72,12 @@ where
 mod tests {
     use crate::{
         multilinear::BlendyProver,
-        tests::{multilinear::sanity_test, BasicEvaluationStream, F19},
+        streams::MemoryStream,
+        tests::{multilinear::sanity_test, F19},
     };
 
     #[test]
     fn sumcheck() {
-        sanity_test::<F19, BasicEvaluationStream<F19>, BlendyProver<F19, BasicEvaluationStream<F19>>>(
-        );
+        sanity_test::<F19, MemoryStream<F19>, BlendyProver<F19, MemoryStream<F19>>>();
     }
 }

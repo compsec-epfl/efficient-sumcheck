@@ -1,11 +1,7 @@
 [package]
 name = "space-efficient-sumcheck"
 version = "0.0.2"
-authors = [
-    "Giacomo Fenzi <giacomo.fenzi@epfl.ch>",
-    "Elisabetta Fedele <efedele@ethz.ch>",
-    "Andrew Zitek-Estrada <andrew.zitek@epfl.ch>",
-]
+authors = ["arkworks maintainers"]
 description = "TODO"
 repository = "https://github.com/compsec-epfl/space-efficient-sumcheck"
 include = ["Cargo.toml", "src", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
@@ -21,6 +17,7 @@ num-traits = "0.2"
 zeroize = "1.8.1"
 itertools = "0.10.5"
 educe = "0.6.0"
+memmap2 = "0.9.5"
 fields_macro = { path = "fields_macro" }
 
 [dev-dependencies]
@@ -28,4 +25,5 @@ criterion = "0.4"
 
 [features]
 simd = []
+
 

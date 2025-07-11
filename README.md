@@ -34,19 +34,19 @@ We perform an evaluation of the three algorithms we implemented. The asymptotic 
 </p>
 
 ##  Usage
-The library can be used to run sumcheck over any implementation for [EvaluationStream](/src/provers/evaluation_stream.rs) to obtain a transcript: 
+The library can be used to run sumcheck over any implementation for [Stream](/src/provers/evaluation_stream.rs) to obtain a transcript: 
 
     use ark_std::rand::Rng;
     use space_efficient_sumcheck::{
         provers::{
-            test_helpers::BenchEvaluationStream, BlendyProver, Prover, ProverArgs,
+            test_helpers::BenchStream, BlendyProver, Prover, ProverArgs,
         },
         Sumcheck,
     };
 
 
     let mut rng = ark_std::test_rng();
-    let stream: BenchEvaluationStream<TestField> = BenchEvaluationStream::new();
+    let stream: BenchStream<TestField> = BenchStream::new();
     let transcript = Sumcheck::prove(
         &mut BlendyProver::<F>::new(BlendyProver::generate_default_args(
             Box::new(&stream),

@@ -1,4 +1,4 @@
-use crate::streams::EvaluationStream;
+use crate::streams::Stream;
 use ark_ff::Field;
 
 /*
@@ -11,11 +11,11 @@ use ark_ff::Field;
  */
 
 #[derive(Debug, Clone)]
-pub struct BenchEvaluationStream<F: Field> {
+pub struct BenchStream<F: Field> {
     pub num_variables: usize,
     pub claimed_sum: F,
 }
-impl<F: Field> BenchEvaluationStream<F> {
+impl<F: Field> BenchStream<F> {
     pub fn new(num_variables: usize) -> Self {
         let hypercube_len = 2usize.pow(num_variables.try_into().unwrap());
         let mut claimed_sum: F = F::ZERO;
@@ -27,25 +27,18 @@ impl<F: Field> BenchEvaluationStream<F> {
             claimed_sum,
         }
     }
-    pub fn vec_of_field_to_usize(vec: Vec<F>) -> usize {
-        // Reverse the vector to start from the least significant bit
-        let reversed_vec: Vec<F> = vec.into_iter().rev().collect();
+}
 
-        // Calculate the decimal value
-        let decimal_value: usize = reversed_vec
-            .iter()
-            .enumerate()
-            .filter(|(_, &bit)| bit == F::ONE)
-            .map(|(i, _)| 2usize.pow(i as u32))
-            .sum();
-
-        decimal_value
+impl<F: Field> Default for BenchStream<F> {
+    fn default() -> Self {
+        Self {
+            num_variables: 0,
+            claimed_sum: F::ZERO,
+        }
     }
 }
-impl<F: Field> EvaluationStream<F> for BenchEvaluationStream<F> {
-    fn claim(&self) -> F {
-        self.claimed_sum
-    }
+
+impl<F: Field> Stream<F> for BenchStream<F> {
     fn evaluation(&self, point: usize) -> F {
         F::from(point as u64)
     }

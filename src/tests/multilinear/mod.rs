@@ -2,14 +2,14 @@ use ark_ff::Field;
 
 use crate::{
     prover::{Prover, ProverConfig},
-    streams::EvaluationStream,
-    tests::{polynomials::three_variable_polynomial_evaluations, streams::BasicEvaluationStream},
+    streams::{MemoryStream, Stream},
+    tests::polynomials::three_variable_polynomial_evaluations,
 };
 
 pub fn multilinear_round_sanity<F, S, P>(p: &mut P, message: Option<F>, eval_0: F, eval_1: F)
 where
     F: Field,
-    S: EvaluationStream<F>,
+    S: Stream<F>,
     P: Prover<F, VerifierMessage = Option<F>, ProverMessage = Option<(F, F)>>,
 {
     let round = p.next_message(message).unwrap();
@@ -20,12 +20,12 @@ where
 pub fn sanity_test<F, S, P>()
 where
     F: Field,
-    S: EvaluationStream<F> + From<BasicEvaluationStream<F>>,
+    S: Stream<F> + From<MemoryStream<F>>,
     P: Prover<F, VerifierMessage = Option<F>, ProverMessage = Option<(F, F)>>,
     P::ProverConfig: ProverConfig<F, S>,
 {
-    let s: S = BasicEvaluationStream::new(three_variable_polynomial_evaluations()).into();
-    let mut p = P::new(P::ProverConfig::default(F::from(6_u32), 3, s));
+    let s: S = MemoryStream::new(three_variable_polynomial_evaluations()).into();
+    let mut p = P::new(ProverConfig::default(F::from(6_u32), 3, s));
     /*
      * Zeroth Round: All variables are free
      *

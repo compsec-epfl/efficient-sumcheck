@@ -225,7 +225,9 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
         elem
     }
 
-    fn to_base_prime_field_elements(&self) -> impl Iterator<Item = <Self as ark_ff::Field>::BasePrimeField> {
+    fn to_base_prime_field_elements(
+        &self,
+    ) -> impl Iterator<Item = <Self as ark_ff::Field>::BasePrimeField> {
         iter::once(*self)
     }
 

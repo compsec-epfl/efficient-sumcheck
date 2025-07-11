@@ -3,10 +3,10 @@ use ark_ff::Field;
 use crate::{
     multilinear::{TimeProver, TimeProverConfig},
     prover::Prover,
-    streams::EvaluationStream,
+    streams::Stream,
 };
 
-impl<F: Field, S: EvaluationStream<F>> Prover<F> for TimeProver<F, S> {
+impl<F: Field, S: Stream<F>> Prover<F> for TimeProver<F, S> {
     type ProverConfig = TimeProverConfig<F, S>;
     type ProverMessage = Option<(F, F)>;
     type VerifierMessage = Option<F>;
@@ -55,12 +55,12 @@ impl<F: Field, S: EvaluationStream<F>> Prover<F> for TimeProver<F, S> {
 mod tests {
     use crate::{
         multilinear::TimeProver,
-        tests::{multilinear::sanity_test, BasicEvaluationStream, F19},
+        streams::MemoryStream,
+        tests::{multilinear::sanity_test, F19},
     };
 
     #[test]
     fn sumcheck() {
-        sanity_test::<F19, BasicEvaluationStream<F19>, TimeProver<F19, BasicEvaluationStream<F19>>>(
-        );
+        sanity_test::<F19, MemoryStream<F19>, TimeProver<F19, MemoryStream<F19>>>();
     }
 }

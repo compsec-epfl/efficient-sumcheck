@@ -2,7 +2,7 @@
 
 # We measure (i) wall time; and (ii) maximum resident set size, using the GNU-time facility.
 
-algorithms="ProductVSBW ProductBlendy2 Blendy1 Blendy2 VSBW Blendy3 Blendy4 CTY"
+algorithms="ProductBlendy2 ProductVSBW ProductCTY Blendy1 Blendy2 VSBW Blendy3 Blendy4 CTY"
 fields="Field64 Field128 FieldBn254"
 
 for algorithm in $algorithms; do
@@ -18,6 +18,7 @@ for algorithm in $algorithms; do
                 "CTY") stage_size="1" ;;
                 "ProductBlendy2") stage_size="2" ;;
                 "ProductVSBW") stage_size="1" ;;
+                "ProductCTY") stage_size="1" ;;
                 *) ;;
             esac
             case "$algorithm" in
@@ -29,6 +30,7 @@ for algorithm in $algorithms; do
                 "CTY") algorithm_label="CTY" ;;
                 "ProductBlendy2") algorithm_label="ProductBlendy" ;;
                 "ProductVSBW") algorithm_label="ProductVSBW" ;;
+                "ProductCTY") algorithm_label="ProductCTY" ;;
                 *) ;;
             esac
             # NOTE FOR NEXT LINE: mac --> "gtime", linux --> "time"

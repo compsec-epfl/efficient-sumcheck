@@ -2,102 +2,119 @@ use ark_bn254::Fr as BN254Field;
 use ark_ff::Field;
 
 use space_efficient_sumcheck::{
+    hypercube::Hypercube,
     multilinear::{
         BlendyProver, BlendyProverConfig, SpaceProver, SpaceProverConfig, TimeProver,
         TimeProverConfig,
     },
     multilinear_product::{
-        BlendyProductProver, BlendyProductProverConfig, TimeProductProver, TimeProductProverConfig,
+        BlendyProductProver, BlendyProductProverConfig, TimeProductProver, TimeProductProverConfig, SpaceProductProver,
+        SpaceProductProverConfig,
     },
-    prover::{ProductProverConfig, Prover, ProverConfig},
-    tests::{BenchEvaluationStream, F64, F128},
+    order_strategy::SignificantBitOrder,
+    prover::{Prover, ProverConfig},
+    streams::{multivariate_claim, multivariate_product_claim},
+    tests::{BenchStream, F128, F64},
     ProductSumcheck, Sumcheck,
 };
 
 pub mod validation;
-use validation::{BenchArgs, AlgorithmLabel, FieldLabel, validate_and_format_command_line_args};
+use validation::{validate_and_format_command_line_args, AlgorithmLabel, BenchArgs, FieldLabel};
 
 fn run_on_field<F: Field>(bench_args: BenchArgs) {
     let mut rng = ark_std::test_rng();
-    let stream: BenchEvaluationStream<F> =
-        BenchEvaluationStream::<F>::new(bench_args.num_variables);
+    let s = BenchStream::<F>::new(bench_args.num_variables);
 
     // switch on algorithm_label
     match bench_args.algorithm_label {
         AlgorithmLabel::Blendy => {
-            let config: BlendyProverConfig<F, BenchEvaluationStream<F>> =
-                BlendyProverConfig::<F, BenchEvaluationStream<F>>::default(
-                    stream.claimed_sum,
+            let config: BlendyProverConfig<F, BenchStream<F>> =
+                BlendyProverConfig::<F, BenchStream<F>>::default(
+                    multivariate_claim(s.clone()),
                     bench_args.num_variables,
-                    stream,
+                    s,
                 );
-            Sumcheck::<F>::prove::<
-                BenchEvaluationStream<F>,
-                BlendyProver<F, BenchEvaluationStream<F>>,
-            >(
-                &mut BlendyProver::<F, BenchEvaluationStream<F>>::new(config),
-                &mut rng,
-            );
+            let transcript =
+                Sumcheck::<F>::prove::<BenchStream<F>, BlendyProver<F, BenchStream<F>>>(
+                    &mut BlendyProver::<F, BenchStream<F>>::new(config),
+                    &mut rng,
+                );
+            assert!(transcript.is_accepted);
         }
         AlgorithmLabel::VSBW => {
-            let config: TimeProverConfig<F, BenchEvaluationStream<F>> =
-                TimeProverConfig::<F, BenchEvaluationStream<F>>::default(
-                    stream.claimed_sum,
+            let config: TimeProverConfig<F, BenchStream<F>> =
+                TimeProverConfig::<F, BenchStream<F>>::default(
+                    multivariate_claim(s.clone()),
                     bench_args.num_variables,
-                    stream,
+                    s,
                 );
-            Sumcheck::<F>::prove::<BenchEvaluationStream<F>, TimeProver<F, BenchEvaluationStream<F>>>(
-                &mut TimeProver::<F, BenchEvaluationStream<F>>::new(config),
+            let transcript = Sumcheck::<F>::prove::<BenchStream<F>, TimeProver<F, BenchStream<F>>>(
+                &mut TimeProver::<F, BenchStream<F>>::new(config),
                 &mut rng,
             );
+            assert!(transcript.is_accepted);
         }
         AlgorithmLabel::CTY => {
-            let config: SpaceProverConfig<F, BenchEvaluationStream<F>> =
-                SpaceProverConfig::<F, BenchEvaluationStream<F>>::default(
-                    stream.claimed_sum,
+            let config: SpaceProverConfig<F, BenchStream<F>> =
+                SpaceProverConfig::<F, BenchStream<F>>::default(
+                    multivariate_claim(s.clone()),
                     bench_args.num_variables,
-                    stream,
+                    s,
                 );
-            Sumcheck::<F>::prove::<
-                BenchEvaluationStream<F>,
-                SpaceProver<F, BenchEvaluationStream<F>>,
-            >(
-                &mut SpaceProver::<F, BenchEvaluationStream<F>>::new(config),
+            let transcript = Sumcheck::<F>::prove::<BenchStream<F>, SpaceProver<F, BenchStream<F>>>(
+                &mut SpaceProver::<F, BenchStream<F>>::new(config),
                 &mut rng,
             );
+            assert!(transcript.is_accepted);
         }
         AlgorithmLabel::ProductVSBW => {
-            let config: TimeProductProverConfig<F, BenchEvaluationStream<F>> =
-                TimeProductProverConfig::<F, BenchEvaluationStream<F>>::default(
-                    stream.claimed_sum,
-                    bench_args.num_variables,
-                    stream.clone(),
-                    stream,
-                );
-            ProductSumcheck::<F>::prove::<
-                BenchEvaluationStream<F>,
-                TimeProductProver<F, BenchEvaluationStream<F>>,
+            let config: TimeProductProverConfig<F, BenchStream<F>> =
+                TimeProductProverConfig::<F, BenchStream<F>> {
+                    claim: multivariate_product_claim(vec![s.clone(), s.clone()]),
+                    num_variables: bench_args.num_variables,
+                    streams: vec![s.clone(), s],
+                };
+            let transcript = ProductSumcheck::<F>::prove::<
+                BenchStream<F>,
+                TimeProductProver<F, BenchStream<F>>,
             >(
-                &mut TimeProductProver::<F, BenchEvaluationStream<F>>::new(config),
+                &mut TimeProductProver::<F, BenchStream<F>>::new(config),
                 &mut rng,
             );
+            assert!(transcript.is_accepted);
         }
         AlgorithmLabel::ProductBlendy => {
-            let config: BlendyProductProverConfig<F, BenchEvaluationStream<F>> =
-                BlendyProductProverConfig::<F, BenchEvaluationStream<F>> {
-                    claim: stream.claimed_sum,
+            let config: BlendyProductProverConfig<F, BenchStream<F>> =
+                BlendyProductProverConfig::<F, BenchStream<F>> {
+                    claim: multivariate_product_claim(vec![s.clone(), s.clone()]),
                     num_variables: bench_args.num_variables,
                     num_stages: bench_args.stage_size,
-                    stream_p: stream.clone(),
-                    stream_q: stream,
+                    streams: vec![s.clone(), s],
                 };
-            ProductSumcheck::<F>::prove::<
-                BenchEvaluationStream<F>,
-                BlendyProductProver<F, BenchEvaluationStream<F>>,
+            let transcript = ProductSumcheck::<F>::prove::<
+                BenchStream<F>,
+                BlendyProductProver<F, BenchStream<F>>,
             >(
-                &mut BlendyProductProver::<F, BenchEvaluationStream<F>>::new(config),
+                &mut BlendyProductProver::<F, BenchStream<F>>::new(config),
                 &mut rng,
             );
+            assert!(transcript.is_accepted);
+        }
+        AlgorithmLabel::ProductCTY => {
+            let config: SpaceProductProverConfig<F, BenchStream<F>> =
+                SpaceProductProverConfig::<F, BenchStream<F>> {
+                    claim: multivariate_product_claim(vec![s.clone(), s.clone()]),
+                    num_variables: bench_args.num_variables,
+                    streams: vec![s.clone(), s],
+                };
+            let transcript = ProductSumcheck::<F>::prove::<
+                BenchStream<F>,
+                SpaceProductProver<F, BenchStream<F>>,
+            >(
+                &mut SpaceProductProver::<F, BenchStream<F>>::new(config),
+                &mut rng,
+            );
+            assert!(transcript.is_accepted);
         }
     };
 }

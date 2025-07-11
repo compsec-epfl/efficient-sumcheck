@@ -1,7 +1,9 @@
-use ark_ff::Field;
+mod file;
+mod memory;
+mod stream;
+mod stream_iterator;
 
-pub trait EvaluationStream<F: Field> {
-    fn claim(&self) -> F;
-    fn evaluation(&self, point: usize) -> F;
-    fn num_variables(&self) -> usize;
-}
+pub use file::FileStream;
+pub use memory::{reorder_vec, MemoryStream};
+pub use stream::{multivariate_claim, multivariate_product_claim, Stream};
+pub use stream_iterator::StreamIterator;

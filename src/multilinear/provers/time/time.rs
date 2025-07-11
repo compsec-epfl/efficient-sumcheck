@@ -1,9 +1,9 @@
 use ark_ff::Field;
 use ark_std::vec::Vec;
 
-use crate::streams::EvaluationStream;
+use crate::streams::Stream;
 
-pub struct TimeProver<F: Field, S: EvaluationStream<F>> {
+pub struct TimeProver<F: Field, S: Stream<F>> {
     pub claim: F,
     pub current_round: usize,
     pub evaluations: Option<Vec<F>>,
@@ -11,7 +11,7 @@ pub struct TimeProver<F: Field, S: EvaluationStream<F>> {
     pub num_variables: usize,
 }
 
-impl<F: Field, S: EvaluationStream<F>> TimeProver<F, S> {
+impl<F: Field, S: Stream<F>> TimeProver<F, S> {
     fn num_free_variables(&self) -> usize {
         self.num_variables - self.current_round
     }
