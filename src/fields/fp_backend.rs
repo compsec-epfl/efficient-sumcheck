@@ -444,7 +444,7 @@ impl<P: FpConfig<N>, const N: usize> Field for Fp<P, N> {
     }
 
     fn from_base_prime_field_elems(
-        elems: impl IntoIterator<Item = Self::BasePrimeField>,
+        _elems: impl IntoIterator<Item = Self::BasePrimeField>,
     ) -> Option<Self> {
         todo!()
     }
