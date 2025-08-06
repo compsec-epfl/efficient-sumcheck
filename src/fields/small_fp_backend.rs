@@ -46,6 +46,9 @@ pub trait SmallFpConfig: Send + Sync + 'static + Sized {
     const MODULUS: Self::T;
     const MODULUS_128: u128;
 
+    // ! this is fixed temporarily the value can be 1 or 2
+    const NUM_BIG_INT_LIMBS: usize = 2;
+
     /// A multiplicative generator of the field.
     /// `Self::GENERATOR` is an element having multiplicative order
     /// `Self::MODULUS - 1`.
@@ -149,9 +152,9 @@ impl<P: SmallFpConfig> SmallFp<P> {
             _phantom: PhantomData,
         }
     }
-    // TODO: Constant 2 is here becuase we fixed BigInt<2> this will be generic in the future
+    
     fn num_bits_to_shave() -> usize {
-        64 * 2 - (Self::MODULUS_BIT_SIZE as usize)
+        64 * P::NUM_BIG_INT_LIMBS - (Self::MODULUS_BIT_SIZE as usize)
     }
 }
 
@@ -280,8 +283,7 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
             let flag_location = output_byte_size - 1;
 
             // At which byte is the flag located in the last limb?
-            // TODO: Constant 2 is here becuase we fixed BigInt<2> this will be generic in the future
-            let flag_location_in_last_limb = flag_location.saturating_sub(8 * (2 - 1));
+            let flag_location_in_last_limb = flag_location.saturating_sub(8 * (P::NUM_BIG_INT_LIMBS - 1));
 
             // Take all but the last 9 bytes.
             let last_bytes = result_bytes.last_n_plus_1_bytes_mut();
@@ -298,8 +300,7 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
                 }
                 *b &= m;
             }
-            // TODO: Constant 2 is here becuase we fixed BigInt<2> this will be generic in the future
-            Self::deserialize_compressed(&result_bytes.as_slice()[..(2 * 8)])
+            Self::deserialize_compressed(&result_bytes.as_slice()[..(P::NUM_BIG_INT_LIMBS * 8)])
                 .ok()
                 .and_then(|f| F::from_u8(flags).map(|flag| (f, flag)))
         }
