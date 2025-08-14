@@ -5,8 +5,8 @@
     <a href="https://github.com/compsec-epfl/space-efficient-sumcheck/blob/main/LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p>
 
-This library was developed using the [arkworks](https://arkworks.rs) ecosystem to accompany [A Time-Space Tradeoff for the Sumcheck Prover](https://eprint.iacr.org/2024/524). 
-By [Alessandro Chiesa](https://ic-people.epfl.ch/~achiesa/), [Elisabetta Fedele](https://elisabettafedele.github.io), [Giacomo Fenzi](https://gfenzi.io), and [Andrew Zitek-Estrada](https://github.com/z-tech).
+This library was developed using the [arkworks](https://arkworks.rs) ecosystem to accompany [A Time-Space Tradeoff for the Sumcheck Prover](https://eprint.iacr.org/2024/524) and [Time-Space Trade-Offs for Sumcheck](https://eprint.iacr.org/2025/1473). 
+By [Anubhav Baweja](https://dblp.org/pid/192/1642), [Alessandro Chiesa](https://ic-people.epfl.ch/~achiesa/), [Elisabetta Fedele](https://elisabettafedele.github.io), [Giacomo Fenzi](https://gfenzi.io), [Pratyush Mishra](https://pratyushmishra.com/), [Tushar Mopuri](https://tmopuri.com/) and [Andrew Zitek-Estrada](https://github.com/z-tech).
 
 **WARNING:** This is an academic prototype and has not received careful code review. This implementation is NOT ready for production use
 
