@@ -6,6 +6,7 @@ use space_efficient_sumcheck::fields::small_fp_backend::SmallFpConfig;
 #[derive(SmallFpConfig)]
 #[modulus = "2147483647"]
 #[generator = "7"]
+#[backend = "standard"]
 struct SomeField;
 
 fn main() {
