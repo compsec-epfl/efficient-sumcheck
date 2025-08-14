@@ -8,13 +8,13 @@ use space_efficient_sumcheck::{
         TimeProverConfig,
     },
     multilinear_product::{
-        BlendyProductProver, BlendyProductProverConfig, TimeProductProver, TimeProductProverConfig, SpaceProductProver,
-        SpaceProductProverConfig,
+        BlendyProductProver, BlendyProductProverConfig, SpaceProductProver,
+        SpaceProductProverConfig, TimeProductProver, TimeProductProverConfig,
     },
     order_strategy::SignificantBitOrder,
     prover::{Prover, ProverConfig},
     streams::{multivariate_claim, multivariate_product_claim},
-    tests::{BenchStream, F128, F64},
+    tests::{BenchStream, SmallF128, SmallF32, SmallF64, F128, F64},
     ProductSumcheck, Sumcheck,
 };
 
@@ -34,11 +34,10 @@ fn run_on_field<F: Field>(bench_args: BenchArgs) {
                     bench_args.num_variables,
                     s,
                 );
-            let transcript =
-                Sumcheck::<F>::prove::<BenchStream<F>, BlendyProver<F, BenchStream<F>>>(
-                    &mut BlendyProver::<F, BenchStream<F>>::new(config),
-                    &mut rng,
-                );
+            let transcript = Sumcheck::<F>::prove::<BenchStream<F>, BlendyProver<F, BenchStream<F>>>(
+                &mut BlendyProver::<F, BenchStream<F>>::new(config),
+                &mut rng,
+            );
             assert!(transcript.is_accepted);
         }
         AlgorithmLabel::VSBW => {
@@ -132,6 +131,15 @@ fn main() {
         }
         FieldLabel::FieldBn254 => {
             run_on_field::<BN254Field>(bench_args);
+        }
+        FieldLabel::SmallF32 => {
+            run_on_field::<SmallF32>(bench_args);
+        }
+        FieldLabel::SmallF64 => {
+            run_on_field::<SmallF64>(bench_args);
+        }
+        FieldLabel::SmallF128 => {
+            run_on_field::<SmallF128>(bench_args);
         }
     };
 }
