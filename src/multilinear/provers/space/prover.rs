@@ -54,11 +54,20 @@ mod tests {
     use crate::{
         multilinear::SpaceProver,
         streams::MemoryStream,
-        tests::{multilinear::sanity_test, F19},
+        tests::{multilinear::sanity_test, SmallF19, F19},
     };
 
     #[test]
     fn sumcheck() {
         sanity_test::<F19, MemoryStream<F19>, SpaceProver<F19, MemoryStream<F19>>>();
+    }
+
+    #[test]
+    fn sumcheck_small_fp() {
+        sanity_test::<
+            SmallF19,
+            MemoryStream<SmallF19>,
+            SpaceProver<SmallF19, MemoryStream<SmallF19>>,
+        >();
     }
 }

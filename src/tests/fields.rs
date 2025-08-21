@@ -6,20 +6,30 @@ use ark_ff::{BigInt, SqrtPrecomputation};
 use fields_macro::SmallFpConfig;
 
 #[derive(SmallFpConfig)]
-#[modulus = "4294967295"]
+#[modulus = "19"] // for testing purposes
 #[generator = "2"]
+#[backend = "standard"]
+pub struct SmallF19Config;
+pub type SmallF19 = SmallFp<SmallF19Config>;
+
+#[derive(SmallFpConfig)]
+#[modulus = "2147483647"] // 2^31 - 1
+#[generator = "2"]
+#[backend = "standard"]
 pub struct SmallF32Config;
 pub type SmallF32 = SmallFp<SmallF32Config>;
 
 #[derive(SmallFpConfig)]
 #[modulus = "18446744069414584321"] // q = 2^64 - 2^32 + 1
 #[generator = "2"]
+#[backend = "standard"]
 pub struct SmallF64Config;
 pub type SmallF64 = SmallFp<SmallF64Config>;
 
 #[derive(SmallFpConfig)]
-#[modulus = "143244528689204659050391023439224324689"] // q = 143244528689204659050391023439224324689
+#[modulus = "143244528689204659050391023439224324689"]
 #[generator = "2"]
+#[backend = "standard"]
 pub struct SmallF128Config;
 pub type SmallF128 = SmallFp<SmallF128Config>;
 
