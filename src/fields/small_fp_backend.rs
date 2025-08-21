@@ -206,7 +206,7 @@ impl<P: SmallFpConfig> AdditiveGroup for SmallFp<P> {
 const fn const_to_bigint(value: u128) -> BigInt<2> {
     let low = (value & 0xFFFFFFFFFFFFFFFF) as u64;
     let high = (value >> 64) as u64;
-    BigInt::<2>::new([high, low])
+    BigInt::<2>::new([low, high])
 }
 
 // TODO: Make this generic for BigInt<N>

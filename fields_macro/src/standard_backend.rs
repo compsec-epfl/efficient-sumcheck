@@ -11,8 +11,12 @@ pub fn standard_backend_impl(
         (
             quote! {
                 fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
-                    let val = (a.0[0] as u128) + ((a.0[0] as u128) << 64);
-                    Some(SmallFp::new(val as Self::T))
+                    let val = (a.0[0] as u128) + ((a.0[1] as u128) << 64);
+                    if val >= Self::MODULUS_128 {
+                        None
+                    } else {
+                        Some(SmallFp::new(val as Self::T))
+                    }
                 }
             },
             quote! {
@@ -25,7 +29,7 @@ pub fn standard_backend_impl(
         (
             quote! {
                 fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
-                    if a.0[0] >= (Self::MODULUS as u64) {
+                    if a.0[1] != 0 || a.0[0] >= (Self::MODULUS as u64) {
                         None
                     } else {
                         Some(SmallFp::new(a.0[0] as Self::T))
@@ -34,7 +38,7 @@ pub fn standard_backend_impl(
             },
             quote! {
                 fn into_bigint(a: SmallFp<Self>) -> BigInt<2> {
-                    ark_ff::BigInt([0, a.value as u64])
+                    ark_ff::BigInt([a.value as u64, 0])
                 }
             },
         )
@@ -94,25 +98,24 @@ pub fn standard_backend_impl(
              a.value = (product % (Self::MODULUS as u128)) as Self::T;
         }
 
-        // TODO: Do the EE algorithm in #ty
+        // TODO: check overflow for u128
         fn inverse(a: &SmallFp<Self>) -> Option<SmallFp<Self>> {
             if a.value == 0 {
                 return None;
             }
 
-            let mut base: #ty = a.value;
-            let mut exp: u128 = (Self::MODULUS_128 - 2);
-            let mut acc: u128 = 1;
-            let m: u128 = Self::MODULUS_128;
+            let mut base = a.value;
+            let mut exp = Self::MODULUS - 2;
+            let mut acc = 1 as Self::T;
 
             while exp > 0 {
                 if (exp & 1) == 1 {
-                    acc = (acc * (base as u128)) % m;
+                    acc = ((acc as u128 * base as u128) % Self::MODULUS as u128) as Self::T;
                 }
-                base = (((base as u128) * (base as u128)) % m) as #ty;
+                base = ((base as u128 * base as u128) % Self::MODULUS as u128) as Self::T;
                 exp >>= 1;
             }
-            Some(SmallFp::new(acc as Self::T))
+            Some(SmallFp::new(acc))
         }
 
         #from_bigint_impl
