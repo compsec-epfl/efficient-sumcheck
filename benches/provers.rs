@@ -2,10 +2,10 @@ use ark_std::{hint::black_box, time::Duration};
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 use space_efficient_sumcheck::{
-    Sumcheck,
     multilinear::TimeProver,
     prover::{Prover, ProverConfig},
     tests::{BenchStream, F128},
+    Sumcheck,
 };
 
 fn time_prover_bench(c: &mut Criterion) {
