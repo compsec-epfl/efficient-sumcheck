@@ -69,8 +69,6 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
         }
         // if first few rounds, then no table is computed, need to compute sums from the streams
         else if self.current_round + 1 <= self.last_round_phase1 {
-            // let time1 = std::time::Instant::now();
-
             // Lag Poly
             let mut sequential_lag_poly: LagrangePolynomial<F, SignificantBitOrder> =
                 LagrangePolynomial::new(&self.verifier_messages_round_comp);
@@ -120,11 +118,9 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                 }
             }
             sum_half = sum_half * self.inverse_four;
-            // let time2 = std::time::Instant::now();
-            // println!("round computation from stream took: {:?}", time2 - time1);
-        }
-        // computing evaluations from the cross product tables
-        else {
+        } else {
+            // computing evaluations from the cross product tables
+
             // things to help iterating
             let b_prime_num_vars = self.current_round + 1 - self.prev_table_round_num;
             let v_num_vars: usize =
@@ -180,14 +176,8 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
         let p = self.state_comp_set.contains(&j);
         let is_largest = self.state_comp_set.range((j + 1)..).next().is_none();
         if p && !is_largest {
-            // let time1 = std::time::Instant::now();
             let j_prime = self.prev_table_round_num;
             let t = self.prev_table_size;
-
-            // println!(
-            //     "table computation on round: {}, j_prime: {}, t: {}",
-            //     j, j_prime, t
-            // );
 
             // zero out the table
             let table_len = Hypercube::<SignificantBitOrder>::stop_value(t);
@@ -244,17 +234,10 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                     }
                 }
             }
-            // let time2 = std::time::Instant::now();
-            // println!("table computation took: {:?}", time2 - time1);
         } else if p && is_largest {
             // switch to the memory intensive sumcheck on the last round computation
             let num_variables_new = self.num_variables - j + 1;
             self.switched_to_vsbw = true;
-
-            // println!(
-            //     "switched to vsbw on round: {}, num_vars_new: {}",
-            //     j, num_variables_new
-            // );
 
             // reset the streams
             self.stream_iterators
