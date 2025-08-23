@@ -1,0 +1,5 @@
+[build]
+rustflags = [
+  # cfg(feature = "asm") is an expected feature flag value
+  "--check-cfg=cfg(feature, values(\"asm\"))"
+]
