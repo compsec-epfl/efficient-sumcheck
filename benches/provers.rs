@@ -3,9 +3,11 @@ use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 use space_efficient_sumcheck::{
     multilinear::TimeProver,
-    prover::{Prover, ProverConfig},
+    multilinear_product::TimeProductProver,
+    prover::{ProductProverConfig, Prover, ProverConfig},
+    streams::multivariate_product_claim,
     tests::{BenchStream, F128},
-    Sumcheck,
+    ProductSumcheck, Sumcheck,
 };
 
 fn time_prover_bench(c: &mut Criterion) {
@@ -57,5 +59,50 @@ fn time_prover_bench(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, time_prover_bench);
+pub fn time_product_prover_bench(c: &mut Criterion) {
+    let mut g = c.benchmark_group("sumcheck_prover");
+    g.sample_size(10)
+        .warm_up_time(Duration::from_secs(2))
+        .measurement_time(Duration::from_secs(10));
+
+    let n_vars = 24usize;
+
+    g.bench_function("time_product_prover", |b| {
+        b.iter_batched(
+            // ------------ setup (not timed) ------------
+            || {
+                // Build one stream; clone into the config (cheap if BenchStream is Clone-by-arc)
+                let evaluation_stream: BenchStream<F128> = BenchStream::<F128>::new(n_vars);
+                let streams: Vec<BenchStream<F128>> =
+                    vec![evaluation_stream.clone(), evaluation_stream.clone()];
+                let claim = multivariate_product_claim(streams.clone());
+
+                // Prover from config
+                let prover: TimeProductProver<F128, BenchStream<F128>> =
+                    TimeProductProver::<F128, BenchStream<F128>>::new(
+                        ProductProverConfig::default(claim, n_vars, streams),
+                    );
+
+                // Fresh RNG each iter
+                let rng = ark_std::test_rng();
+
+                (prover, rng)
+            },
+            // ------------ measurement (timed) ------------
+            |(mut prover, mut rng)| {
+                // Let inference figure out the generic params of `prove`
+                let proof: ProductSumcheck<F128> = ProductSumcheck::prove::<
+                    BenchStream<F128>,
+                    TimeProductProver<F128, BenchStream<F128>>,
+                >(&mut prover, &mut rng);
+                black_box(proof);
+            },
+            BatchSize::SmallInput, // bump to LargeInput if setup is tiny vs proving
+        )
+    });
+
+    g.finish();
+}
+
+criterion_group!(benches, time_product_prover_bench, time_prover_bench);
 criterion_main!(benches);
