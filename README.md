@@ -8,10 +8,10 @@
 This library was developed using [arkworks](https://arkworks.rs) to accompany:
 
 - [Time-Space Trade-Offs for Sumcheck](https://eprint.iacr.org/2025/1473)<br>
-[Anubhav Baweja](https://dblp.org/pid/192/1642), [Alessandro Chiesa](https://ic-people.epfl.ch/~achiesa/), [Elisabetta Fedele](https://elisabettafedele.github.io), [Giacomo Fenzi](https://gfenzi.io), [Pratyush Mishra](https://pratyushmishra.com/), [Tushar Mopuri](https://tmopuri.com/) and [Andrew Zitek-Estrada](https://github.com/z-tech)
+[Anubhav Baweja](https://dblp.org/pid/192/1642), [Alessandro Chiesa](https://ic-people.epfl.ch/~achiesa/), [Elisabetta Fedele](https://elisabettafedele.github.io), [Giacomo Fenzi](https://gfenzi.io), [Pratyush Mishra](https://pratyushmishra.com/), [Tushar Mopuri](https://tmopuri.com/) and [Andrew Zitek-Estrada](https://andrewzitek.xyz)
 
-- [A Time-Space Tradeoff for the Sumcheck Prover](eprint.iacr.org/2024/524)<br>
-[Alessandro Chiesa](https://ic-people.epfl.ch/~achiesa/), [Elisabetta Fedele](https://elisabettafedele.github.io), [Giacomo Fenzi](https://gfenzi.io), and [Andrew Zitek-Estrada](https://github.com/z-tech)
+- [A Time-Space Tradeoff for the Sumcheck Prover](https://eprint.iacr.org/2024/524.pdf)<br>
+[Alessandro Chiesa](https://ic-people.epfl.ch/~achiesa/), [Elisabetta Fedele](https://elisabettafedele.github.io), [Giacomo Fenzi](https://gfenzi.io), and [Andrew Zitek-Estrada](https://andrewzitek.xyz)
 
 It is a repository of algorithms and abstractions including but not limited Blendy 🍹.
 
@@ -21,16 +21,16 @@ It is a repository of algorithms and abstractions including but not limited Blen
 The library provides implementation of sumcheck [[LFKN92](#references)] including product sumcheck. For adaptability to different contexts, it implements three proving algorithms:
 
 - The quasi-linear time and logarithmic space algorithm of [[CTY11](#references)] 
-  - [SpaceProver](./src/SpaceProver)
-  - [SpaceProductProver](./src/SpaceProductProver)
+  - [SpaceProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear/provers/space/space.rs#L8)
+  - [SpaceProductProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_product/provers/space/space.rs#L11)
 
 - The linear time and linear space algorithm of [[VSBW13](#references)] 
-  - [TimeProver](./src/TimeProver)
-  - [TimeProductProver](./src/TimeProductProver)
+  - [TimeProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear/provers/time/time.rs#L13)
+  - [TimeProductProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_product/provers/time/time.rs#L10)
 
 - The linear time and sublinear space algorithm Blendy🍹
-  - [BlendyProver](./src/BlendyProver)
-  - [BlendyProductProver](./src/BlendyProductProver)
+  - [BlendyProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear/provers/blendy/blendy.rs#L9)
+  - [BlendyProductProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_product/provers/blendy/blendy.rs#L13)
 
 ##  Usage
 The library can be used to obtain a sumcheck transcript over any implementation of [Stream](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/streams/stream.rs#L41), which could be backed by an evaluations table held in memory or read from disk. For example, if $f = 4x_1x_2 + 7x_2x_3 + 2x_1 + 13x_2$ like in the test [here](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/tests/polynomials.rs#L15), then:
