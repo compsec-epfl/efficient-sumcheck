@@ -13,7 +13,21 @@ ark-poly = "0.5.0"
 ark-serialize = "0.5.0"
 ark-std ="0.5.0"
 memmap2 = "0.9.5"
+rayon = { version = "1.10", optional = true }
+
+[dev-dependencies]
+criterion = "0.7"
+
+[features]
+default = ["parallel"]
+parallel = [
+  "dep:rayon",
+  "ark-ff/parallel",
+  "ark-poly/parallel",
+  "ark-std/parallel",
+]
 
 [[bench]]
-name = "explanation"
+name = "provers"
+path = "benches/provers.rs"
 harness = false

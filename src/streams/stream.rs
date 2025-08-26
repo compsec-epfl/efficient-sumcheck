@@ -38,7 +38,7 @@ pub fn multivariate_product_claim<F: Field, S: Stream<F>>(streams: Vec<S>) -> F 
     claim
 }
 
-pub trait Stream<F: Field>: Clone {
+pub trait Stream<F: Field>: Clone + Send + Sync {
     fn evaluation(&self, point: usize) -> F;
     fn num_variables(&self) -> usize;
 }
