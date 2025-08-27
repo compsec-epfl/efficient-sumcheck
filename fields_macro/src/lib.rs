@@ -7,21 +7,17 @@ use standard_backend::standard_backend_impl;
 use syn::{Expr, ExprLit, Lit, Meta};
 
 extern crate proc_macro;
-pub(crate) mod utils;
-
 mod montgomery_backend;
 mod standard_backend;
+mod utils;
 
-/// Fetch an attribute string from the derived struct.
 fn fetch_attr(name: &str, attrs: &[syn::Attribute]) -> Option<String> {
-    // Go over each attribute
     for attr in attrs {
         match attr.meta {
             // If the attribute's path matches `name`, and if the attribute is of
             // the form `#[name = "value"]`, return `value`
             Meta::NameValue(ref nv) if nv.path.is_ident(name) => {
                 // Extract and return the string value.
-                // If `value` is not a string, return an error
                 if let Expr::Lit(ExprLit {
                     lit: Lit::Str(ref s),
                     ..
@@ -77,7 +73,7 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
 
     let backend_impl = match backend.as_str() {
         "standard" => standard_backend_impl(ty.clone(), modulus, generator, suffix),
-        "montgomery" => montgomery_backend_impl(ty.clone(), modulus, generator),
+        "montgomery" => montgomery_backend_impl(ty.clone(), modulus, generator, suffix),
         _ => panic!("Unknown backend type"),
     };
 
