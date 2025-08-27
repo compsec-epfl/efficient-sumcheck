@@ -10,10 +10,16 @@ edition = "2021"
 [dependencies]
 ark-ff = "0.5.0"
 ark-poly = "0.5.0"
+ark-std = "0.5.0"
 ark-serialize = "0.5.0"
-ark-std ="0.5.0"
+num-bigint = "0.4"
+num-traits = "0.2"
+zeroize = "1.8.1"
+itertools = "0.10.5"
+educe = "0.6.0"
 memmap2 = "0.9.5"
 rayon = { version = "1.10", optional = true }
+fields_macro = { path = "fields_macro" }
 
 [dev-dependencies]
 criterion = "0.7"

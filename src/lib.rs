@@ -1,6 +1,7 @@
 #[doc(hidden)]
 pub mod tests;
 
+pub mod fields;
 pub mod hypercube;
 pub mod interpolation;
 pub mod messages;

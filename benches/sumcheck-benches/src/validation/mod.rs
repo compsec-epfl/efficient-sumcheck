@@ -3,6 +3,9 @@ pub enum FieldLabel {
     Field64,
     Field128,
     FieldBn254,
+    SmallF32,
+    SmallF64,
+    SmallF128,
 }
 
 #[derive(Debug)]
@@ -62,17 +65,28 @@ pub fn validate_and_format_command_line_args(argsv: Vec<String>) -> BenchArgs {
         _ => AlgorithmLabel::ProductBlendy, // this is checked in previous line
     };
     // field_label
-    if !(argsv[2] == "Field64" || argsv[2] == "Field128" || argsv[2] == "FieldBn254") {
+    if !(argsv[2] == "Field64"
+        || argsv[2] == "Field128"
+        || argsv[2] == "FieldBn254"
+        || argsv[2] == "SmallF32"
+        || argsv[2] == "SmallF64"
+        || argsv[2] == "SmallF128")
+    {
         eprintln!(
             "Usage: {} field_label algorithm_label num_variables stage_size",
             argsv[0]
         );
-        eprintln!("Invalid input: field_label must be one of (Field64, Field128, FieldBn254)");
+        eprintln!(
+            "Invalid input: field_label must be one of (Field64, Field128, FieldBn254, SmallF32, SmallF64, SmallF128)"
+        );
         std::process::exit(1);
     }
     let field_label = match argsv[2].as_str() {
         "Field64" => FieldLabel::Field64,
         "Field128" => FieldLabel::Field128,
+        "SmallF32" => FieldLabel::SmallF32,
+        "SmallF64" => FieldLabel::SmallF64,
+        "SmallF128" => FieldLabel::SmallF128,
         _ => FieldLabel::FieldBn254, // this is checked in previous line
     };
     // num_variables

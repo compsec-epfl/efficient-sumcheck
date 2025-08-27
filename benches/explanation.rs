@@ -1,5 +1,7 @@
 fn main() {
     eprintln!("Error: This project uses a custom benchmarking workflow.");
-    eprintln!("Please navigate to the appropriate bench directory and call the shell './run_bench.sh' directly.");
+    eprintln!("Please choose a bench:");
+    eprintln!("   Full Protocol Benches: 'cd ./benches/sumcheck-benches/ && cargo build --release && ./run_benches.sh'");
+    eprintln!("   Lagrange Polynomial Benches: 'cd ./benches/lag-poly-benches/ && cargo build --release && ./run_benches.sh'");
     std::process::exit(1);
 }

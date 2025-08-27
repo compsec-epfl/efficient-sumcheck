@@ -57,11 +57,20 @@ impl<F: Field, S: Stream<F>> Prover<F> for TimeProductProver<F, S> {
 mod tests {
     use crate::{
         multilinear_product::TimeProductProver,
-        tests::{multilinear_product::consistency_test, BenchStream, F64},
+        tests::{multilinear_product::consistency_test, BenchStream, SmallF64, F64},
     };
 
     #[test]
     fn parity_with_basic_prover() {
         consistency_test::<F64, BenchStream<F64>, TimeProductProver<F64, BenchStream<F64>>>();
+    }
+
+    #[test]
+    fn parity_with_basic_prover_small_fp() {
+        consistency_test::<
+            SmallF64,
+            BenchStream<SmallF64>,
+            TimeProductProver<SmallF64, BenchStream<SmallF64>>,
+        >();
     }
 }
