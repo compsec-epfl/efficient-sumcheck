@@ -13,7 +13,7 @@ This library was developed using [arkworks](https://arkworks.rs) to accompany:
 - [A Time-Space Tradeoff for the Sumcheck Prover](https://eprint.iacr.org/2024/524.pdf)<br>
 [Alessandro Chiesa](https://ic-people.epfl.ch/~achiesa/), [Elisabetta Fedele](https://elisabettafedele.github.io), [Giacomo Fenzi](https://gfenzi.io), and [Andrew Zitek-Estrada](https://andrewzitek.xyz)
 
-It is a repository of algorithms and abstractions including but not limited Blendy 🍹.
+It is a repository of algorithms and abstractions including but not limited to Blendy 🍹.
 
 **DISCLAIMER:** This library has not received security review and is NOT recommended for production use.
 
