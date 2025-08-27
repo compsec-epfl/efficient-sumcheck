@@ -54,7 +54,7 @@ pub fn standard_backend_impl(
 
         // TODO: complete this
         // copy approach from here: https://github.com/arkworks-rs/algebra/blob/851d4680491ed97fb09b5410893c2e12377b2bec/ff/src/biginteger/mod.rs#L215
-        const TWO_ADICITY: Self::T = two_adicity as Self::T;
+        const TWO_ADICITY: u32 = 1;
         const TWO_ADIC_ROOT_OF_UNITY: SmallFp<Self> = SmallFp::new(1 as Self::T);
 
         // Todo: precompute square roots
