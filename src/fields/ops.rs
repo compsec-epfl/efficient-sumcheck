@@ -1,6 +1,6 @@
-use crate::fields::small_fp_backend::{SmallFpConfig, SmallFp};
+use crate::fields::small_fp_backend::{SmallFp, SmallFpConfig};
+use ark_ff::{Field, One, Zero};
 use ark_std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-use ark_ff::{Field, Zero, One};
 
 impl<P: SmallFpConfig> Neg for SmallFp<P> {
     type Output = Self;

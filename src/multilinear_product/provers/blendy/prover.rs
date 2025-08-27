@@ -36,7 +36,6 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
                     std::cmp::min(current_round + max_rounds_phase2, current_round * 2 - 1); // the minus one is a time-efficiency optimization
                 current_round = std::cmp::max(current_round, 2);
             }
-            // println!("state_comp_set: {:?}", state_comp_set);
             state_comp_set
         };
         assert!(state_comp_set.len() > 0);
@@ -57,6 +56,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
             .cloned()
             .map(|s| StreamIterator::<F, S, SignificantBitOrder>::new(s))
             .collect();
+
         // return the BlendyProver instance
         Self {
             claim: prover_config.claim,
@@ -122,7 +122,7 @@ mod tests {
         prover::{ProductProverConfig, Prover},
         streams::{multivariate_product_claim, MemoryStream, Stream},
         tests::{
-            multilinear_product::{consistency_test, BasicProductProver, BasicProductProverConfig},
+            multilinear_product::{BasicProductProver, BasicProductProverConfig},
             polynomials::Polynomial,
             BenchStream, F64,
         },
@@ -135,52 +135,52 @@ mod tests {
     //     consistency_test::<F64, BenchStream<F64>, BlendyProductProver<F64, BenchStream<F64>>>();
     // }
 
-    // #[test]
-    // fn consistency_test_with_next_iterator() {
-    //     // get evals in lexicographic order
-    //     let num_variables = 8;
-    //     let s_tmp: BenchStream<F64> = BenchStream::<F64>::new(num_variables).into();
-    //     let mut evals: Vec<F64> = Vec::with_capacity(1 << num_variables);
-    //     for i in 0..(1 << num_variables) {
-    //         evals.push(s_tmp.evaluation(i));
-    //     }
+    #[test]
+    fn consistency_test_with_next_iterator() {
+        // get evals in lexicographic order
+        let num_variables = 8;
+        let s_tmp: BenchStream<F64> = BenchStream::<F64>::new(num_variables).into();
+        let mut evals: Vec<F64> = Vec::with_capacity(1 << num_variables);
+        for i in 0..(1 << num_variables) {
+            evals.push(s_tmp.evaluation(i));
+        }
 
-    //     // create the stream in SigBit order
-    //     let s: MemoryStream<F64> =
-    //         MemoryStream::new_from_lex::<SignificantBitOrder>(evals.clone()).into();
-    //     let claim: F64 = multivariate_product_claim(vec![s.clone(), s.clone()]);
+        // create the stream in SigBit order
+        let s: MemoryStream<F64> =
+            MemoryStream::new_from_lex::<SignificantBitOrder>(evals.clone()).into();
+        let claim: F64 = multivariate_product_claim(vec![s.clone(), s.clone()]);
 
-    //     // get transcript from Blendy prover
-    //     let prover_transcript: ProductSumcheck<F64> = ProductSumcheck::<F64>::prove::<
-    //         MemoryStream<F64>,
-    //         BlendyProductProver<F64, MemoryStream<F64>>,
-    //     >(
-    //         &mut Prover::<F64>::new(BlendyProductProverConfig::default(
-    //             claim,
-    //             num_variables,
-    //             vec![s.clone(), s],
-    //         )),
-    //         &mut ark_std::test_rng(),
-    //     );
+        // get transcript from Blendy prover
+        let prover_transcript: ProductSumcheck<F64> = ProductSumcheck::<F64>::prove::<
+            MemoryStream<F64>,
+            BlendyProductProver<F64, MemoryStream<F64>>,
+        >(
+            &mut Prover::<F64>::new(BlendyProductProverConfig::default(
+                claim,
+                num_variables,
+                vec![s.clone(), s.clone()],
+            )),
+            &mut ark_std::test_rng(),
+        );
 
-    //     // get transcript from SanityProver
-    //     let p: SparsePolynomial<F64, SparseTerm> =
-    //         <SparsePolynomial<F64, SparseTerm> as Polynomial<F64>>::from_hypercube_evaluations(
-    //             evals,
-    //         );
-    //     let mut sanity_prover = BasicProductProver::<F64>::new(BasicProductProverConfig::new(
-    //         claim.clone(),
-    //         num_variables,
-    //         p.clone(),
-    //         p,
-    //     ));
-    //     let sanity_prover_transcript = ProductSumcheck::<F64>::prove::<
-    //         MemoryStream<F64>,
-    //         BasicProductProver<F64>,
-    //     >(&mut sanity_prover, &mut ark_std::test_rng());
+        // get transcript from SanityProver
+        let p: SparsePolynomial<F64, SparseTerm> =
+            <SparsePolynomial<F64, SparseTerm> as Polynomial<F64>>::from_hypercube_evaluations(
+                s.evaluations.clone(),
+            );
+        let mut sanity_prover = BasicProductProver::<F64>::new(BasicProductProverConfig::new(
+            claim.clone(),
+            num_variables,
+            p.clone(),
+            p,
+        ));
+        let sanity_prover_transcript = ProductSumcheck::<F64>::prove::<
+            MemoryStream<F64>,
+            BasicProductProver<F64>,
+        >(&mut sanity_prover, &mut ark_std::test_rng());
 
-    //     // ensure the transcript is identical
-    //     assert_eq!(prover_transcript.is_accepted, true);
-    //     assert_eq!(prover_transcript, sanity_prover_transcript);
-    // }
+        // ensure the transcript is identical
+        assert_eq!(prover_transcript.is_accepted, true);
+        assert_eq!(prover_transcript, sanity_prover_transcript);
+    }
 }

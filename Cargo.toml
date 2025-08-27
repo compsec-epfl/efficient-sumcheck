@@ -18,12 +18,22 @@ zeroize = "1.8.1"
 itertools = "0.10.5"
 educe = "0.6.0"
 memmap2 = "0.9.5"
+rayon = { version = "1.10", optional = true }
 fields_macro = { path = "fields_macro" }
 
 [dev-dependencies]
-criterion = "0.4"
+criterion = "0.7"
 
 [features]
-simd = []
+default = ["parallel"]
+parallel = [
+  "dep:rayon",
+  "ark-ff/parallel",
+  "ark-poly/parallel",
+  "ark-std/parallel",
+]
 
-
+[[bench]]
+name = "provers"
+path = "benches/provers.rs"
+harness = false

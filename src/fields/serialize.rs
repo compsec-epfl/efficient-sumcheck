@@ -1,10 +1,10 @@
-use crate::fields::small_fp_backend::{SmallFpConfig, SmallFp};
+use crate::fields::small_fp_backend::{SmallFp, SmallFpConfig};
+use ark_ff::PrimeField;
+use ark_ff::Zero;
 use ark_serialize::{
     buffer_byte_size, CanonicalDeserialize, CanonicalDeserializeWithFlags, CanonicalSerialize,
     CanonicalSerializeWithFlags, Compress, EmptyFlags, Flags, SerializationError, Valid, Validate,
 };
-use ark_ff::PrimeField;
-use ark_ff::Zero;
 
 impl<P: SmallFpConfig> CanonicalSerializeWithFlags for SmallFp<P> {
     fn serialize_with_flags<W: ark_std::io::Write, F: Flags>(

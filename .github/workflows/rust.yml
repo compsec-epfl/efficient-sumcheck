@@ -10,7 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
+
+  lint:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -18,5 +19,18 @@ jobs:
     - name: Check lint
       run: cargo fmt --check
 
+  test_with_default_features:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
     - name: Run tests
       run: cargo test --verbose
+
+  test_with_no_default_features:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Run tests
+      run: cargo test --verbose --no-default-features
