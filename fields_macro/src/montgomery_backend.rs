@@ -6,14 +6,23 @@ pub fn backend_impl(
     generator: u128,
     suffix: &str,
 ) -> proc_macro2::TokenStream {
-    // TODO: Panic if the next power cannot fit u128,
-    let r = modulus.next_power_of_two();
+    // usisng R = 2^64
+    // todo change for closes power of 2
+    let r: u128 = 1u128 << 64; // R = 2^64
     let r_mod_n = r % modulus;
-    let r2 = (r_mod_n * r_mod_n) % modulus;
-    // TODO: fix this
-    let mod_inv = 128;
+    let r2 = (r_mod_n * r_mod_n) % modulus; // R^2 mod n
+
+    fn mod_inverse_pow2(n: u128, bits: u32) -> u128 {
+        let mut inv = 1u128;
+        for _ in 0..bits {
+            inv = inv.wrapping_mul(2u128.wrapping_sub(n.wrapping_mul(inv)));
+        }
+        inv.wrapping_neg()
+    }
+    let n_prime = mod_inverse_pow2(modulus, 64); // -n^{-1} mod 2^64
+
     let one_mont = r_mod_n;
-    let generator_mont = (generator * r_mod_n) % modulus;
+    let generator_mont = (generator % modulus) * (r_mod_n % modulus) % modulus;
 
     let (from_bigint_impl, into_bigint_impl) = if suffix == "u128" {
         (
@@ -65,11 +74,10 @@ pub fn backend_impl(
         const ZERO: SmallFp<Self> = SmallFp::new(0 as Self::T);
         const ONE: SmallFp<Self> = SmallFp::new(#one_mont as Self::T);
 
-        // TODO: complete this - need Montgomery form
+
         const TWO_ADICITY: u32 = 1;
         const TWO_ADIC_ROOT_OF_UNITY: SmallFp<Self> = SmallFp::new(1 as Self::T);
 
-        // Todo: precompute square roots - need Montgomery form
         const SQRT_PRECOMP: Option<SqrtPrecomputation<SmallFp<Self>>> = None;
 
         fn add_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
@@ -105,10 +113,23 @@ pub fn backend_impl(
             let a_u128 = a as u128;
             let b_u128 = b as u128;
 
-            // Compute t = a * b
-            let mult = a_u128.wrapping_mul(b_u128);
+            // t = a * b
+            let t = a_u128.wrapping_mul(b_u128);
 
-            (mult >> 64) as Self::T
+            // m = (t * n')
+            let m = t.wrapping_mul(#n_prime) as u64;
+
+            // u = (t + m * n) / 2^64
+            let mn = (m as u128).wrapping_mul(Self::MODULUS_128);
+            let t_plus_mn = t.wrapping_add(mn);
+            let mut u = (t_plus_mn >> 64) as u128;
+
+            // Step 5: final reduction
+            if u >= Self::MODULUS_128 {
+                u -= Self::MODULUS_128;
+            }
+
+            u as Self::T
         }
 
         fn mul_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
@@ -135,9 +156,8 @@ pub fn backend_impl(
                 return None;
             }
 
-            // double and add
             let exponent = Self::MODULUS - 2;
-            let mut result = SmallFp::new(1 as Self::T);
+            let mut result = Self::ONE;
             let mut base = *a;
             let mut exp = exponent;
 
@@ -159,40 +179,22 @@ pub fn backend_impl(
     }
 }
 
-fn inverse(a: u128, n: u128) -> Option<u128> {
-    if a == 0 {
-        return None;
-    }
-
-    let mut base = a;
-    let mut exp = n - 2;
-    let mut acc = 1;
-
-    while exp > 0 {
-        if (exp & 1) == 1 {
-            acc = (acc * base) % n;
-        }
-        base = (base * base) % n;
-        exp >>= 1;
-    }
-    Some(acc)
-}
-
-pub fn new(modulus: u128, ty: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
-    // TODO: do not recompute this...
-    let r: u128 = modulus.next_power_of_two();
-    let r_mod_n: u128 = r % modulus;
-    let r_inv: u128 = inverse(r_mod_n, modulus).unwrap();
+pub fn new(modulus: u128, _ty: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+    // todo change for closes power of 2
+    let r = (1u128 << 64) % modulus;
+    let r2 = (r * r) % modulus;
 
     quote! {
         pub fn new(value: <Self as SmallFpConfig>::T) -> SmallFp<Self> {
-                let mont_value: #ty = value * #r_mod_n as #ty;
-                SmallFp::new(mont_value)
+            let reduced_value = value % <Self as SmallFpConfig>::MODULUS;
+            let mont_value = <Self as SmallFpConfig>::safe_mul(reduced_value, #r2 as <Self as SmallFpConfig>::T);
+            SmallFp::new(mont_value)
         }
 
-        pub fn exit(a: SmallFp<Self>) -> SmallFp<Self> {
-            let exit: #ty = <Self as SmallFpConfig>::safe_mul(a.value, #r_inv as #ty);
-            SmallFp::new(exit % <Self as SmallFpConfig>::MODULUS)
+        pub fn exit(a: &mut SmallFp<Self>) {
+            let std_val = <Self as SmallFpConfig>::safe_mul(a.value, 1 as <Self as SmallFpConfig>::T);
+            a.value = std_val;
         }
+
     }
 }
