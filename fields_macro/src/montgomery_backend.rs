@@ -1,30 +1,19 @@
 use super::*;
 
-pub fn montgomery_backend_impl(
+pub fn backend_impl(
     ty: proc_macro2::TokenStream,
     modulus: u128,
     generator: u128,
     suffix: &str,
 ) -> proc_macro2::TokenStream {
-    // TODO: think about the choice of R
-    // let r = if suffix == "u128" {
-    //     1u128 << 127 % modulus
-    // } else {
-    //     1u128 << 64 % modulus
-    // };
-
-    let mut r = 1u128;
-    while r << 1 < u128::MAX && r <= modulus {
-        r <<= 1;
-    }
-
-    r = r % modulus;
-    let r2 = (r * r) % modulus;
-    let mod_inv = compute_n_prime(modulus, 64);
-    // let mod_inv = compute_n_prime(modulus, if suffix == "u128" { 128 } else { 64 });
-
-    let one_mont = r;
-    let generator_mont = (generator * r) % modulus;
+    // TODO: Panic if the next power cannot fit u128,
+    let r = modulus.next_power_of_two();
+    let r_mod_n = r % modulus;
+    let r2 = (r_mod_n * r_mod_n) % modulus;
+    // TODO: fix this
+    let mod_inv = 128;
+    let one_mont = r_mod_n;
+    let generator_mont = (generator * r_mod_n) % modulus;
 
     let (from_bigint_impl, into_bigint_impl) = if suffix == "u128" {
         (
@@ -145,17 +134,23 @@ pub fn montgomery_backend_impl(
             if a.value == 0 {
                 return None;
             }
-            let mut base = a.value;
-            let mut exp = Self::MODULUS - 2;
-            let mut acc = Self::ONE.value;
+
+            // double and add
+            let exponent = Self::MODULUS - 2;
+            let mut result = SmallFp::new(1 as Self::T);
+            let mut base = *a;
+            let mut exp = exponent;
+
             while exp > 0 {
-                if (exp & 1) == 1 {
-                    acc = Self::safe_mul(acc, base);
+                if exp & 1 == 1 {
+                    Self::mul_assign(&mut result, &base);
                 }
-                base = Self::safe_mul(base, base);
+
+                Self::square_in_place(&mut base);
                 exp >>= 1;
             }
-            Some(SmallFp::new(acc))
+
+            Some(result)
         }
 
         #from_bigint_impl
@@ -164,32 +159,40 @@ pub fn montgomery_backend_impl(
     }
 }
 
-const fn compute_n_prime(n: u128, r_bits: u32) -> u128 {
-    let r = if r_bits == 128 {
-        u128::MAX
-    } else {
-        (1u128 << r_bits) - 1
-    };
-
-    let mut a = n;
-    let mut b = r + 1; // 2^r_bits
-    let mut x0 = 1u128;
-    let mut x1 = 0u128;
-
-    while a > 1 {
-        let q = a / b;
-        let t = b;
-        b = a % b;
-        a = t;
-        let t = x1;
-        x1 = x0.wrapping_sub(q.wrapping_mul(x1));
-        x0 = t;
+fn inverse(a: u128, n: u128) -> Option<u128> {
+    if a == 0 {
+        return None;
     }
 
-    x0.wrapping_neg()
-        & if r_bits == 128 {
-            u128::MAX
-        } else {
-            (1u128 << r_bits) - 1
+    let mut base = a;
+    let mut exp = n - 2;
+    let mut acc = 1;
+
+    while exp > 0 {
+        if (exp & 1) == 1 {
+            acc = (acc * base) % n;
         }
+        base = (base * base) % n;
+        exp >>= 1;
+    }
+    Some(acc)
+}
+
+pub fn new(modulus: u128, ty: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+    // TODO: do not recompute this...
+    let r: u128 = modulus.next_power_of_two();
+    let r_mod_n: u128 = r % modulus;
+    let r_inv: u128 = inverse(r_mod_n, modulus).unwrap();
+
+    quote! {
+        pub fn new(value: <Self as SmallFpConfig>::T) -> SmallFp<Self> {
+                let mont_value: #ty = value * #r_mod_n as #ty;
+                SmallFp::new(mont_value)
+        }
+
+        pub fn exit(a: SmallFp<Self>) -> SmallFp<Self> {
+            let exit: #ty = <Self as SmallFpConfig>::safe_mul(a.value, #r_inv as #ty);
+            SmallFp::new(exit % <Self as SmallFpConfig>::MODULUS)
+        }
+    }
 }

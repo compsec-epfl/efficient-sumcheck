@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn standard_backend_impl(
+pub fn backend_impl(
     ty: proc_macro2::TokenStream,
     modulus: u128,
     generator: u128,
@@ -167,5 +167,13 @@ pub fn standard_backend_impl(
         #from_bigint_impl
 
         #into_bigint_impl
+    }
+}
+
+pub fn new() -> proc_macro2::TokenStream {
+    quote! {
+        pub fn new(value: <Self as SmallFpConfig>::T) -> SmallFp<Self> {
+                SmallFp::new(value % <Self as SmallFpConfig>::MODULUS)
+        }
     }
 }

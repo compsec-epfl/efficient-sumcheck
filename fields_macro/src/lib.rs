@@ -1,8 +1,6 @@
 use core::convert::Into;
-use montgomery_backend::montgomery_backend_impl;
 use proc_macro::TokenStream;
 use quote::quote;
-use standard_backend::standard_backend_impl;
 
 use syn::{Expr, ExprLit, Lit, Meta};
 
@@ -72,8 +70,14 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
     };
 
     let backend_impl = match backend.as_str() {
-        "standard" => standard_backend_impl(ty.clone(), modulus, generator, suffix),
-        "montgomery" => montgomery_backend_impl(ty.clone(), modulus, generator, suffix),
+        "standard" => standard_backend::backend_impl(ty.clone(), modulus, generator, suffix),
+        "montgomery" => montgomery_backend::backend_impl(ty.clone(), modulus, generator, suffix),
+        _ => panic!("Unknown backend type"),
+    };
+
+    let new_impl = match backend.as_str() {
+        "standard" => standard_backend::new(),
+        "montgomery" => montgomery_backend::new(modulus, ty),
         _ => panic!("Unknown backend type"),
     };
 
@@ -84,9 +88,7 @@ pub fn fp_config(input: TokenStream) -> TokenStream {
         }
 
         impl #name {
-            pub fn new(value: <Self as SmallFpConfig>::T) -> SmallFp<Self> {
-                SmallFp::new(value % <Self as SmallFpConfig>::MODULUS)
-            }
+            #new_impl
         }
     };
 
