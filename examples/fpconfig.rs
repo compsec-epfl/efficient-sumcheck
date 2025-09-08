@@ -2,7 +2,7 @@ use ark_ff::{BigInt, SqrtPrecomputation};
 use fields_macro::SmallFpConfig;
 use space_efficient_sumcheck::fields::small_fp_backend::SmallFp;
 use space_efficient_sumcheck::fields::small_fp_backend::SmallFpConfig;
-
+use std::time::Instant;
 #[derive(SmallFpConfig)]
 #[modulus = "2147483647"] // m31
 #[generator = "7"]

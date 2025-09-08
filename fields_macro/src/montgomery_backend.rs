@@ -6,21 +6,13 @@ pub fn backend_impl(
     generator: u128,
     suffix: &str,
 ) -> proc_macro2::TokenStream {
-    // usisng R = 2^64
-    // todo change for closes power of 2
-    let r: u128 = 1u128 << 64; // R = 2^64
+    let k_bits = 128 - modulus.leading_zeros();
+    let r: u128 = 1u128 << k_bits;
     let r_mod_n = r % modulus;
-    let r2 = (r_mod_n * r_mod_n) % modulus; // R^2 mod n
+    let r2 = (r_mod_n * r_mod_n) % modulus;
+    let r_mask = r - 1;
 
-    fn mod_inverse_pow2(n: u128, bits: u32) -> u128 {
-        let mut inv = 1u128;
-        for _ in 0..bits {
-            inv = inv.wrapping_mul(2u128.wrapping_sub(n.wrapping_mul(inv)));
-        }
-        inv.wrapping_neg()
-    }
-    let n_prime = mod_inverse_pow2(modulus, 64); // -n^{-1} mod 2^64
-
+    let n_prime = mod_inverse_pow2(modulus, k_bits);
     let one_mont = r_mod_n;
     let generator_mont = (generator % modulus) * (r_mod_n % modulus) % modulus;
 
@@ -117,18 +109,16 @@ pub fn backend_impl(
             let t = a_u128.wrapping_mul(b_u128);
 
             // m = (t * n')
-            let m = t.wrapping_mul(#n_prime) as u64;
+            let m = t.wrapping_mul(#n_prime) & #r_mask;
 
-            // u = (t + m * n) / 2^64
+            // u = (t + m * n) * r^{-1}
             let mn = (m as u128).wrapping_mul(Self::MODULUS_128);
             let t_plus_mn = t.wrapping_add(mn);
-            let mut u = (t_plus_mn >> 64) as u128;
+            let mut u = t_plus_mn >> #k_bits;
 
-            // Step 5: final reduction
             if u >= Self::MODULUS_128 {
                 u -= Self::MODULUS_128;
             }
-
             u as Self::T
         }
 
@@ -179,9 +169,17 @@ pub fn backend_impl(
     }
 }
 
+fn mod_inverse_pow2(n: u128, bits: u32) -> u128 {
+    let mut inv = 1u128;
+    for _ in 0..bits {
+        inv = inv.wrapping_mul(2u128.wrapping_sub(n.wrapping_mul(inv)));
+    }
+    inv.wrapping_neg()
+}
+
 pub fn new(modulus: u128, _ty: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
-    // todo change for closes power of 2
-    let r = (1u128 << 64) % modulus;
+    let k_bits = 128 - modulus.leading_zeros();
+    let r: u128 = 1u128 << k_bits;
     let r2 = (r * r) % modulus;
 
     quote! {
