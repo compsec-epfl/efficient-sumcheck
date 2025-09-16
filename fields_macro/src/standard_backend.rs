@@ -6,6 +6,12 @@ pub fn backend_impl(
     generator: u128,
     suffix: &str,
 ) -> proc_macro2::TokenStream {
+    let two_adicity: u128 = 1;
+    let two_adic_root_of_unity: u128 = 1;
+
+    // let two_adicity = compute_two_adicity(modulus);
+    // let two_adic_root_of_unity = compute_two_adic_root_of_unity(modulus, generator, two_adicity);
+
     // Type u128 has two limbs all other have only one
     let (from_bigint_impl, into_bigint_impl) = if suffix == "u128" {
         (
@@ -54,10 +60,10 @@ pub fn backend_impl(
 
         // TODO: complete this
         // copy approach from here: https://github.com/arkworks-rs/algebra/blob/851d4680491ed97fb09b5410893c2e12377b2bec/ff/src/biginteger/mod.rs#L215
-        const TWO_ADICITY: u32 = 1;
-        const TWO_ADIC_ROOT_OF_UNITY: SmallFp<Self> = SmallFp::new(1 as Self::T);
+        const TWO_ADICITY: u32 = #two_adicity;
+        const TWO_ADIC_ROOT_OF_UNITY: SmallFp<Self> = SmallFp::new(#two_adic_root_of_unity as Self::T);
 
-        // Todo: precompute square roots
+        // TODO: precompute square roots
         const SQRT_PRECOMP: Option<SqrtPrecomputation<SmallFp<Self>>> = None;
 
         fn add_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
@@ -90,40 +96,69 @@ pub fn backend_impl(
             }
         }
 
-        /*
-        To avoid overflow, split into halves:
-        a = a1*C + a0, b = b1*C + b0
-        a*b = a1*b1*C^2 + (a1*b0 + a0*b1)*C + a0*b0
-
-        Each term is computed modulo N to prevent overflow.
-        */
         fn safe_mul(a: Self::T, b: Self::T) -> Self::T {
-            match (a as u128).overflowing_mul(b as u128) {
+            let a_128 = (a as u128) % Self::MODULUS_128;
+            let b_128 = (b as u128) % Self::MODULUS_128;
+
+            let mod_add = |x: u128, y: u128| -> u128 {
+                if x >= Self::MODULUS_128 - y {
+                    x - (Self::MODULUS_128 - y)
+                } else {
+                    x + y
+                }
+            };
+
+            match a_128.overflowing_mul(b_128) {
                 (val, false) => (val % Self::MODULUS_128) as Self::T,
-                (val, true) => {
-                    let C = (1u128 << 64 - 1) % Self::MODULUS_128;
-                    let C2 = (C * C) % Self::MODULUS_128;
+                (_, true) => {
+                    let mut result = 0u128;
+                    let mut base = a_128 % Self::MODULUS_128;
+                    let mut exp = b_128;
 
-                    let a1 = (a as u128) >> 64;
-                    let a0 = (a as u128) & ((1u128 << 64) - 1);
-                    let b1 = (b as u128) >> 64;
-                    let b0 = (b as u128) & ((1u128 << 64) - 1);
-
-                    let a1b1 = (a1 * b1) % Self::MODULUS_128;
-                    let a1b0 = (a1 * b0) % Self::MODULUS_128;
-                    let a0b1 = (a0 * b1) % Self::MODULUS_128;
-                    let a0b0 = (a0 * b0) % Self::MODULUS_128;
-
-                    let mut acc = 0u128;
-                    acc = (acc + ((a1b1 as u128) * (C2 as u128)) % Self::MODULUS_128) % Self::MODULUS_128;
-                    let cross_sum = (a1b0 + a0b1) % Self::MODULUS_128;
-                    acc = (acc + ((cross_sum as u128) * (C as u128)) % Self::MODULUS_128) % Self::MODULUS_128;
-                    acc = (acc + a0b0) % Self::MODULUS_128;
-
-                    (acc % Self::MODULUS_128) as Self::T
+                    while exp > 0 {
+                        if exp & 1 == 1 {
+                            result = mod_add(result, base);
+                        }
+                        base = mod_add(base, base);
+                        exp >>= 1;
+                    }
+                    result as Self::T
                 }
             }
         }
+
+        // TODO: this should be faster but has some bug
+        // To avoid overflow, split into halves:
+        // a = a1*C + a0, b = b1*C + b0
+        // a*b = a1*b1*C^2 + (a1*b0 + a0*b1)*C + a0*b0
+        // Each term is computed modulo N to prevent overflow.
+        // fn safe_mul(a: Self::T, b: Self::T) -> Self::T {
+        //     match (a as u128).overflowing_mul(b as u128) {
+        //         (val, false) => (val % Self::MODULUS_128) as Self::T,
+        //         (val, true) => {
+        //             let C: u128 = (1u128 << 64 - 1) % Self::MODULUS_128;
+        //             let C2: u128 = (C * C) % Self::MODULUS_128;
+
+        //             let a1 = (a as u128) >> 64;
+        //             let a0 = (a as u128) & ((1u128 << 64) - 1);
+        //             let b1 = (b as u128) >> 64;
+        //             let b0 = (b as u128) & ((1u128 << 64) - 1);
+
+        //             let a1b1 = (a1 * b1) % Self::MODULUS_128;
+        //             let a1b0 = (a1 * b0) % Self::MODULUS_128;
+        //             let a0b1 = (a0 * b1) % Self::MODULUS_128;
+        //             let a0b0 = (a0 * b0) % Self::MODULUS_128;
+
+        //             let mut acc = 0u128;
+        //             acc = (acc + ((a1b1 as u128) * C2) % Self::MODULUS_128) % Self::MODULUS_128;
+        //             let cross_sum = (a1b0 + a0b1) % Self::MODULUS_128;
+        //             acc = (acc + ((cross_sum as u128) * C) % Self::MODULUS_128) % Self::MODULUS_128;
+        //             acc = (acc + a0b0) % Self::MODULUS_128;
+
+        //             (acc % Self::MODULUS_128) as Self::T
+        //         }
+        //     }
+        // }
 
         fn mul_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
             a.value = Self::safe_mul(a.value, b.value);
