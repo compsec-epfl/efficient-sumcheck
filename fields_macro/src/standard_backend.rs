@@ -1,16 +1,73 @@
 use super::*;
 
+// Compute the largest integer `s` such that `N - 1 = 2**s * t` for odd `t`.
+const fn compute_two_adicity(modulus: u128) -> u32 {
+    assert!(modulus % 2 == 1, "Modulus must be odd");
+    assert!(modulus > 1, "Modulus must be greater than 1");
+
+    let mut n_minus_1 = modulus - 1;
+    let mut two_adicity = 0;
+
+    while n_minus_1 % 2 == 0 {
+        n_minus_1 /= 2;
+        two_adicity += 1;
+    }
+    two_adicity
+}
+
+const fn mod_add(x: u128, y: u128, modulus: u128) -> u128 {
+    if x >= modulus - y {
+        x - (modulus - y)
+    } else {
+        x + y
+    }
+}
+
+const fn safe_mul_const(a: u128, b: u128, modulus: u128) -> u128 {
+    match a.overflowing_mul(b) {
+        (val, false) => val % modulus,
+        (_, true) => {
+            let mut result = 0u128;
+            let mut base = a % modulus;
+            let mut exp = b;
+
+            while exp > 0 {
+                if exp & 1 == 1 {
+                    result = mod_add(result, base, modulus);
+                }
+                base = mod_add(base, base, modulus);
+                exp >>= 1;
+            }
+            result
+        }
+    }
+}
+
+// Two adicity root of unity `w` is defined as `w = g^((N-1)/2^s)` where `s` is two adidcity
+// Therefore `w^(2^s) = 1 mod N`
+const fn compute_two_adic_root_of_unity(modulus: u128, generator: u128, two_adicity: u32) -> u128 {
+    let mut exp = (modulus - 1) >> two_adicity;
+    let mut base = generator % modulus;
+    let mut result = 1u128;
+
+    while exp > 0 {
+        if exp & 1 == 1 {
+            result = safe_mul_const(result, base, modulus);
+        }
+        base = safe_mul_const(base, base, modulus);
+        exp /= 2;
+    }
+    result
+}
+
 pub fn backend_impl(
     ty: proc_macro2::TokenStream,
     modulus: u128,
     generator: u128,
     suffix: &str,
 ) -> proc_macro2::TokenStream {
-    let two_adicity: u128 = 1;
-    let two_adic_root_of_unity: u128 = 1;
-
-    // let two_adicity = compute_two_adicity(modulus);
-    // let two_adic_root_of_unity = compute_two_adic_root_of_unity(modulus, generator, two_adicity);
+    let two_adicity = compute_two_adicity(modulus);
+    let two_adic_root_of_unity = compute_two_adic_root_of_unity(modulus, generator, two_adicity);
 
     // Type u128 has two limbs all other have only one
     let (from_bigint_impl, into_bigint_impl) = if suffix == "u128" {
@@ -58,12 +115,8 @@ pub fn backend_impl(
         const ZERO: SmallFp<Self> = SmallFp::new(0 as Self::T);
         const ONE: SmallFp<Self> = SmallFp::new(1 as Self::T);
 
-        // TODO: complete this
-        // copy approach from here: https://github.com/arkworks-rs/algebra/blob/851d4680491ed97fb09b5410893c2e12377b2bec/ff/src/biginteger/mod.rs#L215
         const TWO_ADICITY: u32 = #two_adicity;
         const TWO_ADIC_ROOT_OF_UNITY: SmallFp<Self> = SmallFp::new(#two_adic_root_of_unity as Self::T);
-
-        // TODO: precompute square roots
         const SQRT_PRECOMP: Option<SqrtPrecomputation<SmallFp<Self>>> = None;
 
         fn add_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
