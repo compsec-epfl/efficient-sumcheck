@@ -1,4 +1,5 @@
 use super::*;
+use crate::utils::{compute_two_adic_root_of_unity, compute_two_adicity};
 
 pub fn backend_impl(
     ty: proc_macro2::TokenStream,
@@ -15,6 +16,10 @@ pub fn backend_impl(
     let n_prime = mod_inverse_pow2(modulus, k_bits);
     let one_mont = r_mod_n;
     let generator_mont = (generator % modulus) * (r_mod_n % modulus) % modulus;
+
+    let two_adicity = compute_two_adicity(modulus);
+    let two_adic_root = compute_two_adic_root_of_unity(modulus, generator, two_adicity);
+    let two_adic_root_mont = (two_adic_root * r_mod_n) % modulus;
 
     let (from_bigint_impl, into_bigint_impl) = if suffix == "u128" {
         (
@@ -67,8 +72,8 @@ pub fn backend_impl(
         const ONE: SmallFp<Self> = SmallFp::new(#one_mont as Self::T);
 
 
-        const TWO_ADICITY: u32 = 1;
-        const TWO_ADIC_ROOT_OF_UNITY: SmallFp<Self> = SmallFp::new(1 as Self::T);
+        const TWO_ADICITY: u32 = #two_adicity;
+        const TWO_ADIC_ROOT_OF_UNITY: SmallFp<Self> = SmallFp::new(#two_adic_root_mont as Self::T);
 
         const SQRT_PRECOMP: Option<SqrtPrecomputation<SmallFp<Self>>> = None;
 
