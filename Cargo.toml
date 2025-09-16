@@ -37,3 +37,13 @@ parallel = [
 name = "provers"
 path = "benches/provers.rs"
 harness = false
+
+[[bench]]
+name = "arithmetic_backend"
+path = "benches/arithmetic_backend.rs"
+harness = false
+
+[[bench]]
+name = "cast_128"
+path = "benches/cast_128.rs"
+harness = false
