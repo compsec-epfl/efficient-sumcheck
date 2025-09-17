@@ -37,10 +37,9 @@ pub fn backend_impl(
         const SQRT_PRECOMP: Option<SqrtPrecomputation<SmallFp<Self>>> = None;
 
         fn add_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
-            let sum = a.value.overflowing_add(b.value);
-            a.value = match sum {
+            a.value = match a.value.overflowing_add(b.value) {
                 (val, false) => val % Self::MODULUS,
-                (val, true) => (val + Self::T::MAX - Self::MODULUS + val) % Self::MODULUS,
+                (val, true) => (Self::T::MAX - Self::MODULUS + 1 + val) % Self::MODULUS,
             };
         }
 
