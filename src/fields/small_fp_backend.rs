@@ -4,7 +4,6 @@ use ark_std::{
     fmt::{Display, Formatter, Result as FmtResult},
     hash::Hash,
     marker::PhantomData,
-    ops::Sub,
     str::FromStr,
     string::*,
 };
@@ -135,11 +134,6 @@ impl<P: SmallFpConfig> SmallFp<P> {
         self.value >= P::MODULUS
     }
 
-    #[inline]
-    fn subtract_modulus(&mut self) {
-        self.value = self.value.sub(P::MODULUS);
-    }
-
     pub const fn new(value: P::T) -> Self {
         Self {
             value,
@@ -212,7 +206,6 @@ const fn const_to_bigint(value: u128) -> BigInt<2> {
     BigInt::<2>::new([low, high])
 }
 
-// TODO: Make this generic for BigInt<N>
 impl<P: SmallFpConfig> PrimeField for SmallFp<P> {
     type BigInt = BigInt<2>;
 
@@ -271,12 +264,15 @@ impl<P: SmallFpConfig> ark_std::rand::distributions::Distribution<SmallFp<P>>
     for ark_std::rand::distributions::Standard
 {
     #[inline]
-    // TODO: fix this
-    fn sample<R: ark_std::rand::Rng + ?Sized>(&self, _rng: &mut R) -> SmallFp<P> {
+    fn sample<R: ark_std::rand::Rng + ?Sized>(&self, rng: &mut R) -> SmallFp<P> {
+        //* note: loop to prevent modulus bias of distribution
         loop {
-            let tmp = SmallFp::from(1);
+            let random_val: BigInt<2> = rng.sample(ark_std::rand::distributions::Standard);
+            let random_elem: SmallFp<P> = SmallFp::from(random_val);
 
-            return tmp;
+            if !random_elem.is_geq_modulus() {
+                return random_elem;
+            }
         }
     }
 }
@@ -301,7 +297,6 @@ impl<P: SmallFpConfig> FromStr for SmallFp<P> {
         }
 
         match s.parse::<u128>() {
-            // TODO: This should not be u128 but P::T
             Ok(val) => Ok(SmallFp::from(val)),
             Err(_) => Err(ParseSmallFpError::InvalidFormat),
         }
