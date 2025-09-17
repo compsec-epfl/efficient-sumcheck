@@ -34,6 +34,9 @@ pub trait SmallFpConfig: Send + Sync + 'static + Sized {
 
     /// The modulus of the field.
     const MODULUS: Self::T;
+
+    // TODO: Get rid of this, it is used only in impl for PrimeField...
+    // it is rather hard to convert `P::T` to BigInt in const setting
     const MODULUS_128: u128;
 
     // ! this is fixed temporarily the value can be 1 or 2

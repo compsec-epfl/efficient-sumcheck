@@ -16,7 +16,7 @@ pub fn backend_impl(
             quote! {
                 fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
                     let val = (a.0[0] as u128) + ((a.0[1] as u128) << 64);
-                    if val >= Self::MODULUS_128 {
+                    if val >= #modulus {
                         None
                     } else {
                         Some(SmallFp::new(val as Self::T))
@@ -91,22 +91,22 @@ pub fn backend_impl(
         }
 
         fn safe_mul(a: Self::T, b: Self::T) -> Self::T {
-            let a_128 = (a as u128) % Self::MODULUS_128;
-            let b_128 = (b as u128) % Self::MODULUS_128;
+            let a_128 = (a as u128) % #modulus;
+            let b_128 = (b as u128) % #modulus;
 
             let mod_add = |x: u128, y: u128| -> u128 {
-                if x >= Self::MODULUS_128 - y {
-                    x - (Self::MODULUS_128 - y)
+                if x >= #modulus - y {
+                    x - (#modulus - y)
                 } else {
                     x + y
                 }
             };
 
             match a_128.overflowing_mul(b_128) {
-                (val, false) => (val % Self::MODULUS_128) as Self::T,
+                (val, false) => (val % #modulus) as Self::T,
                 (_, true) => {
                     let mut result = 0u128;
-                    let mut base = a_128 % Self::MODULUS_128;
+                    let mut base = a_128 % #modulus;
                     let mut exp = b_128;
 
                     while exp > 0 {
@@ -128,28 +128,28 @@ pub fn backend_impl(
         // Each term is computed modulo N to prevent overflow.
         // fn safe_mul(a: Self::T, b: Self::T) -> Self::T {
         //     match (a as u128).overflowing_mul(b as u128) {
-        //         (val, false) => (val % Self::MODULUS_128) as Self::T,
+        //         (val, false) => (val % #modulus) as Self::T,
         //         (val, true) => {
-        //             let C: u128 = (1u128 << 64 - 1) % Self::MODULUS_128;
-        //             let C2: u128 = (C * C) % Self::MODULUS_128;
+        //             let C: u128 = (1u128 << 64 - 1) % #modulus;
+        //             let C2: u128 = (C * C) % #modulus;
 
         //             let a1 = (a as u128) >> 64;
         //             let a0 = (a as u128) & ((1u128 << 64) - 1);
         //             let b1 = (b as u128) >> 64;
         //             let b0 = (b as u128) & ((1u128 << 64) - 1);
 
-        //             let a1b1 = (a1 * b1) % Self::MODULUS_128;
-        //             let a1b0 = (a1 * b0) % Self::MODULUS_128;
-        //             let a0b1 = (a0 * b1) % Self::MODULUS_128;
-        //             let a0b0 = (a0 * b0) % Self::MODULUS_128;
+        //             let a1b1 = (a1 * b1) % #modulus;
+        //             let a1b0 = (a1 * b0) % #modulus;
+        //             let a0b1 = (a0 * b1) % #modulus;
+        //             let a0b0 = (a0 * b0) % #modulus;
 
         //             let mut acc = 0u128;
-        //             acc = (acc + ((a1b1 as u128) * C2) % Self::MODULUS_128) % Self::MODULUS_128;
-        //             let cross_sum = (a1b0 + a0b1) % Self::MODULUS_128;
-        //             acc = (acc + ((cross_sum as u128) * C) % Self::MODULUS_128) % Self::MODULUS_128;
-        //             acc = (acc + a0b0) % Self::MODULUS_128;
+        //             acc = (acc + ((a1b1 as u128) * C2) % #modulus) % #modulus;
+        //             let cross_sum = (a1b0 + a0b1) % #modulus;
+        //             acc = (acc + ((cross_sum as u128) * C) % #modulus) % #modulus;
+        //             acc = (acc + a0b0) % #modulus;
 
-        //             (acc % Self::MODULUS_128) as Self::T
+        //             (acc % #modulus) as Self::T
         //         }
         //     }
         // }

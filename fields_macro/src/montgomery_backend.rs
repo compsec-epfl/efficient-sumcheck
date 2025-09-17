@@ -26,7 +26,7 @@ pub fn backend_impl(
             quote! {
                 fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
                     let val = (a.0[0] as u128) + ((a.0[1] as u128) << 64);
-                    if val >= Self::MODULUS_128 {
+                    if val >= #modulus {
                         None
                     } else {
                         let mont_val = Self::safe_mul(val as Self::T, #r2 as Self::T);
@@ -66,7 +66,6 @@ pub fn backend_impl(
         type T = #ty;
         const MODULUS: Self::T = #modulus as Self::T;
         const MODULUS_128: u128 = #modulus;
-
         const GENERATOR: SmallFp<Self> = SmallFp::new(#generator_mont as Self::T);
         const ZERO: SmallFp<Self> = SmallFp::new(0 as Self::T);
         const ONE: SmallFp<Self> = SmallFp::new(#one_mont as Self::T);
@@ -117,12 +116,12 @@ pub fn backend_impl(
             let m = t.wrapping_mul(#n_prime) & #r_mask;
 
             // u = (t + m * n) * r^{-1}
-            let mn = (m as u128).wrapping_mul(Self::MODULUS_128);
+            let mn = (m as u128).wrapping_mul(#modulus);
             let t_plus_mn = t.wrapping_add(mn);
             let mut u = t_plus_mn >> #k_bits;
 
-            if u >= Self::MODULUS_128 {
-                u -= Self::MODULUS_128;
+            if u >= #modulus {
+                u -= #modulus;
             }
             u as Self::T
         }
