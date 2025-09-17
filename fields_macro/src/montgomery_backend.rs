@@ -1,16 +1,15 @@
 use super::*;
-use crate::utils::{compute_two_adic_root_of_unity, compute_two_adicity};
+use crate::utils::{compute_two_adic_root_of_unity, compute_two_adicity, generate_bigint_casts};
 
 pub fn backend_impl(
     ty: proc_macro2::TokenStream,
     modulus: u128,
     generator: u128,
-    suffix: &str,
+    _suffix: &str,
 ) -> proc_macro2::TokenStream {
     let k_bits = 128 - modulus.leading_zeros();
     let r: u128 = 1u128 << k_bits;
     let r_mod_n = r % modulus;
-    let r2 = (r_mod_n * r_mod_n) % modulus;
     let r_mask = r - 1;
 
     let n_prime = mod_inverse_pow2(modulus, k_bits);
@@ -21,46 +20,7 @@ pub fn backend_impl(
     let two_adic_root = compute_two_adic_root_of_unity(modulus, generator, two_adicity);
     let two_adic_root_mont = (two_adic_root * r_mod_n) % modulus;
 
-    let (from_bigint_impl, into_bigint_impl) = if suffix == "u128" {
-        (
-            quote! {
-                fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
-                    let val = (a.0[0] as u128) + ((a.0[1] as u128) << 64);
-                    if val >= #modulus {
-                        None
-                    } else {
-                        let mont_val = Self::safe_mul(val as Self::T, #r2 as Self::T);
-                        Some(SmallFp::new(mont_val))
-                    }
-                }
-            },
-            quote! {
-                fn into_bigint(a: SmallFp<Self>) -> BigInt<2> {
-                    let val = Self::safe_mul(a.value, 1 as Self::T) as u128;
-                    ark_ff::BigInt([(val as u64), (val >> 64) as u64])
-                }
-            },
-        )
-    } else {
-        (
-            quote! {
-                fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
-                    if a.0[1] != 0 || a.0[0] >= (Self::MODULUS as u64) {
-                        None
-                    } else {
-                        let mont_val = Self::safe_mul(a.0[0] as Self::T, #r2 as Self::T);
-                        Some(SmallFp::new(mont_val))
-                    }
-                }
-            },
-            quote! {
-                fn into_bigint(a: SmallFp<Self>) -> BigInt<2> {
-                    let val = Self::safe_mul(a.value, 1 as Self::T) as u64;
-                    ark_ff::BigInt([val, 0])
-                }
-            },
-        )
-    };
+    let (from_bigint_impl, into_bigint_impl) = generate_bigint_casts(modulus);
 
     quote! {
         type T = #ty;

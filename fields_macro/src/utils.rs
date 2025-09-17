@@ -1,3 +1,5 @@
+use super::*;
+
 // Compute the largest integer `s` such that `N - 1 = 2**s * t` for odd `t`.
 pub const fn compute_two_adicity(modulus: u128) -> u32 {
     assert!(modulus % 2 == 1, "Modulus must be odd");
@@ -60,4 +62,25 @@ pub const fn compute_two_adic_root_of_unity(
         exp /= 2;
     }
     result
+}
+
+pub fn generate_bigint_casts(
+    modulus: u128,
+) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+    (
+        quote! {
+            //* Note: migth reconsider `Option<_>` in signature
+            //* tests in this repository expect this to wrap around
+            fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
+                let val = (a.0[0] as u128) + ((a.0[1] as u128) << 64);
+                let reduced_val = val % #modulus;
+                Some(SmallFp::new(reduced_val as Self::T))
+            }
+        },
+        quote! {
+            fn into_bigint(a: SmallFp<Self>) -> BigInt<2> {
+                ark_ff::BigInt([a.value as u64, 0])
+            }
+        },
+    )
 }

@@ -1,52 +1,16 @@
 use super::*;
-use crate::utils::{compute_two_adic_root_of_unity, compute_two_adicity};
+use crate::utils::{compute_two_adic_root_of_unity, compute_two_adicity, generate_bigint_casts};
 
 pub fn backend_impl(
     ty: proc_macro2::TokenStream,
     modulus: u128,
     generator: u128,
-    suffix: &str,
+    _suffix: &str,
 ) -> proc_macro2::TokenStream {
     let two_adicity = compute_two_adicity(modulus);
     let two_adic_root_of_unity = compute_two_adic_root_of_unity(modulus, generator, two_adicity);
 
-    // Type u128 has two limbs all other have only one
-    let (from_bigint_impl, into_bigint_impl) = if suffix == "u128" {
-        (
-            quote! {
-                fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
-                    let val = (a.0[0] as u128) + ((a.0[1] as u128) << 64);
-                    if val >= #modulus {
-                        None
-                    } else {
-                        Some(SmallFp::new(val as Self::T))
-                    }
-                }
-            },
-            quote! {
-                fn into_bigint(a: SmallFp<Self>) -> BigInt<2> {
-                    ark_ff::BigInt([(a.value as u64), (a.value >> 64) as u64])
-                }
-            },
-        )
-    } else {
-        (
-            quote! {
-                fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
-                    if a.0[1] != 0 || a.0[0] >= (Self::MODULUS as u64) {
-                        None
-                    } else {
-                        Some(SmallFp::new(a.0[0] as Self::T))
-                    }
-                }
-            },
-            quote! {
-                fn into_bigint(a: SmallFp<Self>) -> BigInt<2> {
-                    ark_ff::BigInt([a.value as u64, 0])
-                }
-            },
-        )
-    };
+    let (from_bigint_impl, into_bigint_impl) = generate_bigint_casts(modulus);
 
     quote! {
         type T = #ty;
@@ -61,11 +25,8 @@ pub fn backend_impl(
         const SQRT_PRECOMP: Option<SqrtPrecomputation<SmallFp<Self>>> = None;
 
         fn add_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
-            let sum = a.value.overflowing_add(b.value);
-            a.value = match sum {
-                (val, false) => val % Self::MODULUS,
-                (val, true) => (val +Self::T::MAX - Self::MODULUS + val) % Self::MODULUS,
-            };
+            let sum_wide = (a.value as u128) + (b.value as u128);
+            a.value = (sum_wide % Self::MODULUS_128) as Self::T;
         }
 
         fn sub_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
