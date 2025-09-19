@@ -1,5 +1,5 @@
 use super::*;
-use crate::utils::{compute_two_adic_root_of_unity, compute_two_adicity, generate_bigint_casts};
+use crate::utils::{compute_two_adic_root_of_unity, compute_two_adicity};
 
 pub fn backend_impl(
     ty: proc_macro2::TokenStream,
@@ -20,7 +20,8 @@ pub fn backend_impl(
     let two_adic_root = compute_two_adic_root_of_unity(modulus, generator, two_adicity);
     let two_adic_root_mont = (two_adic_root * r_mod_n) % modulus;
 
-    let (from_bigint_impl, into_bigint_impl) = generate_bigint_casts(modulus);
+    let (from_bigint_impl, into_bigint_impl) =
+        generate_montgomery_bigint_casts(modulus, k_bits, r_mod_n);
 
     quote! {
         type T = #ty;
@@ -138,6 +139,34 @@ fn mod_inverse_pow2(n: u128, bits: u32) -> u128 {
         inv = inv.wrapping_mul(2u128.wrapping_sub(n.wrapping_mul(inv)));
     }
     inv.wrapping_neg()
+}
+
+fn generate_montgomery_bigint_casts(
+    modulus: u128,
+    _k_bits: u32,
+    r_mod_n: u128,
+) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+    let r2 = (r_mod_n * r_mod_n) % modulus;
+    (
+        quote! {
+            //* Convert from standard representation to Montgomery space
+            fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
+                let val = (a.0[0] as u128) + ((a.0[1] as u128) << 64);
+                let reduced_val = val % #modulus;
+                // Convert to Montgomery space by multiplying by R²
+                let mont_value = Self::safe_mul(reduced_val as Self::T, #r2 as Self::T);
+                Some(SmallFp::new(mont_value))
+            }
+        },
+        quote! {
+            //* Convert from Montgomery space to standard representation
+            fn into_bigint(a: SmallFp<Self>) -> BigInt<2> {
+                // Exit Montgomery space by multiplying by 1
+                let std_value = Self::safe_mul(a.value, 1 as Self::T);
+                ark_ff::BigInt([std_value as u64, 0])
+            }
+        },
+    )
 }
 
 pub fn new(modulus: u128, _ty: proc_macro2::TokenStream) -> proc_macro2::TokenStream {

@@ -13,11 +13,25 @@ pub struct SmallF19Config;
 pub type SmallF19 = SmallFp<SmallF19Config>;
 
 #[derive(SmallFpConfig)]
+#[modulus = "19"] // for testing purposes
+#[generator = "2"]
+#[backend = "montgomery"]
+pub struct SmallF19ConfigMont;
+pub type SmallF19Mont = SmallFp<SmallF19ConfigMont>;
+
+#[derive(SmallFpConfig)]
 #[modulus = "2147483647"] // 2^31 - 1
 #[generator = "2"]
 #[backend = "standard"]
 pub struct SmallF32Config;
 pub type SmallF32 = SmallFp<SmallF32Config>;
+
+#[derive(SmallFpConfig)]
+#[modulus = "2147483647"] // 2^31 - 1
+#[generator = "2"]
+#[backend = "montgomery"]
+pub struct SmallF32ConfigMont;
+pub type SmallF32Mont = SmallFp<SmallF32ConfigMont>;
 
 #[derive(SmallFpConfig)]
 #[modulus = "18446744069414584321"] // q = 2^64 - 2^32 + 1

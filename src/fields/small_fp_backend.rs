@@ -311,7 +311,8 @@ impl<P: SmallFpConfig> FromStr for SmallFp<P> {
 impl<P: SmallFpConfig> Display for SmallFp<P> {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let string = self.value.to_string();
-        write!(f, "{}", string)
+        // Always use BigInt conversion to display the true mathematical value
+        let bigint = P::into_bigint(*self);
+        write!(f, "{}", bigint)
     }
 }
