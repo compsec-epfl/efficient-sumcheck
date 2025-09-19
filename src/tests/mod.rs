@@ -5,8 +5,6 @@ mod streams;
 mod fields_test;
 
 #[cfg(test)]
-mod montgomery_integration;
-
 pub mod multilinear;
 pub mod multilinear_product;
 pub mod polynomials;

@@ -58,7 +58,7 @@ mod tests {
                 sanity_test_driver, BasicProductProver, BasicProductProverConfig,
             },
             polynomials::{four_variable_polynomial, four_variable_polynomial_evaluations},
-            SmallF19, F19,
+            SmallF19, SmallF19Mont, F19,
         },
     };
     #[test]
@@ -75,6 +75,17 @@ mod tests {
     #[test]
     fn sumcheck_small_fp() {
         let s = MemoryStream::<SmallF19>::new(four_variable_polynomial_evaluations());
+        sanity_test_driver(&mut BasicProductProver::new(BasicProductProverConfig::new(
+            multivariate_product_claim(vec![s.clone(), s]),
+            4,
+            four_variable_polynomial(),
+            four_variable_polynomial(),
+        )));
+    }
+
+    #[test]
+    fn sumcheck_small_fp_mont() {
+        let s = MemoryStream::<SmallF19Mont>::new(four_variable_polynomial_evaluations());
         sanity_test_driver(&mut BasicProductProver::new(BasicProductProverConfig::new(
             multivariate_product_claim(vec![s.clone(), s]),
             4,

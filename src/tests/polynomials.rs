@@ -182,7 +182,7 @@ mod tests {
         streams::Stream,
         tests::{
             polynomials::{four_variable_polynomial, Polynomial},
-            BenchStream, SmallF19, F19,
+            BenchStream, SmallF19, SmallF19Mont, F19,
         },
     };
     use ark_poly::multivariate::{SparsePolynomial, SparseTerm};
@@ -238,6 +238,36 @@ mod tests {
             <SparsePolynomial< SmallF19, SparseTerm> as Polynomial< SmallF19>>::from_hypercube_evaluations(
                 p2_evaluations.clone(),
             );
+        assert_eq!(p2_evaluations, p2.to_evaluations());
+    }
+
+    #[test]
+    fn to_evaluations_from_evaluations_sanity_small_fp_mont() {
+        // we should get back the same polynomial
+        let p1: SparsePolynomial<SmallF19Mont, SparseTerm> =
+            four_variable_polynomial::<SmallF19Mont>();
+        let p1_evaluations: Vec<SmallF19Mont> = p1.to_evaluations();
+        assert_eq!(
+            p1,
+            <SparsePolynomial< SmallF19Mont, SparseTerm> as Polynomial< SmallF19Mont>>::from_hypercube_evaluations(
+                p1_evaluations
+            )
+        );
+
+        // we should get back the same evaluations
+        let num_variables: usize = 16;
+        let s: BenchStream<SmallF19Mont> = BenchStream::new(num_variables);
+        let hypercube_len: usize = 2usize.pow(num_variables as u32);
+        let mut p2_evaluations: Vec<SmallF19Mont> = Vec::with_capacity(hypercube_len);
+        for i in 0..hypercube_len {
+            p2_evaluations.push(s.evaluation(i));
+        }
+        let p2: SparsePolynomial<SmallF19Mont, SparseTerm> = <SparsePolynomial<
+            SmallF19Mont,
+            SparseTerm,
+        > as Polynomial<SmallF19Mont>>::from_hypercube_evaluations(
+            p2_evaluations.clone()
+        );
         assert_eq!(p2_evaluations, p2.to_evaluations());
     }
 }

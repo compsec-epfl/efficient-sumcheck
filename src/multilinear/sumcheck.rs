@@ -64,7 +64,7 @@ mod tests {
     use crate::{
         multilinear::{BlendyProver, BlendyProverConfig, TimeProver},
         prover::{Prover, ProverConfig},
-        tests::{BenchStream, SmallF19, F19},
+        tests::{BenchStream, SmallF19, SmallF19Mont, F19},
     };
 
     #[test]
@@ -124,6 +124,38 @@ mod tests {
         let time_prover_transcript = Sumcheck::<SmallF19>::prove::<
             BenchStream<SmallF19>,
             TimeProver<SmallF19, BenchStream<SmallF19>>,
+        >(&mut time_prover, &mut ark_std::test_rng());
+        // ensure the transcript is identical
+        assert_eq!(
+            time_prover_transcript.prover_messages,
+            blendy_prover_transcript.prover_messages
+        );
+    }
+
+    #[test]
+    fn algorithm_consistency_small_fp_mont() {
+        // take an evaluation stream
+        let evaluation_stream: BenchStream<SmallF19Mont> = BenchStream::new(20);
+        let claim = evaluation_stream.claimed_sum;
+        // initialize the provers
+        let mut blendy_k3_prover = BlendyProver::<SmallF19Mont, BenchStream<SmallF19Mont>>::new(
+            BlendyProverConfig::new(claim, 3, 20, evaluation_stream.clone()),
+        );
+        let mut time_prover =
+            TimeProver::<SmallF19Mont, BenchStream<SmallF19Mont>>::new(<TimeProver<
+                SmallF19Mont,
+                BenchStream<SmallF19Mont>,
+            > as Prover<SmallF19Mont>>::ProverConfig::default(
+                claim, 20, evaluation_stream
+            ));
+        // run them and get the transcript
+        let blendy_prover_transcript = Sumcheck::<SmallF19Mont>::prove::<
+            BenchStream<SmallF19Mont>,
+            BlendyProver<SmallF19Mont, BenchStream<SmallF19Mont>>,
+        >(&mut blendy_k3_prover, &mut ark_std::test_rng());
+        let time_prover_transcript = Sumcheck::<SmallF19Mont>::prove::<
+            BenchStream<SmallF19Mont>,
+            TimeProver<SmallF19Mont, BenchStream<SmallF19Mont>>,
         >(&mut time_prover, &mut ark_std::test_rng());
         // ensure the transcript is identical
         assert_eq!(

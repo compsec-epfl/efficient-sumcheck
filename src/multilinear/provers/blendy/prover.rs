@@ -73,7 +73,7 @@ mod tests {
     use crate::{
         multilinear::BlendyProver,
         streams::MemoryStream,
-        tests::{multilinear::sanity_test, SmallF19, F19},
+        tests::{multilinear::sanity_test, SmallF19, SmallF19Mont, F19},
     };
 
     #[test]
@@ -87,6 +87,15 @@ mod tests {
             SmallF19,
             MemoryStream<SmallF19>,
             BlendyProver<SmallF19, MemoryStream<SmallF19>>,
+        >();
+    }
+
+    #[test]
+    fn sumcheck_small_fp_mont() {
+        sanity_test::<
+            SmallF19Mont,
+            MemoryStream<SmallF19Mont>,
+            BlendyProver<SmallF19Mont, MemoryStream<SmallF19Mont>>,
         >();
     }
 }
