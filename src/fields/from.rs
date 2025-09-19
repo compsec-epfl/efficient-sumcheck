@@ -3,16 +3,8 @@ use ark_ff::{BigInt, PrimeField};
 
 impl<P: SmallFpConfig> From<u128> for SmallFp<P> {
     fn from(other: u128) -> Self {
-        let other_as_t = match P::T::try_from(other.into()) {
-            Ok(val) => val,
-            Err(_) => {
-                let modulus_as_u128: u128 = P::MODULUS.into();
-                let reduced = other % modulus_as_u128;
-                P::T::try_from(reduced).unwrap_or_else(|_| panic!("Reduced value should fit in T"))
-            }
-        };
-        let val = other_as_t % P::MODULUS;
-        SmallFp::new(val)
+        let bigint = BigInt::<2>::new([other as u64, (other >> 64) as u64]);
+        Self::from_bigint(bigint).unwrap()
     }
 }
 
@@ -39,16 +31,7 @@ impl<P: SmallFpConfig> From<bool> for SmallFp<P> {
 
 impl<P: SmallFpConfig> From<u64> for SmallFp<P> {
     fn from(other: u64) -> Self {
-        let other_as_t = match P::T::try_from(other.into()) {
-            Ok(val) => val,
-            Err(_) => {
-                let modulus_as_u128: u128 = P::MODULUS.into();
-                let reduced = (other as u128) % modulus_as_u128;
-                P::T::try_from(reduced).unwrap_or_else(|_| panic!("Reduced value should fit in T"))
-            }
-        };
-        let val = other_as_t % P::MODULUS;
-        SmallFp::new(val)
+        Self::from(other as u128)
     }
 }
 
@@ -65,16 +48,7 @@ impl<P: SmallFpConfig> From<i64> for SmallFp<P> {
 
 impl<P: SmallFpConfig> From<u32> for SmallFp<P> {
     fn from(other: u32) -> Self {
-        let other_as_t = match P::T::try_from(other.into()) {
-            Ok(val) => val,
-            Err(_) => {
-                let modulus_as_u128: u128 = P::MODULUS.into();
-                let reduced = (other as u128) % modulus_as_u128;
-                P::T::try_from(reduced).unwrap_or_else(|_| panic!("Reduced value should fit in T"))
-            }
-        };
-        let val = other_as_t % P::MODULUS;
-        SmallFp::new(val)
+        Self::from(other as u128)
     }
 }
 
