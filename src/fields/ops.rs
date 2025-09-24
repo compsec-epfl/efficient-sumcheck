@@ -208,7 +208,12 @@ impl<P: SmallFpConfig> MulAssign<&Self> for SmallFp<P> {
 impl<P: SmallFpConfig> DivAssign<&Self> for SmallFp<P> {
     #[inline(always)]
     fn div_assign(&mut self, other: &Self) {
-        *self *= &other.inverse().unwrap();
+        match other.inverse() {
+            Some(inv) => {
+                *self *= &inv;
+            }
+            None => panic!("Division by zero in finite field"),
+        }
     }
 }
 

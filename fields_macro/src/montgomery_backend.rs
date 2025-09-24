@@ -1,5 +1,7 @@
 use super::*;
-use crate::utils::{compute_two_adic_root_of_unity, compute_two_adicity};
+use crate::utils::{
+    compute_two_adic_root_of_unity, compute_two_adicity, generate_montgomery_bigint_casts,
+};
 
 pub fn backend_impl(
     ty: proc_macro2::TokenStream,
@@ -132,36 +134,6 @@ fn mod_inverse_pow2(n: u128, bits: u32) -> u128 {
         inv = inv.wrapping_mul(2u128.wrapping_sub(n.wrapping_mul(inv)));
     }
     inv.wrapping_neg()
-}
-
-fn generate_montgomery_bigint_casts(
-    modulus: u128,
-    _k_bits: u32,
-    r_mod_n: u128,
-) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
-    let r2 = (r_mod_n * r_mod_n) % modulus;
-    (
-        quote! {
-            //* Convert from standard representation to Montgomery space
-            fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
-                let val = (a.0[0] as u128) + ((a.0[1] as u128) << 64);
-                let reduced_val = val % #modulus;
-                let mut tmp = SmallFp::new(reduced_val as Self::T);
-                let r2_elem = SmallFp::new(#r2 as Self::T);
-                <Self as SmallFpConfig>::mul_assign(&mut tmp, &r2_elem);
-                Some(tmp)
-            }
-        },
-        quote! {
-            //* Convert from Montgomery space to standard representation
-            fn into_bigint(a: SmallFp<Self>) -> BigInt<2> {
-                let mut tmp = a;
-                let one = SmallFp::new(1 as Self::T);
-                <Self as SmallFpConfig>::mul_assign(&mut tmp, &one);
-                ark_ff::BigInt([tmp.value as u64, 0])
-            }
-        },
-    )
 }
 
 pub fn new(modulus: u128, _ty: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
