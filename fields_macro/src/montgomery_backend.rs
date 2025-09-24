@@ -65,29 +65,21 @@ pub fn backend_impl(
             }
         }
 
-        fn safe_mul(a: Self::T, b: Self::T) -> Self::T {
-            let a_u128 = a as u128;
-            let b_u128 = b as u128;
+        fn mul_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
+            let a_u128 = a.value as u128;
+            let b_u128 = b.value as u128;
 
-            // t = a * b
             let t = a_u128.wrapping_mul(b_u128);
-
-            // m = (t * n')
             let m = t.wrapping_mul(#n_prime) & #r_mask;
-
-            // u = (t + m * n) * r^{-1}
             let mn = (m as u128).wrapping_mul(#modulus);
+
             let t_plus_mn = t.wrapping_add(mn);
             let mut u = t_plus_mn >> #k_bits;
 
             if u >= #modulus {
                 u -= #modulus;
             }
-            u as Self::T
-        }
-
-        fn mul_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
-            a.value = Self::safe_mul(a.value, b.value);
+            a.value = u as Self::T;
         }
 
         fn sum_of_products<const T: usize>(
@@ -95,14 +87,16 @@ pub fn backend_impl(
             b: &[SmallFp<Self>; T],) -> SmallFp<Self> {
             let mut acc = SmallFp::new(0 as Self::T);
             for (x, y) in a.iter().zip(b.iter()) {
-                let prod = SmallFp::new(Self::safe_mul(x.value, y.value));
+                let mut prod = *x;
+                Self::mul_assign(&mut prod, y);
                 Self::add_assign(&mut acc, &prod);
             }
             acc
         }
 
         fn square_in_place(a: &mut SmallFp<Self>) {
-            a.value = Self::safe_mul(a.value, a.value);
+            let tmp = *a;
+            Self::mul_assign(a, &tmp);
         }
 
         fn inverse(a: &SmallFp<Self>) -> Option<SmallFp<Self>> {
@@ -110,17 +104,18 @@ pub fn backend_impl(
                 return None;
             }
 
-            let exponent = Self::MODULUS - 2;
             let mut result = Self::ONE;
             let mut base = *a;
-            let mut exp = exponent;
+            let mut exp = Self::MODULUS - 2;
 
             while exp > 0 {
                 if exp & 1 == 1 {
                     Self::mul_assign(&mut result, &base);
                 }
 
-                Self::square_in_place(&mut base);
+                let mut sq = base;
+                Self::mul_assign(&mut sq, &base);
+                base = sq;
                 exp >>= 1;
             }
 
@@ -153,17 +148,19 @@ fn generate_montgomery_bigint_casts(
             fn from_bigint(a: BigInt<2>) -> Option<SmallFp<Self>> {
                 let val = (a.0[0] as u128) + ((a.0[1] as u128) << 64);
                 let reduced_val = val % #modulus;
-                // Convert to Montgomery space by multiplying by R²
-                let mont_value = Self::safe_mul(reduced_val as Self::T, #r2 as Self::T);
-                Some(SmallFp::new(mont_value))
+                let mut tmp = SmallFp::new(reduced_val as Self::T);
+                let r2_elem = SmallFp::new(#r2 as Self::T);
+                <Self as SmallFpConfig>::mul_assign(&mut tmp, &r2_elem);
+                Some(tmp)
             }
         },
         quote! {
             //* Convert from Montgomery space to standard representation
             fn into_bigint(a: SmallFp<Self>) -> BigInt<2> {
-                // Exit Montgomery space by multiplying by 1
-                let std_value = Self::safe_mul(a.value, 1 as Self::T);
-                ark_ff::BigInt([std_value as u64, 0])
+                let mut tmp = a;
+                let one = SmallFp::new(1 as Self::T);
+                <Self as SmallFpConfig>::mul_assign(&mut tmp, &one);
+                ark_ff::BigInt([tmp.value as u64, 0])
             }
         },
     )
@@ -177,14 +174,17 @@ pub fn new(modulus: u128, _ty: proc_macro2::TokenStream) -> proc_macro2::TokenSt
     quote! {
         pub fn new(value: <Self as SmallFpConfig>::T) -> SmallFp<Self> {
             let reduced_value = value % <Self as SmallFpConfig>::MODULUS;
-            let mont_value = <Self as SmallFpConfig>::safe_mul(reduced_value, #r2 as <Self as SmallFpConfig>::T);
-            SmallFp::new(mont_value)
+            let mut tmp = SmallFp::new(reduced_value);
+            let r2_elem = SmallFp::new(#r2 as <Self as SmallFpConfig>::T);
+            <Self as SmallFpConfig>::mul_assign(&mut tmp, &r2_elem);
+            tmp
         }
 
         pub fn exit(a: &mut SmallFp<Self>) {
-            let std_val = <Self as SmallFpConfig>::safe_mul(a.value, 1 as <Self as SmallFpConfig>::T);
-            a.value = std_val;
+            let mut tmp = *a;
+            let one = SmallFp::new(1 as <Self as SmallFpConfig>::T);
+            <Self as SmallFpConfig>::mul_assign(&mut tmp, &one);
+            a.value = tmp.value;
         }
-
     }
 }

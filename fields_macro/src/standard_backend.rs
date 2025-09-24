@@ -53,10 +53,12 @@ pub fn backend_impl(
             }
         }
 
-        fn safe_mul(a: Self::T, b: Self::T) -> Self::T {
-            let a_128 = (a as u128) % #modulus;
-            let b_128 = (b as u128) % #modulus;
-
+        // TODO: this should be done faster
+        // a = a1*C + a0, b = b1*C + b0
+        // a*b = a1*b1*C^2 + (a1*b0 + a0*b1)*C + a0*b0
+        fn mul_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
+            let a_128 = (a.value as u128) % #modulus;
+            let b_128 = (b.value as u128) % #modulus;
             let mod_add = |x: u128, y: u128| -> u128 {
                 if x >= #modulus - y {
                     x - (#modulus - y)
@@ -64,14 +66,12 @@ pub fn backend_impl(
                     x + y
                 }
             };
-
-            match a_128.overflowing_mul(b_128) {
+            a.value = match a_128.overflowing_mul(b_128) {
                 (val, false) => (val % #modulus) as Self::T,
                 (_, true) => {
                     let mut result = 0u128;
                     let mut base = a_128 % #modulus;
                     let mut exp = b_128;
-
                     while exp > 0 {
                         if exp & 1 == 1 {
                             result = mod_add(result, base);
@@ -81,44 +81,7 @@ pub fn backend_impl(
                     }
                     result as Self::T
                 }
-            }
-        }
-
-        // TODO: this should be faster but has some bug
-        // To avoid overflow, split into halves:
-        // a = a1*C + a0, b = b1*C + b0
-        // a*b = a1*b1*C^2 + (a1*b0 + a0*b1)*C + a0*b0
-        // Each term is computed modulo N to prevent overflow.
-        // fn safe_mul(a: Self::T, b: Self::T) -> Self::T {
-        //     match (a as u128).overflowing_mul(b as u128) {
-        //         (val, false) => (val % #modulus) as Self::T,
-        //         (val, true) => {
-        //             let C: u128 = (1u128 << 64 - 1) % #modulus;
-        //             let C2: u128 = (C * C) % #modulus;
-
-        //             let a1 = (a as u128) >> 64;
-        //             let a0 = (a as u128) & ((1u128 << 64) - 1);
-        //             let b1 = (b as u128) >> 64;
-        //             let b0 = (b as u128) & ((1u128 << 64) - 1);
-
-        //             let a1b1 = (a1 * b1) % #modulus;
-        //             let a1b0 = (a1 * b0) % #modulus;
-        //             let a0b1 = (a0 * b1) % #modulus;
-        //             let a0b0 = (a0 * b0) % #modulus;
-
-        //             let mut acc = 0u128;
-        //             acc = (acc + ((a1b1 as u128) * C2) % #modulus) % #modulus;
-        //             let cross_sum = (a1b0 + a0b1) % #modulus;
-        //             acc = (acc + ((cross_sum as u128) * C) % #modulus) % #modulus;
-        //             acc = (acc + a0b0) % #modulus;
-
-        //             (acc % #modulus) as Self::T
-        //         }
-        //     }
-        // }
-
-        fn mul_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>) {
-            a.value = Self::safe_mul(a.value, b.value);
+            };
         }
 
         fn sum_of_products<const T: usize>(
@@ -126,7 +89,8 @@ pub fn backend_impl(
             b: &[SmallFp<Self>; T],) -> SmallFp<Self> {
             let mut acc = SmallFp::new(0 as Self::T);
             for (x, y) in a.iter().zip(b.iter()) {
-                let prod = SmallFp::new(Self::safe_mul(x.value, y.value));
+                let mut prod = *x;
+                Self::mul_assign(&mut prod, y);
                 Self::add_assign(&mut acc, &prod);
             }
             acc
@@ -141,19 +105,19 @@ pub fn backend_impl(
             if a.value == 0 {
                 return None;
             }
-
-            let mut base = a.value;
+            let mut base = *a;
             let mut exp = Self::MODULUS - 2;
-            let mut acc = 1 as Self::T;
-
+            let mut acc = Self::ONE;
             while exp > 0 {
                 if (exp & 1) == 1 {
-                    acc = Self::safe_mul(acc, base);
+                    Self::mul_assign(&mut acc, &base);
                 }
-                base = Self::safe_mul(base, base);
+                let mut sq = base;
+                Self::mul_assign(&mut sq, &base);
+                base = sq;
                 exp >>= 1;
             }
-            Some(SmallFp::new(acc))
+            Some(acc)
         }
 
         #from_bigint_impl

@@ -93,9 +93,6 @@ pub trait SmallFpConfig: Send + Sync + 'static + Sized {
     /// Set a = -a;
     fn neg_in_place(a: &mut SmallFp<Self>);
 
-    // Safe modular multiplication
-    fn safe_mul(a: Self::T, b: Self::T) -> Self::T;
-
     /// Set a *= b.
     fn mul_assign(a: &mut SmallFp<Self>, b: &SmallFp<Self>);
 
