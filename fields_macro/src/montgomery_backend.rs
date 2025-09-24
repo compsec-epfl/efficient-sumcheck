@@ -58,9 +58,7 @@ pub fn backend_impl(
         }
 
         fn neg_in_place(a: &mut SmallFp<Self>) {
-            if a.value == (0 as Self::T) {
-                a.value = 0 as Self::T;
-            } else {
+            if a.value != (0 as Self::T) {
                 a.value = Self::MODULUS - a.value;
             }
         }
