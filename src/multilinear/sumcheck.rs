@@ -146,7 +146,9 @@ mod tests {
                 SmallF19Mont,
                 BenchStream<SmallF19Mont>,
             > as Prover<SmallF19Mont>>::ProverConfig::default(
-                claim, 20, evaluation_stream
+                claim,
+                20,
+                evaluation_stream,
             ));
         // run them and get the transcript
         let blendy_prover_transcript = Sumcheck::<SmallF19Mont>::prove::<
