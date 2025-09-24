@@ -5,11 +5,9 @@ use core::iter;
 
 impl<P: SmallFpConfig> Field for SmallFp<P> {
     type BasePrimeField = Self;
-    // type BasePrimeFieldIter = std::iter::Once<Self::BasePrimeField>;
 
     const SQRT_PRECOMP: Option<SqrtPrecomputation<Self>> = P::SQRT_PRECOMP;
     const ONE: Self = P::ONE;
-    // const ZERO: Self = P::ZERO;
 
     fn extension_degree() -> u64 {
         1
@@ -26,23 +24,20 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
     }
 
     fn from_base_prime_field_elems(
-        _elems: impl IntoIterator<Item = Self::BasePrimeField>,
+        elems: impl IntoIterator<Item = Self::BasePrimeField>,
     ) -> Option<Self> {
-        todo!()
+        let mut iter = elems.into_iter();
+        let first = iter.next()?;
+        if iter.next().is_some() {
+            None
+        } else {
+            Some(first)
+        }
     }
-
-    // fn from_base_prime_field_elems(elems: &[Self::BasePrimeField]) -> Option<Self> {
-    //     elems.into_iter().exactly_one().ok().copied()
-    // }
 
     #[inline]
     fn characteristic() -> &'static [u64] {
-        // if P::MODULUS <= u64::MAX {
-        //     &[P::MODULUS]
-        // } else {
-        //     &[0]
-        // }
-        &[0]
+        &Self::MODULUS.as_ref()
     }
 
     #[inline]
@@ -139,8 +134,8 @@ impl<P: SmallFpConfig> Field for SmallFp<P> {
         }
     }
 
-    fn mul_by_base_prime_field(&self, _elem: &Self::BasePrimeField) -> Self {
-        todo!()
+    fn mul_by_base_prime_field(&self, elem: &Self::BasePrimeField) -> Self {
+        *self * elem
     }
 
     fn from_random_bytes(bytes: &[u8]) -> Option<Self> {

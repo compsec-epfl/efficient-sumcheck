@@ -49,8 +49,13 @@ impl<P: SmallFpConfig> Div<&SmallFp<P>> for SmallFp<P> {
     #[inline]
     #[allow(clippy::suspicious_arithmetic_impl)]
     fn div(mut self, other: &Self) -> Self {
-        self *= &other.inverse().unwrap();
-        self
+        match other.inverse() {
+            Some(inv) => {
+                self *= &inv;
+                self
+            }
+            None => panic!("Division by zero in finite field"),
+        }
     }
 }
 
