@@ -23,6 +23,8 @@ fields_macro = { path = "fields_macro" }
 
 [dev-dependencies]
 criterion = "0.7"
+p3_field = { git = "https://github.com/succinctlabs/Plonky3", package = "p3-field" }
+p3_goldilocks = { git = "https://github.com/succinctlabs/Plonky3", package = "p3-goldilocks" }
 
 [features]
 default = ["parallel"]
@@ -46,4 +48,9 @@ harness = false
 [[bench]]
 name = "cast_128"
 path = "benches/cast_128.rs"
+harness = false
+
+[[bench]]
+name = "extension_arithmetic"
+path = "benches/extension_arithmetic.rs"
 harness = false

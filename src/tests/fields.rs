@@ -41,11 +41,25 @@ pub struct SmallF64Config;
 pub type SmallF64 = SmallFp<SmallF64Config>;
 
 #[derive(SmallFpConfig)]
+#[modulus = "18446744069414584321"] // q = 2^64 - 2^32 + 1
+#[generator = "2"]
+#[backend = "montgomery"]
+pub struct SmallF64ConfigMont;
+pub type SmallF64Mont = SmallFp<SmallF64ConfigMont>;
+
+#[derive(SmallFpConfig)]
 #[modulus = "143244528689204659050391023439224324689"]
 #[generator = "2"]
 #[backend = "standard"]
 pub struct SmallF128Config;
 pub type SmallF128 = SmallFp<SmallF128Config>;
+
+#[derive(SmallFpConfig)]
+#[modulus = "143244528689204659050391023439224324689"]
+#[generator = "2"]
+#[backend = "montgomery"]
+pub struct SmallF128ConfigMont;
+pub type SmallF128Mont = SmallFp<SmallF128ConfigMont>;
 
 #[derive(MontConfig)]
 #[modulus = "19"]
