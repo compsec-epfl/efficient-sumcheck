@@ -1,14 +1,11 @@
 use ark_ff::Field;
 use ark_std::hint::black_box;
 use criterion::{criterion_group, criterion_main, Criterion};
-use p3_field::{extension::BinomialExtensionField, AbstractExtensionField, AbstractField};
+use p3_field::AbstractField;
 use p3_goldilocks::Goldilocks as P3Goldilocks;
 use space_efficient_sumcheck::tests::{
     SmallF128Mont as SmallF128, SmallF64Mont as SmallF64, F128, F64,
 };
-
-// // ~128-bit field = Goldilocks^2
-// type P3F128 = BinomialExtensionField<P3Goldilocks, 2>;
 
 fn naive_element_wise_mult_ark_bigint_64(c: &mut Criterion) {
     // let's get four vectors and multiply them element-wise
@@ -130,6 +127,8 @@ fn naive_element_wise_mult_ark_small_field_128(c: &mut Criterion) {
 }
 
 // don't include this, we can compare this with ark extension fields in later work
+// // ~128-bit field = Goldilocks^2
+// type P3F128 = BinomialExtensionField<P3Goldilocks, 2>;
 // fn naive_element_wise_mult_p3_binomial_extension_128(c: &mut Criterion) {
 //     // let's get four vectors and multiply them element-wise
 //     let len = 2_i64.pow(22);

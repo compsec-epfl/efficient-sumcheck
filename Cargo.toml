@@ -51,6 +51,6 @@ path = "benches/cast_128.rs"
 harness = false
 
 [[bench]]
-name = "extension_arithmetic"
-path = "benches/extension_arithmetic.rs"
+name = "prime_field_arithmetic"
+path = "benches/prime_field_arithmetic.rs"
 harness = false
