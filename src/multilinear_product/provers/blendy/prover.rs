@@ -146,8 +146,7 @@ mod tests {
         }
 
         // create the stream in SigBit order
-        let s: MemoryStream<F64> =
-            MemoryStream::new_from_lex::<SignificantBitOrder>(evals.clone());
+        let s: MemoryStream<F64> = MemoryStream::new_from_lex::<SignificantBitOrder>(evals.clone());
         let claim: F64 = multivariate_product_claim(vec![s.clone(), s.clone()]);
 
         // get transcript from Blendy prover
