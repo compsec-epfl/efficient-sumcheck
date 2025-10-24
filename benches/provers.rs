@@ -3,7 +3,7 @@ use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BatchSize, BenchmarkGroup, Criterion,
 };
 
-use space_efficient_sumcheck::{
+use efficient_sumcheck::{
     multilinear::TimeProver,
     multilinear_product::TimeProductProver,
     prover::{ProductProverConfig, Prover, ProverConfig},

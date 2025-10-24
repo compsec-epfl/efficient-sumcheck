@@ -27,7 +27,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for SpaceProductProver<F, S> {
 
         Self {
             claim: prover_config.claim,
-            stream_iterators: stream_iterators,
+            stream_iterators,
             verifier_messages: VerifierMessages::new(&vec![]),
             current_round: 0,
             num_variables: prover_config.num_variables,

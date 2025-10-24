@@ -12,7 +12,7 @@ where
     pub streams: Vec<S>,
 }
 
-impl<'a, F, S> TimeProductProverConfig<F, S>
+impl<F, S> TimeProductProverConfig<F, S>
 where
     F: Field,
     S: Stream<F>,

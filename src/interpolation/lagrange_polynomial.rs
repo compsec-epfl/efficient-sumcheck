@@ -95,17 +95,16 @@ impl<'a, F: Field> Iterator for LagrangePolynomial<'a, F, GraycodeOrder> {
             let index_of_flipped_bit = bit_diff.trailing_zeros() as usize;
             let is_flipped_to_true = self.position & bit_diff != 0;
             let len = self.verifier_messages.messages.len();
-            self.value = self.value
-                * match is_flipped_to_true {
-                    true => {
-                        self.verifier_messages.message_and_message_hat_inverses
-                            [len - index_of_flipped_bit - 1]
-                    }
-                    false => {
-                        self.verifier_messages.message_hat_and_message_inverses
-                            [len - index_of_flipped_bit - 1]
-                    }
-                };
+            self.value *= match is_flipped_to_true {
+                true => {
+                    self.verifier_messages.message_and_message_hat_inverses
+                        [len - index_of_flipped_bit - 1]
+                }
+                false => {
+                    self.verifier_messages.message_hat_and_message_inverses
+                        [len - index_of_flipped_bit - 1]
+                }
+            };
         }
 
         // Step 5: increment positions

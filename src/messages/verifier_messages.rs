@@ -58,9 +58,9 @@ impl<F: Field> VerifierMessages<F> {
                 self.messages_zeros_and_ones_usize << 1
             };
         } else {
-            self.zero_ones_mask = self.zero_ones_mask << 1;
-            self.messages_zeros_and_ones_usize = self.messages_zeros_and_ones_usize << 1;
-            self.product_of_message_hats = self.product_of_message_hats * message_hat;
+            self.zero_ones_mask <<= 1;
+            self.messages_zeros_and_ones_usize <<= 1;
+            self.product_of_message_hats *= message_hat;
         }
     }
 }

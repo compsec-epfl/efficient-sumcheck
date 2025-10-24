@@ -49,7 +49,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for TimeProductProver<F, S> {
         self.current_round += 1;
 
         // Return the computed polynomial
-        return Some(sums);
+        Some(sums)
     }
 }
 

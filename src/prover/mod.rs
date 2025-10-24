@@ -1,2 +1,2 @@
-mod prover;
-pub use prover::{ProductProverConfig, Prover, ProverConfig};
+mod core;
+pub use core::{ProductProverConfig, Prover, ProverConfig};

@@ -16,7 +16,7 @@ pub struct TimeProductProver<F: Field, S: Stream<F>> {
     pub inverse_four: F,
 }
 
-impl<'a, F: Field, S: Stream<F>> TimeProductProver<F, S> {
+impl<F: Field, S: Stream<F>> TimeProductProver<F, S> {
     pub fn total_rounds(&self) -> usize {
         self.num_variables
     }
@@ -89,10 +89,10 @@ impl<'a, F: Field, S: Stream<F>> TimeProductProver<F, S> {
                         (a00 + b00, a01 + b01, a10 + b10, a11 + b11)
                     },
                 );
-            j_prime_table.0 .0 = j_prime_table.0 .0 + acc00;
-            j_prime_table.0 .1 = j_prime_table.0 .1 + acc01;
-            j_prime_table.1 .0 = j_prime_table.1 .0 + acc10;
-            j_prime_table.1 .1 = j_prime_table.1 .1 + acc11;
+            j_prime_table.0 .0 += acc00;
+            j_prime_table.0 .1 += acc01;
+            j_prime_table.1 .0 += acc10;
+            j_prime_table.1 .1 += acc11;
         }
 
         #[cfg(not(feature = "parallel"))]
@@ -150,7 +150,7 @@ impl<'a, F: Field, S: Stream<F>> TimeProductProver<F, S> {
         let sum_1 = j_prime_table.1 .1;
         sum_half +=
             j_prime_table.0 .0 + j_prime_table.1 .1 + j_prime_table.0 .1 + j_prime_table.1 .0;
-        sum_half = sum_half * self.inverse_four;
+        sum_half *= self.inverse_four;
 
         (sum_0, sum_1, sum_half)
     }
