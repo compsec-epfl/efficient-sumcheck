@@ -15,7 +15,7 @@ where
     pub streams: Vec<S>,
 }
 
-impl<'a, F, S> BlendyProductProverConfig<F, S>
+impl<F, S> BlendyProductProverConfig<F, S>
 where
     F: Field,
     S: Stream<F>,

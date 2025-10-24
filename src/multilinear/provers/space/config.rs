@@ -12,7 +12,7 @@ where
     pub stream: S,
 }
 
-impl<'a, F, S> SpaceProverConfig<F, S>
+impl<F, S> SpaceProverConfig<F, S>
 where
     F: Field,
     S: Stream<F>,

@@ -68,7 +68,7 @@ impl<F: Field, S: Stream<F>> SpaceProductProver<F, S> {
                     (partial_sum_p_0 + partial_sum_p_1) * (partial_sum_q_0 + partial_sum_q_1);
             }
         }
-        sum_half = sum_half * self.inverse_four;
+        sum_half *= self.inverse_four;
         (sum_0, sum_1, sum_half)
     }
 }

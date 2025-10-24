@@ -13,7 +13,7 @@ where
     pub stream: S,
 }
 
-impl<'a, F, S> BlendyProverConfig<F, S>
+impl<F, S> BlendyProverConfig<F, S>
 where
     F: Field,
     S: Stream<F>,

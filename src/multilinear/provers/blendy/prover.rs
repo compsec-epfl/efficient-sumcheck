@@ -9,7 +9,7 @@ use crate::{
     streams::Stream,
 };
 
-impl<'a, F, S> Prover<F> for BlendyProver<F, S>
+impl<F, S> Prover<F> for BlendyProver<F, S>
 where
     F: Field,
     S: Stream<F>,

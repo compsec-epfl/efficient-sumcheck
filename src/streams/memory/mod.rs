@@ -1,3 +1,3 @@
-mod memory;
+mod core;
 
-pub use memory::{reorder_vec, MemoryStream};
+pub use core::{reorder_vec, MemoryStream};

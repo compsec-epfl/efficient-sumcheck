@@ -13,10 +13,7 @@ pub struct MemoryStream<F: Field> {
 
 pub fn reorder_vec<F: Field, O: OrderStrategy>(evaluations: Vec<F>) -> Vec<F> {
     // abort if length not a power of two
-    assert_eq!(
-        evaluations.len() != 0 && evaluations.len().count_ones() == 1,
-        true
-    );
+    assert!(!evaluations.is_empty() && evaluations.len().count_ones() == 1);
     let num_vars = evaluations.len().trailing_zeros() as usize;
     let mut order = O::new(num_vars);
     let mut evaluations_ordered = Vec::with_capacity(evaluations.len());
@@ -29,19 +26,13 @@ pub fn reorder_vec<F: Field, O: OrderStrategy>(evaluations: Vec<F>) -> Vec<F> {
 impl<F: Field> MemoryStream<F> {
     pub fn new(evaluations: Vec<F>) -> Self {
         // abort if length not a power of two
-        assert_eq!(
-            evaluations.len() != 0 && evaluations.len().count_ones() == 1,
-            true
-        );
+        assert!(!evaluations.is_empty() && evaluations.len().count_ones() == 1);
         // return the MemoryStream instance
         Self { evaluations }
     }
     pub fn new_from_lex<O: OrderStrategy>(evaluations: Vec<F>) -> Self {
         // abort if length not a power of two
-        assert_eq!(
-            evaluations.len() != 0 && evaluations.len().count_ones() == 1,
-            true
-        );
+        assert!(!evaluations.is_empty() && evaluations.len().count_ones() == 1);
         Self::new(reorder_vec::<F, O>(evaluations))
     }
 }

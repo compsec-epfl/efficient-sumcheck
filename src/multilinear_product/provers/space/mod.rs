@@ -1,6 +1,6 @@
 mod config;
+mod core;
 mod prover;
-mod space;
 
 pub use config::SpaceProductProverConfig;
-pub use space::SpaceProductProver;
+pub use core::SpaceProductProver;

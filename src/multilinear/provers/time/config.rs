@@ -12,7 +12,7 @@ where
     pub stream: S,
 }
 
-impl<'a, F, S> TimeProverConfig<F, S>
+impl<F, S> TimeProverConfig<F, S>
 where
     F: Field,
     S: Stream<F>,

@@ -1,6 +1,6 @@
-mod blendy;
 mod config;
+mod core;
 mod prover;
 
-pub use blendy::BlendyProductProver;
 pub use config::BlendyProductProverConfig;
+pub use core::BlendyProductProver;

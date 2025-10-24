@@ -1,2 +1,2 @@
-mod graycode;
-pub use graycode::GraycodeOrder;
+mod core;
+pub use core::GraycodeOrder;

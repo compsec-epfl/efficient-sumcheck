@@ -1,4 +1,3 @@
-// Basically this emulates a Vec<bool> as an iterator wrapped over a usize
 #[derive(Clone, Debug, PartialEq)]
 pub struct HypercubeMember {
     bit_index: usize,
@@ -21,6 +20,12 @@ impl HypercubeMember {
     pub fn len(&self) -> usize {
         self.num_vars
     }
+    pub fn is_empty(&self) -> bool {
+        if self.bit_index == 0 {
+            return true;
+        }
+        false
+    }
     pub fn usize_from_vec_bool(vec: Vec<bool>) -> usize {
         vec.into_iter()
             .rev()
@@ -29,7 +34,7 @@ impl HypercubeMember {
     }
     pub fn elements_at_indices(b: Vec<bool>, indices: Vec<usize>) -> Vec<bool> {
         // checks
-        if indices.len() == 0 {
+        if indices.is_empty() {
             return vec![];
         }
         assert!(b.len() >= indices.len());
@@ -61,7 +66,7 @@ impl Iterator for HypercubeMember {
             return None;
         }
         // Return if value is bit high at bit_index
-        self.bit_index = self.bit_index - 1;
+        self.bit_index -= 1;
         let bit_mask = 1 << self.bit_index;
         Some(self.value & bit_mask != 0)
     }

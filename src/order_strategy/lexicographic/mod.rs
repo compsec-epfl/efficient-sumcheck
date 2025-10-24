@@ -1,3 +1,3 @@
-mod lexicographic;
+mod core;
 
-pub use lexicographic::LexicographicOrder;
+pub use core::LexicographicOrder;

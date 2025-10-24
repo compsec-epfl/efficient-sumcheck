@@ -1,5 +1,5 @@
 [package]
-name = "space-efficient-sumcheck"
+name = "efficient-sumcheck"
 version = "0.0.2"
 authors = ["arkworks maintainers"]
 description = "TODO"

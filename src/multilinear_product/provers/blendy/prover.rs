@@ -38,7 +38,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
             }
             state_comp_set
         };
-        assert!(state_comp_set.len() > 0);
+        assert!(!state_comp_set.is_empty());
 
         let last_round: usize = *state_comp_set.iter().max().unwrap();
         let vsbw_prover = TimeProductProver::<F, S> {
@@ -139,15 +139,14 @@ mod tests {
     fn consistency_test_with_next_iterator() {
         // get evals in lexicographic order
         let num_variables = 8;
-        let s_tmp: BenchStream<F64> = BenchStream::<F64>::new(num_variables).into();
+        let s_tmp: BenchStream<F64> = BenchStream::<F64>::new(num_variables);
         let mut evals: Vec<F64> = Vec::with_capacity(1 << num_variables);
         for i in 0..(1 << num_variables) {
             evals.push(s_tmp.evaluation(i));
         }
 
         // create the stream in SigBit order
-        let s: MemoryStream<F64> =
-            MemoryStream::new_from_lex::<SignificantBitOrder>(evals.clone()).into();
+        let s: MemoryStream<F64> = MemoryStream::new_from_lex::<SignificantBitOrder>(evals.clone());
         let claim: F64 = multivariate_product_claim(vec![s.clone(), s.clone()]);
 
         // get transcript from Blendy prover
@@ -169,7 +168,7 @@ mod tests {
                 s.evaluations.clone(),
             );
         let mut sanity_prover = BasicProductProver::<F64>::new(BasicProductProverConfig::new(
-            claim.clone(),
+            claim,
             num_variables,
             p.clone(),
             p,
@@ -180,7 +179,7 @@ mod tests {
         >(&mut sanity_prover, &mut ark_std::test_rng());
 
         // ensure the transcript is identical
-        assert_eq!(prover_transcript.is_accepted, true);
+        assert!(prover_transcript.is_accepted);
         assert_eq!(prover_transcript, sanity_prover_transcript);
     }
 }

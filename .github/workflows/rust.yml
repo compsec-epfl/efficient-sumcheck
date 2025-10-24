@@ -4,33 +4,56 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
+    branches-ignore: []
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-
   lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Check lint
-      run: cargo fmt --check
+      - name: Check formatting
+        run: cargo fmt --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install stable toolchain with clippy
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+          override: true
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Check for clippy fixes
+        run: |
+          cargo clippy --fix --allow-dirty --allow-staged || true
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "❌ Clippy would make changes. Please run 'cargo clippy --fix'."
+            git diff
+            exit 1
+          fi
 
   test_with_default_features:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Run tests
-      run: cargo test --verbose
+      - name: Run tests
+        run: cargo test --verbose
 
   test_with_no_default_features:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Run tests
-      run: cargo test --verbose --no-default-features
+      - name: Run tests
+        run: cargo test --verbose --no-default-features

@@ -159,7 +159,7 @@ impl<F: Field> Polynomial<F> for SparsePolynomial<F, SparseTerm> {
 
         // Build the sparse polynomial representation from the nonzero coefficients.
         let mut terms = Vec::new();
-        for mask in 0..n {
+        for (mask, evaluation) in evaluations.iter().enumerate() {
             if evaluations[mask] != F::zero() {
                 let mut exponents = Vec::new();
                 for var in 0..num_vars {
@@ -168,7 +168,7 @@ impl<F: Field> Polynomial<F> for SparsePolynomial<F, SparseTerm> {
                     }
                 }
                 let term = SparseTerm::new(exponents);
-                terms.push((evaluations[mask].clone(), term));
+                terms.push((*evaluation, term));
             }
         }
 

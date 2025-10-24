@@ -1,3 +1,3 @@
-mod file;
+mod core;
 
-pub use file::FileStream;
+pub use core::FileStream;
