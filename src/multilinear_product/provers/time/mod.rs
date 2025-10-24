@@ -1,6 +1,6 @@
 mod config;
 mod prover;
-mod time;
+mod core;
 
 pub use config::TimeProductProverConfig;
-pub use time::TimeProductProver;
+pub use core::TimeProductProver;

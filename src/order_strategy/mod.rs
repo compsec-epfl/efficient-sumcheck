@@ -1,9 +1,9 @@
 mod graycode;
 mod lexicographic;
-mod order_strategy;
+mod core;
 mod significant_bit;
 
 pub use graycode::GraycodeOrder;
 pub use lexicographic::LexicographicOrder;
-pub use order_strategy::OrderStrategy;
+pub use core::OrderStrategy;
 pub use significant_bit::SignificantBitOrder;

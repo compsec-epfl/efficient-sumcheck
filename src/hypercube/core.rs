@@ -1,5 +1,12 @@
 use crate::{hypercube::HypercubeMember, order_strategy::OrderStrategy};
 
+// mod hypercube;
+// mod hypercube_member;
+
+// pub use hypercube::Hypercube;
+// pub use hypercube_member::HypercubeMember;
+
+
 // On each call to next() this gives a HypercubeMember for the value
 #[derive(Debug)]
 pub struct Hypercube<O: OrderStrategy> {

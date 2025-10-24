@@ -1,7 +1,7 @@
-mod basic;
+mod core;
 mod config;
 mod prover;
 
-pub use basic::BasicProductProver;
+pub use core::BasicProductProver;
 pub use config::BasicProductProverConfig;
 pub use config::ProductProverPolynomialConfig;

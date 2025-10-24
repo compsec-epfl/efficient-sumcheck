@@ -68,7 +68,7 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
             (sum_0, sum_1, sum_half) = self.vsbw_prover.vsbw_evaluate();
         }
         // if first few rounds, then no table is computed, need to compute sums from the streams
-        else if self.current_round + 1 <= self.last_round_phase1 {
+        else if self.current_round < self.last_round_phase1 {
             // Lag Poly
             let mut sequential_lag_poly: LagrangePolynomial<F, SignificantBitOrder> =
                 LagrangePolynomial::new(&self.verifier_messages_round_comp);
@@ -117,7 +117,7 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                         (partial_sum_p_0 + partial_sum_p_1) * (partial_sum_q_0 + partial_sum_q_1);
                 }
             }
-            sum_half = sum_half * self.inverse_four;
+            sum_half *= self.inverse_four;
         } else {
             // computing evaluations from the cross product tables
 
@@ -166,7 +166,7 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                     }
                 }
             }
-            sum_half = sum_half * self.inverse_four;
+            sum_half *= self.inverse_four;
         }
         (sum_0, sum_1, sum_half)
     }

@@ -23,13 +23,13 @@ where
     pub verifier_messages: VerifierMessages<F>,
 }
 
-impl<'a, F, S> BlendyProver<F, S>
+impl<F, S> BlendyProver<F, S>
 where
     F: Field,
     S: Stream<F>,
 {
     fn shift_and_one_fill(num: usize, shift_amount: usize) -> usize {
-        (num << shift_amount) | (1 << shift_amount) - 1
+        (num << shift_amount) | ((1 << shift_amount) - 1)
     }
 
     pub fn compute_round(&self, partial_sums: &[F]) -> (F, F) {
@@ -81,7 +81,7 @@ where
     }
 
     pub fn is_start_of_stage(&self) -> bool {
-        self.current_round % self.stage_size == 0
+        self.current_round.is_multiple_of(self.stage_size)
     }
 
     fn is_single_staged(&self) -> bool {

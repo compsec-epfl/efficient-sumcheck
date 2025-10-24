@@ -1,3 +1,3 @@
-mod significant_bit;
+mod core;
 
-pub use significant_bit::SignificantBitOrder;
+pub use core::SignificantBitOrder;
