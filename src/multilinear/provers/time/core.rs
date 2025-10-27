@@ -19,9 +19,6 @@ pub struct TimeProver<F: Field, S: Stream<F>> {
 }
 
 impl<F: Field, S: Stream<F>> TimeProver<F, S> {
-    fn num_free_variables(&self) -> usize {
-        self.num_variables - self.current_round
-    }
     pub fn vsbw_evaluate(&self) -> (F, F) {
         // Determine the length of evaluations to iterate through
         let evaluations_len = match &self.evaluations {

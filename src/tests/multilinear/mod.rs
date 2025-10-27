@@ -106,7 +106,7 @@ where
      *   (1,0,1) →  2
      *   (1,1,0) →  0
      *   (1,1,1) →  7
-     * 
+     *
      *   Sum evens: g₀(0) ≡ 15
      *   Sum odds:  g₀(1) ≡ 10
      */
@@ -119,7 +119,7 @@ where
      *   (3,0,1) → 15
      *   (3,1,0) → 2
      *   (3,1,1) → 2
-     * 
+     *
      *   Sum evens: g₀(0) ≡ 2
      *   Sum odds:  g₀(1) ≡ 17
      */
@@ -135,7 +135,7 @@ where
      * Evaluations at different input points:
      *   (3,4,0) → 3
      *   (3,4,1) → 2
-     * 
+     *
      *   Sum evens: g₀(0) ≡ 3
      *   Sum odds:  g₀(1) ≡ 2
      */
