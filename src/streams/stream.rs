@@ -7,7 +7,7 @@ pub fn multivariate_claim<F: Field, S: Stream<F>>(stream: S) -> F {
 
     for i in 0..num_evaluations {
         let eval = stream.evaluation(i);
-        claim += eval * eval;
+        claim += eval;
     }
 
     claim

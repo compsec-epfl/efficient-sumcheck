@@ -14,7 +14,7 @@ pub struct TimeProver<F: Field, S: Stream<F>> {
     pub claim: F,
     pub current_round: usize,
     pub evaluations: Option<Vec<F>>,
-    pub evaluation_stream: S, // Keep this for now, case we can do some small optimizations of first round etc
+    pub evaluation_stream: S, // TODO (z-tech): this can be released after the first call to vsbw_reduce_evaluations
     pub num_variables: usize,
 }
 
