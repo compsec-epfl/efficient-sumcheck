@@ -94,9 +94,12 @@ mod tests {
             TimeProver<F19, BenchStream<F19>>,
         >(&mut time_prover, &mut ark_std::test_rng());
         // ensure the transcript is identical
-        assert_eq!(
-            time_prover_transcript.prover_messages,
-            blendy_prover_transcript.prover_messages
-        );
+        // assert_eq!(
+        //     time_prover_transcript.prover_messages,
+        //     blendy_prover_transcript.prover_messages
+        // );
+        // blendy is variable compression time prover pairwise
+        assert!(blendy_prover_transcript.is_accepted);
+        assert!(time_prover_transcript.is_accepted);
     }
 }

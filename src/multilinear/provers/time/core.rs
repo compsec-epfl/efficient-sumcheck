@@ -23,9 +23,6 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
         self.num_variables - self.current_round
     }
     pub fn vsbw_evaluate(&self) -> (F, F) {
-        // Calculate the bitmask for the number of free variables
-        let bitmask: usize = 1 << (self.num_free_variables() - 1);
-
         // Determine the length of evaluations to iterate through
         let evaluations_len = match &self.evaluations {
             Some(evaluations) => evaluations.len(),
@@ -34,22 +31,26 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
 
         #[cfg(feature = "parallel")]
         let (sum_0, sum_1) = cfg_into_iter!(0..evaluations_len)
-            .map(|i| {
-                // Get the point evaluation
-                let val = if let Some(evals) = &self.evaluations {
-                    evals[i]
+            .step_by(2)
+            .map(|i0| {
+                let i1 = i0 + 1;
+
+                // Get evaluations for this pair
+                let v0 = if let Some(evals) = &self.evaluations {
+                    evals[i0]
                 } else {
-                    self.evaluation_stream.evaluation(i)
+                    self.evaluation_stream.evaluation(i0)
                 };
 
-                // Route value into the proper bucket
-                if (i & bitmask) == 0 {
-                    (val, F::zero()) // contributes to sum_0
+                let v1 = if let Some(evals) = &self.evaluations {
+                    evals[i1]
                 } else {
-                    (F::zero(), val) // contributes to sum_1
-                }
+                    self.evaluation_stream.evaluation(i1)
+                };
+
+                // Return as (sum0 contribution, sum1 contribution)
+                (v0, v1)
             })
-            // Combine partial (sum0, sum1) pairs from each worker/thread.
             .reduce(
                 || (F::zero(), F::zero()),
                 |(a0, a1), (b0, b1)| (a0 + b0, a1 + b1),
@@ -103,9 +104,6 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
             None => evaluations.len(),
         };
 
-        // Calculate what bit needs to be set to index the second half of the last round's evaluations
-        let setbit: usize = 1 << self.num_free_variables();
-
         #[cfg(feature = "parallel")]
         {
             // We'll write to the first half only.
@@ -117,8 +115,8 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
                 dest.par_iter_mut()
                     .enumerate()
                     .for_each(|(i0, slot): (usize, &mut F)| {
-                        let i1 = i0 | setbit;
-                        let v0 = src[i0];
+                        let i1 = (i0 * 2) + 1;
+                        let v0 = src[i0 * 2];
                         let v1 = src[i1];
                         *slot = v0 * verifier_message_hat + v1 * verifier_message;
                     });
@@ -128,8 +126,8 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
                 dest.par_iter_mut()
                     .enumerate()
                     .for_each(|(i0, slot): (usize, &mut F)| {
-                        let i1 = i0 | setbit;
-                        let v0 = stream.evaluation(i0);
+                        let i1 = (i0 * 2) + 1;
+                        let v0 = stream.evaluation(i0 * 2);
                         let v1 = stream.evaluation(i1);
                         *slot = v0 * verifier_message_hat + v1 * verifier_message;
                     });
