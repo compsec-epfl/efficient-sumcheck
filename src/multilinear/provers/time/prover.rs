@@ -1,4 +1,7 @@
 use ark_ff::Field;
+use ark_std::cfg_into_iter;
+use rayon::iter::IntoParallelIterator;
+use rayon::iter::ParallelIterator;
 
 use crate::{
     multilinear::{
@@ -10,6 +13,17 @@ use crate::{
     prover::Prover,
     streams::Stream,
 };
+
+fn combine_streams<F: Field, S: Stream<F>>(streams: &[S]) -> Vec<F> {
+    let len = 1usize << streams[0].num_variables();
+    cfg_into_iter!(0..len)
+        .map(|i| {
+            streams.iter()
+                .map(|s| s.evaluation(i))
+                .fold(F::zero(), |acc, val| acc + val)
+        })
+        .collect()
+}
 
 impl<F: Field, S: Stream<F>> Prover<F> for TimeProver<F, S> {
     type ProverConfig = TimeProverConfig<F, S>;
@@ -36,23 +50,23 @@ impl<F: Field, S: Stream<F>> Prover<F> for TimeProver<F, S> {
             return None;
         }
 
-        // If it's not the first round, reduce the evaluations table
-        if self.current_round != 0 {
-            if self.current_round > 1 {
-                reduce_evaluations(
-                    self.evaluations.as_mut().unwrap(),
-                    verifier_message.unwrap(),
-                    F::ONE - verifier_message.unwrap(),
-                );
-            } else {
-                self.evaluations = Some(vec![]);
-                reduce_evaluations_from_stream(
-                    &self.evaluation_streams[0],
-                    self.evaluations.as_mut().unwrap(),
-                    verifier_message.unwrap(),
-                    F::ONE - verifier_message.unwrap(),
-                );
-            }
+        // TODO
+        if self.current_round == 0 { 
+            self.evaluations = Some(combine_streams(&self.evaluation_streams));
+        } else if self.current_round > 1 || self.evaluation_streams.len() > 1 {
+            reduce_evaluations(
+                self.evaluations.as_mut().unwrap(),
+                verifier_message.unwrap(),
+                F::ONE - verifier_message.unwrap(),
+            );
+        } else {
+            self.evaluations = Some(vec![]);
+            reduce_evaluations_from_stream(
+                &self.evaluation_streams[0],
+                self.evaluations.as_mut().unwrap(),
+                verifier_message.unwrap(),
+                F::ONE - verifier_message.unwrap(),
+            );
         }
 
         // evaluate using vsbw
