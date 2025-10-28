@@ -1,7 +1,12 @@
 use ark_ff::Field;
 
 use crate::{
-    multilinear::{TimeProver, TimeProverConfig},
+    multilinear::{
+        provers::time::reductions::{
+            evaluate, evaluate_from_stream, reduce_evaluations, reduce_evaluations_from_stream,
+        },
+        TimeProver, TimeProverConfig,
+    },
     prover::Prover,
     streams::Stream,
 };
@@ -20,7 +25,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for TimeProver<F, S> {
             claim: prover_config.claim,
             current_round: 0,
             evaluations: None,
-            evaluation_stream: prover_config.stream,
+            evaluation_streams: prover_config.streams,
             num_variables: prover_config.num_variables,
         }
     }
@@ -33,15 +38,28 @@ impl<F: Field, S: Stream<F>> Prover<F> for TimeProver<F, S> {
 
         // If it's not the first round, reduce the evaluations table
         if self.current_round != 0 {
-            // update the evaluations table by absorbing leftmost variable assigned to verifier_message
-            self.vsbw_reduce_evaluations(
-                verifier_message.unwrap(),
-                F::ONE - verifier_message.unwrap(),
-            )
+            if self.current_round > 1 {
+                reduce_evaluations(
+                    self.evaluations.as_mut().unwrap(),
+                    verifier_message.unwrap(),
+                    F::ONE - verifier_message.unwrap(),
+                );
+            } else {
+                self.evaluations = Some(vec![]);
+                reduce_evaluations_from_stream(
+                    &self.evaluation_streams[0],
+                    self.evaluations.as_mut().unwrap(),
+                    verifier_message.unwrap(),
+                    F::ONE - verifier_message.unwrap(),
+                );
+            }
         }
 
         // evaluate using vsbw
-        let sums = self.vsbw_evaluate();
+        let sums = match &self.evaluations {
+            None => evaluate_from_stream(&self.evaluation_streams[0]),
+            Some(evaluations) => evaluate(evaluations),
+        };
 
         // Increment the round counter
         self.current_round += 1;
