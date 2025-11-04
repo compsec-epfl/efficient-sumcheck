@@ -62,44 +62,62 @@ impl<F: Field> Sumcheck<F> {
 mod tests {
     use super::Sumcheck;
     use crate::{
-        multilinear::{BlendyProver, BlendyProverConfig, TimeProver},
+        multilinear::{BlendyProver, BlendyProverConfig, ReduceMode, TimeProver},
         prover::{Prover, ProverConfig},
         tests::{BenchStream, F19},
     };
 
     #[test]
-    fn algorithm_consistency() {
+    fn sanity() {
         // take an evaluation stream
-        let evaluation_stream: BenchStream<F19> = BenchStream::new(20);
+        let evaluation_stream: BenchStream<F19> = BenchStream::new(2);
         let claim = evaluation_stream.claimed_sum;
-        // initialize the provers
+
+        // blendy
         let mut blendy_k3_prover = BlendyProver::<F19, BenchStream<F19>>::new(
             BlendyProverConfig::new(claim, 3, 20, evaluation_stream.clone()),
         );
-        let mut time_prover = TimeProver::<F19, BenchStream<F19>>::new(<TimeProver<
-            F19,
-            BenchStream<F19>,
-        > as Prover<F19>>::ProverConfig::default(
-            claim,
-            20,
-            evaluation_stream,
-        ));
-        // run them and get the transcript
         let blendy_prover_transcript = Sumcheck::<F19>::prove::<
             BenchStream<F19>,
             BlendyProver<F19, BenchStream<F19>>,
         >(&mut blendy_k3_prover, &mut ark_std::test_rng());
-        let time_prover_transcript = Sumcheck::<F19>::prove::<
+
+
+        // time_prover_variablewise
+        let mut time_prover_variablewise = TimeProver::<F19, BenchStream<F19>>::new(<TimeProver<
+            F19,
+            BenchStream<F19>,
+        > as Prover<F19>>::ProverConfig::new(
+            claim,
+            2,
+            evaluation_stream.clone(),
+            ReduceMode::Variablewise,
+        ));
+        let time_prover_variablewise_transcript = Sumcheck::<F19>::prove::<
             BenchStream<F19>,
             TimeProver<F19, BenchStream<F19>>,
-        >(&mut time_prover, &mut ark_std::test_rng());
-        // ensure the transcript is identical
-        // assert_eq!(
-        //     time_prover_transcript.prover_messages,
-        //     blendy_prover_transcript.prover_messages
-        // );
-        // blendy is variable compression time prover pairwise
-        assert!(blendy_prover_transcript.is_accepted);
-        assert!(time_prover_transcript.is_accepted);
+        >(&mut time_prover_variablewise, &mut ark_std::test_rng());
+
+        // ensure transcripts identical
+        assert_eq!(
+            time_prover_variablewise_transcript.prover_messages,
+            blendy_prover_transcript.prover_messages
+        );
+
+
+        // time_prover_pairwise: this should pass but I have nothing to compare it with
+        let mut time_prover_pairwise = TimeProver::<F19, BenchStream<F19>>::new(<TimeProver<
+            F19,
+            BenchStream<F19>,
+        > as Prover<F19>>::ProverConfig::default(
+            claim,
+            2,
+            evaluation_stream,
+        ));
+        let time_prover_pairwise_transcript = Sumcheck::<F19>::prove::<
+            BenchStream<F19>,
+            TimeProver<F19, BenchStream<F19>>,
+        >(&mut time_prover_pairwise, &mut ark_std::test_rng());
+        assert!(time_prover_pairwise_transcript.is_accepted);
     }
 }

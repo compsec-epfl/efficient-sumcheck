@@ -1,28 +1,96 @@
 use ark_ff::Field;
-use ark_std::cfg_into_iter;
-use rayon::iter::IntoParallelIterator;
-use rayon::iter::ParallelIterator;
 
+use crate::multilinear::provers::time::reductions::ReduceMode;
 use crate::{
     multilinear::{
-        provers::time::reductions::{
-            evaluate, evaluate_from_stream, reduce_evaluations, reduce_evaluations_from_stream,
-        },
+        provers::time::reductions::{pairwise, variablewise},
         TimeProver, TimeProverConfig,
     },
     prover::Prover,
     streams::Stream,
 };
 
-fn combine_streams<F: Field, S: Stream<F>>(streams: &[S]) -> Vec<F> {
-    let len = 1usize << streams[0].num_variables();
-    cfg_into_iter!(0..len)
-        .map(|i| {
-            streams.iter()
-                .map(|s| s.evaluation(i))
-                .fold(F::zero(), |acc, val| acc + val)
-        })
-        .collect()
+impl<F: Field, S: Stream<F>> TimeProver<F, S> {
+    fn num_free_variables(&self) -> usize {
+        self.num_variables - self.current_round
+    }
+    fn next_message_pairwise(&mut self, verifier_message: Option<F>) -> Option<(F, F)> {
+        // Ensure the current round is within bounds
+        if self.current_round >= self.total_rounds() {
+            return None;
+        }
+
+        if self.current_round != 0 {
+            if self.current_round > 1 {
+                pairwise::reduce_evaluations(
+                    self.evaluations.as_mut().unwrap(),
+                    verifier_message.unwrap(),
+                    F::ONE - verifier_message.unwrap(),
+                );
+            } else {
+                self.evaluations = Some(vec![]);
+                pairwise::reduce_evaluations_from_stream(
+                    &self.evaluation_streams[0],
+                    self.evaluations.as_mut().unwrap(),
+                    verifier_message.unwrap(),
+                    F::ONE - verifier_message.unwrap(),
+                );
+            }
+        }
+
+        // evaluate using vsbw
+        let sums = match &self.evaluations {
+            None => pairwise::evaluate_from_stream(&self.evaluation_streams[0]),
+            Some(evaluations) => pairwise::evaluate(evaluations),
+        };
+
+        // Increment the round counter
+        self.current_round += 1;
+
+        // Return the computed polynomial
+        Some(sums)
+    }
+    fn next_message_variablewise(&mut self, verifier_message: Option<F>) -> Option<(F, F)> {
+        // Ensure the current round is within bounds
+        if self.current_round >= self.total_rounds() {
+            return None;
+        }
+        let num_free_variables = self.num_free_variables();
+
+        if self.current_round != 0 {
+            if self.current_round > 1 {
+                variablewise::reduce_evaluations(
+                    self.evaluations.as_mut().unwrap(),
+                    num_free_variables,
+                    verifier_message.unwrap(),
+                    F::ONE - verifier_message.unwrap(),
+                );
+            } else {
+                self.evaluations = Some(vec![]);
+                variablewise::reduce_evaluations_from_stream(
+                    &self.evaluation_streams[0],
+                    self.evaluations.as_mut().unwrap(),
+                    num_free_variables,
+                    verifier_message.unwrap(),
+                    F::ONE - verifier_message.unwrap(),
+                );
+            }
+        }
+
+        // evaluate using vsbw
+        let sums = match &self.evaluations {
+            None => {
+                variablewise::evaluate_from_stream(&self.evaluation_streams[0], num_free_variables)
+            }
+            Some(evaluations) => variablewise::evaluate(evaluations, num_free_variables),
+        };
+
+        // Increment the round counter
+        self.current_round += 1;
+
+        // Return the computed polynomial
+        Some(sums)
+    }
 }
 
 impl<F: Field, S: Stream<F>> Prover<F> for TimeProver<F, S> {
@@ -41,45 +109,15 @@ impl<F: Field, S: Stream<F>> Prover<F> for TimeProver<F, S> {
             evaluations: None,
             evaluation_streams: prover_config.streams,
             num_variables: prover_config.num_variables,
+            reduce_mode: prover_config.reduce_mode,
         }
     }
 
     fn next_message(&mut self, verifier_message: Option<F>) -> Option<(F, F)> {
-        // Ensure the current round is within bounds
-        if self.current_round >= self.total_rounds() {
-            return None;
+        match self.reduce_mode {
+            ReduceMode::Pairwise => self.next_message_pairwise(verifier_message),
+            ReduceMode::Variablewise => self.next_message_variablewise(verifier_message),
         }
-
-        // TODO
-        if self.current_round == 0 { 
-            self.evaluations = Some(combine_streams(&self.evaluation_streams));
-        } else if self.current_round > 1 || self.evaluation_streams.len() > 1 {
-            reduce_evaluations(
-                self.evaluations.as_mut().unwrap(),
-                verifier_message.unwrap(),
-                F::ONE - verifier_message.unwrap(),
-            );
-        } else {
-            self.evaluations = Some(vec![]);
-            reduce_evaluations_from_stream(
-                &self.evaluation_streams[0],
-                self.evaluations.as_mut().unwrap(),
-                verifier_message.unwrap(),
-                F::ONE - verifier_message.unwrap(),
-            );
-        }
-
-        // evaluate using vsbw
-        let sums = match &self.evaluations {
-            None => evaluate_from_stream(&self.evaluation_streams[0]),
-            Some(evaluations) => evaluate(evaluations),
-        };
-
-        // Increment the round counter
-        self.current_round += 1;
-
-        // Return the computed polynomial
-        Some(sums)
     }
 }
 

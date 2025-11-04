@@ -1,5 +1,8 @@
-mod pairwise;
+pub mod pairwise;
+pub mod variablewise;
 
-pub use pairwise::{
-    evaluate, evaluate_from_stream, reduce_evaluations, reduce_evaluations_from_stream,
-};
+#[derive(Copy, Clone, Debug)]
+pub enum ReduceMode {
+    Pairwise,
+    Variablewise,
+}
