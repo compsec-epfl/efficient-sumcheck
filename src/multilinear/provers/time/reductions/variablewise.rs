@@ -2,11 +2,7 @@ use ark_ff::Field;
 use ark_std::vec::Vec;
 use ark_std::{cfg_into_iter, cfg_iter_mut};
 use rayon::iter::IntoParallelRefMutIterator;
-use rayon::{
-    iter::{
-        IndexedParallelIterator, IntoParallelIterator, ParallelIterator,
-    },
-};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 use crate::streams::Stream;
 

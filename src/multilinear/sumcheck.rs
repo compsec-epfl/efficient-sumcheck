@@ -69,19 +69,20 @@ mod tests {
 
     #[test]
     fn sanity() {
+        const NUM_VARIABLES: usize = 20;
+
         // take an evaluation stream
-        let evaluation_stream: BenchStream<F19> = BenchStream::new(2);
+        let evaluation_stream: BenchStream<F19> = BenchStream::new(NUM_VARIABLES);
         let claim = evaluation_stream.claimed_sum;
 
         // blendy
         let mut blendy_k3_prover = BlendyProver::<F19, BenchStream<F19>>::new(
-            BlendyProverConfig::new(claim, 3, 20, evaluation_stream.clone()),
+            BlendyProverConfig::new(claim, 3, NUM_VARIABLES, evaluation_stream.clone()),
         );
         let blendy_prover_transcript = Sumcheck::<F19>::prove::<
             BenchStream<F19>,
             BlendyProver<F19, BenchStream<F19>>,
         >(&mut blendy_k3_prover, &mut ark_std::test_rng());
-
 
         // time_prover_variablewise
         let mut time_prover_variablewise = TimeProver::<F19, BenchStream<F19>>::new(<TimeProver<
@@ -89,14 +90,15 @@ mod tests {
             BenchStream<F19>,
         > as Prover<F19>>::ProverConfig::new(
             claim,
-            2,
+            NUM_VARIABLES,
             evaluation_stream.clone(),
             ReduceMode::Variablewise,
         ));
-        let time_prover_variablewise_transcript = Sumcheck::<F19>::prove::<
-            BenchStream<F19>,
-            TimeProver<F19, BenchStream<F19>>,
-        >(&mut time_prover_variablewise, &mut ark_std::test_rng());
+        let time_prover_variablewise_transcript =
+            Sumcheck::<F19>::prove::<BenchStream<F19>, TimeProver<F19, BenchStream<F19>>>(
+                &mut time_prover_variablewise,
+                &mut ark_std::test_rng(),
+            );
 
         // ensure transcripts identical
         assert_eq!(
@@ -104,20 +106,20 @@ mod tests {
             blendy_prover_transcript.prover_messages
         );
 
-
         // time_prover_pairwise: this should pass but I have nothing to compare it with
         let mut time_prover_pairwise = TimeProver::<F19, BenchStream<F19>>::new(<TimeProver<
             F19,
             BenchStream<F19>,
         > as Prover<F19>>::ProverConfig::default(
             claim,
-            2,
+            NUM_VARIABLES,
             evaluation_stream,
         ));
-        let time_prover_pairwise_transcript = Sumcheck::<F19>::prove::<
-            BenchStream<F19>,
-            TimeProver<F19, BenchStream<F19>>,
-        >(&mut time_prover_pairwise, &mut ark_std::test_rng());
+        let time_prover_pairwise_transcript =
+            Sumcheck::<F19>::prove::<BenchStream<F19>, TimeProver<F19, BenchStream<F19>>>(
+                &mut time_prover_pairwise,
+                &mut ark_std::test_rng(),
+            );
         assert!(time_prover_pairwise_transcript.is_accepted);
     }
 }

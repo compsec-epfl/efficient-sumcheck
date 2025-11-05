@@ -11,9 +11,6 @@ use crate::{
 };
 
 impl<F: Field, S: Stream<F>> TimeProver<F, S> {
-    fn num_free_variables(&self) -> usize {
-        self.num_variables - self.current_round
-    }
     fn next_message_pairwise(&mut self, verifier_message: Option<F>) -> Option<(F, F)> {
         // Ensure the current round is within bounds
         if self.current_round >= self.total_rounds() {
@@ -55,8 +52,8 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
         if self.current_round >= self.total_rounds() {
             return None;
         }
-        let num_free_variables = self.num_free_variables();
 
+        let num_free_variables = self.num_variables - self.current_round;
         if self.current_round != 0 {
             if self.current_round > 1 {
                 variablewise::reduce_evaluations(

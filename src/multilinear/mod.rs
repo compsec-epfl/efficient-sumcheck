@@ -4,6 +4,6 @@ mod sumcheck;
 pub use provers::{
     blendy::{BlendyProver, BlendyProverConfig},
     space::{SpaceProver, SpaceProverConfig},
-    time::{TimeProver, TimeProverConfig, ReduceMode},
+    time::{ReduceMode, TimeProver, TimeProverConfig},
 };
 pub use sumcheck::Sumcheck;
