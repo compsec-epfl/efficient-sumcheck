@@ -53,12 +53,10 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
             return None;
         }
 
-        let num_free_variables = self.num_variables - self.current_round;
         if self.current_round != 0 {
             if self.current_round > 1 {
                 variablewise::reduce_evaluations(
                     self.evaluations.as_mut().unwrap(),
-                    num_free_variables,
                     verifier_message.unwrap(),
                     F::ONE - verifier_message.unwrap(),
                 );
@@ -67,7 +65,6 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
                 variablewise::reduce_evaluations_from_stream(
                     &self.evaluation_streams[0],
                     self.evaluations.as_mut().unwrap(),
-                    num_free_variables,
                     verifier_message.unwrap(),
                     F::ONE - verifier_message.unwrap(),
                 );
@@ -76,10 +73,8 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
 
         // evaluate using vsbw
         let sums = match &self.evaluations {
-            None => {
-                variablewise::evaluate_from_stream(&self.evaluation_streams[0], num_free_variables)
-            }
-            Some(evaluations) => variablewise::evaluate(evaluations, num_free_variables),
+            None => variablewise::evaluate_from_stream(&self.evaluation_streams[0]),
+            Some(evaluations) => variablewise::evaluate(evaluations),
         };
 
         // Increment the round counter
