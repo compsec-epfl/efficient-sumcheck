@@ -1,6 +1,4 @@
-use ark_ff::ark_ff_macros::SmallFpConfig;
 use ark_ff::fields::{Fp128, Fp64, MontBackend, MontConfig};
-use ark_ff::{BigInt, SmallFp, SmallFpConfig, SqrtPrecomputation};
 
 #[derive(MontConfig)]
 #[modulus = "19"]
@@ -14,35 +12,14 @@ pub type F19 = Fp64<MontBackend<F19Config, 1>>;
 pub struct M31Config;
 pub type M31 = Fp64<MontBackend<M31Config, 1>>;
 
-#[derive(SmallFpConfig)]
-#[modulus = "2147483647"] // m31
-#[generator = "7"]
-#[backend = "montgomery"]
-pub struct SmallFieldMont;
-pub type SmallF32Mont = SmallFp<SmallFieldMont>;
-
 #[derive(MontConfig)]
 #[modulus = "18446744069414584321"] // q = 2^64 - 2^32 + 1
 #[generator = "2"]
 pub struct F64Config;
 pub type F64 = Fp64<MontBackend<F64Config, 1>>;
 
-#[derive(SmallFpConfig)]
-#[modulus = "18446744069414584321"] // Goldilock's prime 2^64 - 2^32 + 1
-#[generator = "7"]
-#[backend = "montgomery"]
-pub struct SmallF64ConfigMont;
-pub type SmallF64Mont = SmallFp<SmallF64ConfigMont>;
-
 #[derive(MontConfig)]
 #[modulus = "143244528689204659050391023439224324689"] // q = 143244528689204659050391023439224324689
 #[generator = "2"]
 pub struct F128Config;
 pub type F128 = Fp128<MontBackend<F128Config, 2>>;
-
-#[derive(SmallFpConfig)]
-#[modulus = "143244528689204659050391023439224324689"]
-#[generator = "3"]
-#[backend = "montgomery"]
-pub struct SmallF128ConfigMont;
-pub type SmallF128Mont = SmallFp<SmallF128ConfigMont>;

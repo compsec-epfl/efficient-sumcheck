@@ -4,5 +4,5 @@ mod streams;
 pub mod multilinear;
 pub mod multilinear_product;
 pub mod polynomials;
-pub use fields::{SmallF128Mont, SmallF32Mont, SmallF64Mont, F128, F19, F64, M31};
+pub use fields::{F128, F19, F64, M31};
 pub use streams::BenchStream;
