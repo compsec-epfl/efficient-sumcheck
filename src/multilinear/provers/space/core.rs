@@ -8,7 +8,7 @@ use crate::{
 pub struct SpaceProver<F: Field, S: Stream<F>> {
     pub claim: F,
     pub current_round: usize,
-    pub evaluation_stream: S,
+    pub evaluation_streams: Vec<S>,
     pub num_variables: usize,
     pub verifier_messages: Vec<F>,
     pub verifier_message_hats: Vec<F>,
@@ -49,11 +49,13 @@ impl<F: Field, S: Stream<F>> SpaceProver<F, S> {
                 // Check if the bit at the position specified by the bitmask is set
                 let is_set: bool = (evaluation_index & bitmask) != 0;
 
-                // Use match to accumulate the appropriate value based on whether the bit is set or not
-                let inner_sum = self.evaluation_stream.evaluation(evaluation_index) * lag_poly;
-                match is_set {
-                    false => sum_0 += inner_sum,
-                    true => sum_1 += inner_sum,
+                for stream in &self.evaluation_streams {
+                    // Use match to accumulate the appropriate value based on whether the bit is set or not
+                    let inner_sum = stream.evaluation(evaluation_index) * lag_poly;
+                    match is_set {
+                        false => sum_0 += inner_sum,
+                        true => sum_1 += inner_sum,
+                    }
                 }
             }
         }

@@ -18,7 +18,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for SpaceProver<F, S> {
     fn new(prover_config: Self::ProverConfig) -> Self {
         Self {
             claim: prover_config.claim,
-            evaluation_stream: prover_config.stream,
+            evaluation_streams: prover_config.streams,
             verifier_messages: Vec::<F>::with_capacity(prover_config.num_variables),
             verifier_message_hats: Vec::<F>::with_capacity(prover_config.num_variables),
             current_round: 0,
