@@ -8,9 +8,9 @@ include = ["Cargo.toml", "src", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
 edition = "2021"
 
 [dependencies]
-ark-ff = "0.5.0"
-ark-poly = "0.5.0"
-ark-serialize = "0.5.0"
+ark-ff = { path = "../ben/algebra/ff"}
+ark-poly = { path = "../ben/algebra/poly"}
+ark-serialize = { path = "../ben/algebra/serialize"}
 ark-std ="0.5.0"
 memmap2 = "0.9.5"
 rayon = { version = "1.10", optional = true }
@@ -30,4 +30,14 @@ parallel = [
 [[bench]]
 name = "provers"
 path = "benches/provers.rs"
+harness = false
+
+[[bench]]
+name = "extension_benches"
+path = "benches/extension_benches.rs"
+harness = false
+
+[[bench]]
+name = "small_fields_benches"
+path = "benches/small_fields_benches.rs"
 harness = false
