@@ -1,10 +1,8 @@
 use ark_ff::Field;
-use ark_std::vec::Vec;
 use ark_std::cfg_into_iter;
+use ark_std::vec::Vec;
 #[cfg(feature = "parallel")]
-use rayon::iter::{
-    IntoParallelIterator, ParallelIterator,
-};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::streams::Stream;
 
