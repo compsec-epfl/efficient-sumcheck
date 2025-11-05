@@ -7,6 +7,12 @@ pub struct F19Config;
 pub type F19 = Fp64<MontBackend<F19Config, 1>>;
 
 #[derive(MontConfig)]
+#[modulus = "2147483647"] // 2 ^ 31 - 1
+#[generator = "2"]
+pub struct M31Config;
+pub type M31 = Fp64<MontBackend<M31Config, 1>>;
+
+#[derive(MontConfig)]
 #[modulus = "18446744069414584321"] // q = 2^64 - 2^32 + 1
 #[generator = "2"]
 pub struct F64Config;

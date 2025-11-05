@@ -5,6 +5,10 @@ pub trait ProverConfig<F: Field, S: Stream<F>> {
     fn default(claim: F, num_variables: usize, stream: S) -> Self;
 }
 
+pub trait BatchProverConfig<F: Field, S: Stream<F>> {
+    fn default(claim: F, num_variables: usize, streams: Vec<S>) -> Self;
+}
+
 pub trait ProductProverConfig<F: Field, S: Stream<F>> {
     fn default(claim: F, num_variables: usize, steams: Vec<S>) -> Self;
 }

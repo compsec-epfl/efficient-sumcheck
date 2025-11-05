@@ -1,2 +1,2 @@
 mod core;
-pub use core::{ProductProverConfig, Prover, ProverConfig};
+pub use core::{BatchProverConfig, ProductProverConfig, Prover, ProverConfig};
