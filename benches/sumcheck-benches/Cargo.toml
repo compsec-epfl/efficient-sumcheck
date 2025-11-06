@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ark-ff = { path = "../../../ben/algebra/ff"}
-ark-poly = { path = "../../../ben/algebra/poly"}
-ark-serialize = { path = "../../../ben/algebra/serialize"}
+ark-ff = "0.5.0"
+ark-poly = "0.5.0"
+ark-serialize = "0.5.0"
 ark-std ="0.5.0"
 ark-bn254 = "0.5.0"
-efficient-sumcheck = { path = "../../.", default-features = false }
+efficient-sumcheck = { path = "../../." }
 
 [profile.release]
 debug = true

@@ -14,7 +14,7 @@ use efficient_sumcheck::{
     order_strategy::SignificantBitOrder,
     prover::{Prover, ProverConfig},
     streams::{multivariate_claim, multivariate_product_claim},
-    tests::{BenchStream, F128, SmallGoldilocks as F64}, // SmallGoldilocks as F64
+    tests::{BenchStream, F128, F64}, // SmallGoldilocks as F64
     ProductSumcheck, Sumcheck,
 };
 

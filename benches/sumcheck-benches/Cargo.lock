@@ -27,7 +27,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d69eab57e8d2663efa5c63135b2af4f396d66424f88954c21104125ab6b3e6bc"
 dependencies = [
  "ark-ec",
- "ark-ff 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ark-ff",
  "ark-std",
 ]
 
@@ -38,13 +38,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43d68f2d516162846c1238e755a7c4d131b892b70cc70c471a8e3ca3ed818fce"
 dependencies = [
  "ahash",
- "ark-ff 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ark-poly 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ark-serialize 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ark-ff",
+ "ark-poly",
+ "ark-serialize",
  "ark-std",
  "educe",
  "fnv",
- "hashbrown 0.15.3",
+ "hashbrown",
  "itertools",
  "num-bigint",
  "num-integer",
@@ -55,27 +55,12 @@ dependencies = [
 [[package]]
 name = "ark-ff"
 version = "0.5.0"
-dependencies = [
- "ark-ff-asm 0.5.0",
- "ark-ff-macros 0.5.0",
- "ark-serialize 0.5.0",
- "ark-std",
- "digest",
- "educe",
- "num-bigint",
- "num-traits",
- "zeroize",
-]
-
-[[package]]
-name = "ark-ff"
-version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a177aba0ed1e0fbb62aa9f6d0502e9b46dad8c2eab04c14258a1212d2557ea70"
 dependencies = [
- "ark-ff-asm 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ark-ff-macros 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ark-serialize 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ark-ff-asm",
+ "ark-ff-macros",
+ "ark-serialize",
  "ark-std",
  "arrayvec",
  "digest",
@@ -84,15 +69,8 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "paste",
+ "rayon",
  "zeroize",
-]
-
-[[package]]
-name = "ark-ff-asm"
-version = "0.5.0"
-dependencies = [
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -101,17 +79,6 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62945a2f7e6de02a31fe400aa489f0e0f5b2502e69f95f853adb82a96c7a6b60"
 dependencies = [
- "quote",
- "syn",
-]
-
-[[package]]
-name = "ark-ff-macros"
-version = "0.5.0"
-dependencies = [
- "num-bigint",
- "num-traits",
- "proc-macro2",
  "quote",
  "syn",
 ]
@@ -132,39 +99,17 @@ dependencies = [
 [[package]]
 name = "ark-poly"
 version = "0.5.0"
-dependencies = [
- "ahash",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
- "ark-std",
- "educe",
- "fnv",
- "hashbrown 0.16.0",
-]
-
-[[package]]
-name = "ark-poly"
-version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "579305839da207f02b89cd1679e50e67b4331e2f9294a57693e5051b7703fe27"
 dependencies = [
  "ahash",
- "ark-ff 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ark-serialize 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ark-ff",
+ "ark-serialize",
  "ark-std",
  "educe",
  "fnv",
- "hashbrown 0.15.3",
-]
-
-[[package]]
-name = "ark-serialize"
-version = "0.5.0"
-dependencies = [
- "ark-serialize-derive 0.5.0",
- "ark-std",
- "digest",
- "num-bigint",
+ "hashbrown",
+ "rayon",
 ]
 
 [[package]]
@@ -173,20 +118,12 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f4d068aaf107ebcd7dfb52bc748f8030e0fc930ac8e360146ca54c1203088f7"
 dependencies = [
- "ark-serialize-derive 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ark-serialize-derive",
  "ark-std",
  "arrayvec",
  "digest",
  "num-bigint",
-]
-
-[[package]]
-name = "ark-serialize-derive"
-version = "0.5.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
+ "rayon",
 ]
 
 [[package]]
@@ -208,6 +145,7 @@ checksum = "246a225cc6131e9ee4f24619af0f19d67761fff15d7ccc22e42b80846e69449a"
 dependencies = [
  "num-traits",
  "rand",
+ "rayon",
 ]
 
 [[package]]
@@ -227,6 +165,31 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "crossbeam-deque"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9dd111b7b7f7d55b72c0a6ae361660ee5853c9af73f70c3c2ef6858b950e2e51"
+dependencies = [
+ "crossbeam-epoch",
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-epoch"
+version = "0.9.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-utils"
+version = "0.8.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
 name = "crypto-common"
@@ -263,11 +226,12 @@ dependencies = [
 name = "efficient-sumcheck"
 version = "0.0.2"
 dependencies = [
- "ark-ff 0.5.0",
- "ark-poly 0.5.0",
- "ark-serialize 0.5.0",
+ "ark-ff",
+ "ark-poly",
+ "ark-serialize",
  "ark-std",
  "memmap2",
+ "rayon",
 ]
 
 [[package]]
@@ -317,15 +281,6 @@ name = "hashbrown"
 version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84b26c544d002229e640969970a2e74021aadf6e2f96372b9c58eff97de08eb3"
-dependencies = [
- "allocator-api2",
-]
-
-[[package]]
-name = "hashbrown"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5419bdc4f6a9207fbeba6d11b604d481addf78ecd10c11ad51e76c2f6482748d"
 dependencies = [
  "allocator-api2",
 ]
@@ -448,13 +403,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 
 [[package]]
+name = "rayon"
+version = "1.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "368f01d005bf8fd9b1206fb6fa653e6c4a81ceb1466406b81792d87c5677a58f"
+dependencies = [
+ "either",
+ "rayon-core",
+]
+
+[[package]]
+name = "rayon-core"
+version = "1.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
+dependencies = [
+ "crossbeam-deque",
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "sumcheck-benches"
 version = "0.1.0"
 dependencies = [
  "ark-bn254",
- "ark-ff 0.5.0",
- "ark-poly 0.5.0",
- "ark-serialize 0.5.0",
+ "ark-ff",
+ "ark-poly",
+ "ark-serialize",
  "ark-std",
  "efficient-sumcheck",
 ]
