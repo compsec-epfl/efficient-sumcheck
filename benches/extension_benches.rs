@@ -2,9 +2,9 @@ use ark_ff::{BigInt, Fp2, Fp2Config, Fp4, Fp4Config, UniformRand};
 use ark_std::test_rng;
 use criterion::{criterion_group, criterion_main, Criterion};
 use efficient_sumcheck::tests::{
+    SmallGoldilocks as Goldilocks,
+    SmallM31 as M31, // SmallF128Mont, SmallF32Mont, SmallF64Mont,
     F128,
-    F64 as Goldilocks,
-    M31, // SmallF128Mont, SmallF32Mont, SmallF64Mont,
 };
 
 // #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -70,13 +70,9 @@ impl Fp2Config for Fp2GoldilocksConfig {
     type Fp = Goldilocks;
 
     // const context: use new_unchecked(BigInt)
-    const NONRESIDUE: Goldilocks = Goldilocks::new_unchecked(BigInt::<1>([3u64]));
-
+    const NONRESIDUE: Goldilocks = Goldilocks::new(3);
     // Arkworks 0.5 expects &'static [Fp]
-    const FROBENIUS_COEFF_FP2_C1: &'static [Goldilocks] = &[
-        Goldilocks::new_unchecked(BigInt::<1>([1u64])),
-        Goldilocks::new_unchecked(BigInt::<1>([3u64])),
-    ];
+    const FROBENIUS_COEFF_FP2_C1: &'static [Goldilocks] = &[Goldilocks::new(1), Goldilocks::new(3)];
 }
 
 pub type Fp2Goldilocks = Fp2<Fp2GoldilocksConfig>;
@@ -88,13 +84,10 @@ impl Fp2Config for Fp2M31Config {
     type Fp = M31;
 
     // Use const_new to build compile-time constants
-    const NONRESIDUE: M31 = M31::new_unchecked(BigInt::<1>([3u64]));
+    const NONRESIDUE: M31 = M31::new(3);
 
     // These Frobenius coeffs aren't used for arithmetic benchmarks anyway
-    const FROBENIUS_COEFF_FP2_C1: &'static [M31] = &[
-        M31::new_unchecked(BigInt::<1>([1u64])),
-        M31::new_unchecked(BigInt::<1>([3u64])),
-    ];
+    const FROBENIUS_COEFF_FP2_C1: &'static [M31] = &[M31::new(1), M31::new(3)];
 }
 
 pub type Fp2M31 = Fp2<Fp2M31Config>;
@@ -105,18 +98,11 @@ pub struct Fp4M31Config;
 impl Fp4Config for Fp4M31Config {
     type Fp2Config = Fp2M31Config;
 
-    const NONRESIDUE: Fp2<Fp2M31Config> = Fp2::<Fp2M31Config>::new(
-        M31::new_unchecked(BigInt::<1>([3u64])),
-        M31::new_unchecked(BigInt::<1>([0u64])),
-    );
+    const NONRESIDUE: Fp2<Fp2M31Config> = Fp2::<Fp2M31Config>::new(M31::new(3), M31::new(0));
 
     // 👇 now a slice of base‐field elements, not Fp2 elements
-    const FROBENIUS_COEFF_FP4_C1: &'static [M31] = &[
-        M31::new_unchecked(BigInt::<1>([1u64])),
-        M31::new_unchecked(BigInt::<1>([3u64])),
-        M31::new_unchecked(BigInt::<1>([9u64])),
-        M31::new_unchecked(BigInt::<1>([27u64])),
-    ];
+    const FROBENIUS_COEFF_FP4_C1: &'static [M31] =
+        &[M31::new(1), M31::new(3), M31::new(9), M31::new(27)];
 }
 
 pub type Fp4M31 = Fp4<Fp4M31Config>;
