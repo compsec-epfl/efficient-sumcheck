@@ -1,9 +1,14 @@
 use ark_ff::Field;
-use ark_std::vec::Vec;
+use ark_std::cfg_iter_mut;
+use ark_std::{cfg_into_iter, vec::Vec};
 
 use crate::{
     hypercube::Hypercube, interpolation::LagrangePolynomial, messages::VerifierMessages,
     order_strategy::GraycodeOrder, streams::Stream,
+};
+#[cfg(feature = "parallel")]
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 
 pub struct BlendyProver<F, S>
@@ -160,20 +165,72 @@ where
     }
 
     pub fn update_prefix_sums(&mut self) {
-        self.sums = self
-            .sums
-            .clone()
-            .into_iter()
-            .enumerate()
-            .scan(F::ZERO, |sum, (index, item)| {
-                match self.is_single_staged() {
-                    true => *sum += self.evaluation_stream.evaluation(index),
-                    false => *sum += item,
+        let n = self.sums.len();
+        if n == 0 {
+            return;
+        }
+
+        // Step 0: Unified input vector
+        let input: Vec<F> = if self.is_single_staged() {
+            (0..n)
+                .map(|i| self.evaluation_stream.evaluation(i))
+                .collect()
+        } else {
+            self.sums.clone()
+        };
+
+        // Step 1: Determine chunk size and boundaries
+        #[cfg(feature = "parallel")]
+        let num_threads = rayon::current_num_threads().max(1);
+        #[cfg(not(feature = "parallel"))]
+        let num_threads = 1;
+        let chunk_size: usize = (n / num_threads).max(1);
+
+        // Compute chunk start indices
+        let chunk_starts: Vec<usize> = (0..n).step_by(chunk_size).collect();
+
+        // Step 2: Parallel local prefix sums
+        let mut partial_sums: Vec<Vec<F>> = cfg_into_iter!(chunk_starts.clone())
+            .map(|start: usize| {
+                let end: usize = (start + chunk_size).min(n);
+                let mut local_sum = F::ZERO;
+                let mut out = Vec::with_capacity(end - start);
+                for &x in &input[start..end] {
+                    local_sum += x;
+                    out.push(local_sum);
                 }
-                Some(*sum)
+                out
             })
-            .collect::<Vec<F>>();
+            .collect();
+
+        // Step 3: Collect per-chunk totals
+        let mut chunk_totals: Vec<F> = partial_sums
+            .iter()
+            .map(|chunk| *chunk.last().unwrap())
+            .collect();
+
+        // Step 4: Exclusive prefix sum of chunk totals (serial)
+        for i in 1..chunk_totals.len() {
+            let prev = chunk_totals[i - 1];
+            chunk_totals[i] += prev;
+        }
+
+        // Step 5: Offset adjust each chunk in parallel
+        cfg_iter_mut!(partial_sums)
+            .enumerate()
+            .for_each(|(i, chunk)| {
+                let offset = if i == 0 { F::ZERO } else { chunk_totals[i - 1] };
+                if offset != F::ZERO {
+                    for x in chunk.iter_mut() {
+                        *x += offset;
+                    }
+                }
+            });
+
+        // Step 6: Flatten into final result
+        self.sums = partial_sums.into_iter().flatten().collect();
     }
+
     pub fn total_rounds(&self) -> usize {
         self.num_variables
     }
