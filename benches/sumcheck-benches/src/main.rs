@@ -1,7 +1,7 @@
 use ark_bn254::Fr as BN254Field;
 use ark_ff::Field;
 
-use space_efficient_sumcheck::{
+use efficient_sumcheck::{
     hypercube::Hypercube,
     multilinear::{
         BlendyProver, BlendyProverConfig, SpaceProver, SpaceProverConfig, TimeProver,
@@ -14,7 +14,7 @@ use space_efficient_sumcheck::{
     order_strategy::SignificantBitOrder,
     prover::{Prover, ProverConfig},
     streams::{multivariate_claim, multivariate_product_claim},
-    tests::{BenchStream, F128, F64},
+    tests::{BenchStream, F128, F64}, // SmallGoldilocks as F64
     ProductSumcheck, Sumcheck,
 };
 
@@ -131,7 +131,8 @@ fn main() {
             run_on_field::<F128>(bench_args);
         }
         FieldLabel::FieldBn254 => {
-            run_on_field::<BN254Field>(bench_args);
+            // run_on_field::<BN254Field>(bench_args);
+            run_on_field::<F64>(bench_args);
         }
     };
 }

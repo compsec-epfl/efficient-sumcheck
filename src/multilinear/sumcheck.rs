@@ -61,21 +61,27 @@ impl<F: Field> Sumcheck<F> {
 #[cfg(test)]
 mod tests {
     use super::Sumcheck;
+    use crate::streams::Stream;
     use crate::{
         multilinear::{BlendyProver, BlendyProverConfig, ReduceMode, TimeProver},
         prover::{Prover, ProverConfig},
-        tests::{BenchStream, F19},
+        tests::{
+            multilinear::{BasicProver, BasicProverConfig},
+            polynomials::Polynomial,
+            BenchStream, F19,
+        },
     };
+    use ark_poly::multivariate;
 
     #[test]
     fn sanity() {
-        const NUM_VARIABLES: usize = 20;
+        const NUM_VARIABLES: usize = 16;
 
         // take an evaluation stream
         let evaluation_stream: BenchStream<F19> = BenchStream::new(NUM_VARIABLES);
         let claim = evaluation_stream.claimed_sum;
 
-        // blendy
+        // 1) blendy
         let mut blendy_k3_prover = BlendyProver::<F19, BenchStream<F19>>::new(
             BlendyProverConfig::new(claim, 3, NUM_VARIABLES, evaluation_stream.clone()),
         );
@@ -84,7 +90,7 @@ mod tests {
             BlendyProver<F19, BenchStream<F19>>,
         >(&mut blendy_k3_prover, &mut ark_std::test_rng());
 
-        // time_prover_variablewise
+        // 2) time_prover_variablewise
         let mut time_prover_variablewise = TimeProver::<F19, BenchStream<F19>>::new(<TimeProver<
             F19,
             BenchStream<F19>,
@@ -100,10 +106,28 @@ mod tests {
                 &mut ark_std::test_rng(),
             );
 
-        // ensure transcripts identical
+        // 3) basic prover
+        let s_evaluations: Vec<F19> = (0..1 << NUM_VARIABLES)
+            .map(|i| evaluation_stream.evaluation(i))
+            .collect();
+        let p = <multivariate::SparsePolynomial<F19, multivariate::SparseTerm> as Polynomial<
+            F19,
+        >>::from_hypercube_evaluations(s_evaluations);
+        let mut basic_prover =
+            BasicProver::<F19>::new(BasicProverConfig::new(claim, NUM_VARIABLES, p));
+        let basic_prover_transcript = Sumcheck::<F19>::prove::<BenchStream<F19>, BasicProver<F19>>(
+            &mut basic_prover,
+            &mut ark_std::test_rng(),
+        );
+
+        // ensure all transcripts (1, 2, 3) identical
         assert_eq!(
             time_prover_variablewise_transcript.prover_messages,
             blendy_prover_transcript.prover_messages
+        );
+        assert_eq!(
+            time_prover_variablewise_transcript.prover_messages,
+            basic_prover_transcript.prover_messages
         );
 
         // time_prover_pairwise: this should pass but I have nothing to compare it with

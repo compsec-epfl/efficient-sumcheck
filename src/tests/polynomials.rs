@@ -92,7 +92,6 @@ impl<F: Field> Polynomial<F> for SparsePolynomial<F, SparseTerm> {
         for (coefficient, term) in self.terms().iter() {
             result += term.evaluate(&point) * coefficient;
         }
-
         Some(result)
     }
 
