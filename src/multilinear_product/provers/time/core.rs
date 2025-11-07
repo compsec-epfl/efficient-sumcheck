@@ -8,7 +8,6 @@ use rayon::iter::{
 use crate::streams::Stream;
 
 pub struct TimeProductProver<F: Field, S: Stream<F>> {
-    pub claim: F,
     pub current_round: usize,
     pub evaluations: Vec<Option<Vec<F>>>,
     pub streams: Option<Vec<S>>,

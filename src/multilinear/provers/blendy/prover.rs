@@ -21,7 +21,6 @@ where
     fn new(prover_config: Self::ProverConfig) -> Self {
         let stage_size: usize = prover_config.num_variables / prover_config.num_stages;
         Self {
-            claimed_sum: prover_config.claim,
             current_round: 0,
             evaluation_stream: prover_config.stream,
             num_stages: prover_config.num_stages,
@@ -61,10 +60,6 @@ where
 
         // Return the computed polynomial sums
         Some(sums)
-    }
-
-    fn claim(&self) -> F {
-        self.claimed_sum
     }
 }
 

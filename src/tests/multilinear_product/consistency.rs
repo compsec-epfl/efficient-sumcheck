@@ -40,7 +40,6 @@ where
     // prove
     let prover_transcript = ProductSumcheck::<F>::prove::<BenchStream<F>, P>(
         &mut P::new(ProductProverConfig::default(
-            claim,
             num_variables,
             vec![s.clone(), s],
         )),

@@ -30,7 +30,7 @@ impl<F: Field> ProductSumcheck<F> {
             let round_sum = message.0 + message.1;
             let is_round_accepted = match verifier_message {
                 // If first round, compare to claimed_sum
-                None => round_sum == prover.claim(),
+                None => true, // TODO (z-tech): give option to provide claim round_sum == prover.claim(),
                 Some(prev_verifier_message) => {
                     verifier_messages.push(prev_verifier_message);
                     let prev_prover_message = prover_messages.last().unwrap();

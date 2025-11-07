@@ -24,7 +24,7 @@ where
     P::ProverConfig: ProverConfig<F, S>,
 {
     let s: S = MemoryStream::new(three_variable_polynomial_evaluations()).into();
-    let mut p = P::new(ProverConfig::default(F::from(6_u32), 3, s));
+    let mut p = P::new(ProverConfig::default(3, s));
     /*
      * Zeroth Round: All variables are free
      *
@@ -92,7 +92,7 @@ where
     P::ProverConfig: ProverConfig<F, S>,
 {
     let s: S = MemoryStream::new(three_variable_polynomial_evaluations()).into();
-    let mut p = P::new(ProverConfig::default(F::from(6_u32), 3, s));
+    let mut p = P::new(ProverConfig::default(3, s));
     /*
      * Zeroth Round: All variables are free
      *

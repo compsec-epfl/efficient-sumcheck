@@ -6,7 +6,6 @@ use crate::{
     tests::polynomials::Polynomial,
 };
 pub struct BasicProductProver<F: Field> {
-    pub claim: F,
     pub current_round: usize,
     pub inverse_four: F,
     pub num_variables: usize,

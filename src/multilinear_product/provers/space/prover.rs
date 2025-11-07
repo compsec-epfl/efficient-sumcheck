@@ -13,10 +13,6 @@ impl<F: Field, S: Stream<F>> Prover<F> for SpaceProductProver<F, S> {
     type ProverMessage = Option<(F, F, F)>;
     type VerifierMessage = Option<F>;
 
-    fn claim(&self) -> F {
-        self.claim
-    }
-
     fn new(prover_config: Self::ProverConfig) -> Self {
         let stream_iterators = prover_config
             .streams
@@ -26,7 +22,6 @@ impl<F: Field, S: Stream<F>> Prover<F> for SpaceProductProver<F, S> {
             .collect();
 
         Self {
-            claim: prover_config.claim,
             stream_iterators,
             verifier_messages: VerifierMessages::new(&vec![]),
             current_round: 0,
