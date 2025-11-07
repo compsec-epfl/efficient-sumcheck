@@ -14,10 +14,6 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
     type ProverMessage = Option<(F, F, F)>;
     type VerifierMessage = Option<F>;
 
-    fn claim(&self) -> F {
-        self.claim
-    }
-
     fn new(prover_config: Self::ProverConfig) -> Self {
         let num_variables: usize = prover_config.num_variables;
         let num_stages: usize = prover_config.num_stages;
@@ -42,7 +38,6 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
 
         let last_round: usize = *state_comp_set.iter().max().unwrap();
         let vsbw_prover = TimeProductProver::<F, S> {
-            claim: prover_config.claim,
             current_round: 0,
             evaluations: vec![None; 2],
             streams: None,
@@ -59,7 +54,6 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
 
         // return the BlendyProver instance
         Self {
-            claim: prover_config.claim,
             current_round: 0,
             streams: prover_config.streams,
             stream_iterators,
@@ -155,7 +149,6 @@ mod tests {
             BlendyProductProver<F64, MemoryStream<F64>>,
         >(
             &mut Prover::<F64>::new(BlendyProductProverConfig::default(
-                claim,
                 num_variables,
                 vec![s.clone(), s.clone()],
             )),

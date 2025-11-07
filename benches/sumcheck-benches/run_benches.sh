@@ -2,7 +2,7 @@
 
 # We measure (i) wall time; and (ii) maximum resident set size, using the GNU-time facility.
 
-algorithms="Blendy2 VSBW Blendy1 Blendy3 Blendy4 CTY ProductBlendy2 ProductVSBW ProductCTY"
+algorithms="VSBW Blendy2 Blendy1 Blendy3 Blendy4 CTY ProductBlendy2 ProductVSBW ProductCTY"
 fields="Field64 Field128 FieldBn254"
 
 for algorithm in $algorithms; do

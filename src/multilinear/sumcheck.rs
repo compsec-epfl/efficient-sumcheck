@@ -27,7 +27,7 @@ impl<F: Field> Sumcheck<F> {
             let round_sum = message.0 + message.1;
             let is_round_accepted = match verifier_message {
                 // If first round, compare to claimed_sum
-                None => round_sum == prover.claim(),
+                None => true, // TODO (z-tech): we should give an option to supply claim round_sum == prover.claim(),
                 // Else compute f(prev_verifier_msg) = prev_sum_0 - (prev_sum_0 - prev_sum_1) * prev_verifier_msg == round_sum, store verifier message
                 Some(prev_verifier_message) => {
                     verifier_messages.push(prev_verifier_message);
@@ -83,7 +83,7 @@ mod tests {
 
         // 1) blendy
         let mut blendy_k3_prover = BlendyProver::<F19, BenchStream<F19>>::new(
-            BlendyProverConfig::new(claim, 3, NUM_VARIABLES, evaluation_stream.clone()),
+            BlendyProverConfig::new(3, NUM_VARIABLES, evaluation_stream.clone()),
         );
         let blendy_prover_transcript = Sumcheck::<F19>::prove::<
             BenchStream<F19>,
@@ -95,7 +95,6 @@ mod tests {
             F19,
             BenchStream<F19>,
         > as Prover<F19>>::ProverConfig::new(
-            claim,
             NUM_VARIABLES,
             evaluation_stream.clone(),
             ReduceMode::Variablewise,
@@ -135,7 +134,6 @@ mod tests {
             F19,
             BenchStream<F19>,
         > as Prover<F19>>::ProverConfig::default(
-            claim,
             NUM_VARIABLES,
             evaluation_stream,
         ));

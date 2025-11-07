@@ -11,7 +11,6 @@ use ark_std::vec::Vec;
 use std::collections::BTreeSet;
 
 pub struct BlendyProductProver<F: Field, S: Stream<F>> {
-    pub claim: F,
     pub current_round: usize,
     pub streams: Vec<S>,
     pub stream_iterators: Vec<StreamIterator<F, S, SignificantBitOrder>>,

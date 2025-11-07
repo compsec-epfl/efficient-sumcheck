@@ -22,7 +22,6 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
                 pairwise::reduce_evaluations(
                     self.evaluations.as_mut().unwrap(),
                     verifier_message.unwrap(),
-                    F::ONE - verifier_message.unwrap(),
                 );
             } else {
                 self.evaluations = Some(vec![]);
@@ -30,7 +29,6 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
                     &self.evaluation_streams[0],
                     self.evaluations.as_mut().unwrap(),
                     verifier_message.unwrap(),
-                    F::ONE - verifier_message.unwrap(),
                 );
             }
         }
@@ -90,13 +88,9 @@ impl<F: Field, S: Stream<F>> Prover<F> for TimeProver<F, S> {
     type ProverMessage = Option<(F, F)>;
     type VerifierMessage = Option<F>;
 
-    fn claim(&self) -> F {
-        self.claim
-    }
-
     fn new(prover_config: Self::ProverConfig) -> Self {
         Self {
-            claim: prover_config.claim,
+            // claim: prover_config.claim,
             current_round: 0,
             evaluations: None,
             evaluation_streams: prover_config.streams,

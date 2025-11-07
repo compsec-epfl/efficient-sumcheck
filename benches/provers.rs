@@ -7,7 +7,6 @@ use efficient_sumcheck::{
     multilinear::TimeProver,
     multilinear_product::TimeProductProver,
     prover::{ProductProverConfig, Prover, ProverConfig},
-    streams::multivariate_product_claim,
     tests::{BenchStream, F128},
     ProductSumcheck, Sumcheck,
 };
@@ -29,9 +28,7 @@ fn time_prover_bench(c: &mut Criterion) {
                 let stream = BenchStream::<F128>::new(num_vars);
                 TimeProver::<F128, BenchStream<F128>>::new(
                     <TimeProver<F128, BenchStream<F128>> as Prover<F128>>::ProverConfig::default(
-                        stream.claimed_sum,
-                        num_vars,
-                        stream,
+                        num_vars, stream,
                     ),
                 )
             },
@@ -54,9 +51,7 @@ fn time_product_prover_bench(c: &mut Criterion) {
                 let stream = BenchStream::<F128>::new(num_vars);
                 let streams: Vec<BenchStream<F128>> = vec![stream.clone(), stream.clone()];
                 TimeProductProver::<F128, BenchStream<F128>>::new(ProductProverConfig::default(
-                    multivariate_product_claim(streams.clone()),
-                    num_vars,
-                    streams,
+                    num_vars, streams,
                 ))
             },
             |mut prover: TimeProductProver<F128, BenchStream<F128>>| {
