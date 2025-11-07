@@ -9,7 +9,6 @@ use crate::{
 };
 
 pub struct SpaceProductProver<F: Field, S: Stream<F>> {
-    pub claim: F,
     pub current_round: usize,
     pub stream_iterators: Vec<StreamIterator<F, S, SignificantBitOrder>>,
     pub num_variables: usize,

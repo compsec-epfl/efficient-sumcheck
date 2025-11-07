@@ -1,20 +1,16 @@
-use ark_bn254::Fr as BN254Field;
 use ark_ff::Field;
 
 use efficient_sumcheck::{
-    hypercube::Hypercube,
     multilinear::{
-        BlendyProver, BlendyProverConfig, SpaceProver, SpaceProverConfig, TimeProver,
+        BlendyProver, BlendyProverConfig, ReduceMode, SpaceProver, SpaceProverConfig, TimeProver,
         TimeProverConfig,
     },
     multilinear_product::{
-        BlendyProductProver, BlendyProductProverConfig, TimeProductProver, TimeProductProverConfig, SpaceProductProver,
-        SpaceProductProverConfig,
+        BlendyProductProver, BlendyProductProverConfig, SpaceProductProver,
+        SpaceProductProverConfig, TimeProductProver, TimeProductProverConfig,
     },
-    order_strategy::SignificantBitOrder,
     prover::{Prover, ProverConfig},
-    streams::{multivariate_claim, multivariate_product_claim},
-    tests::{BenchStream, F128, F64}, // SmallGoldilocks as F64
+    tests::{BenchStream, F128, F64},
     ProductSumcheck, Sumcheck,
 };
 
@@ -29,24 +25,19 @@ fn run_on_field<F: Field>(bench_args: BenchArgs) {
     match bench_args.algorithm_label {
         AlgorithmLabel::Blendy => {
             let config: BlendyProverConfig<F, BenchStream<F>> =
-                BlendyProverConfig::<F, BenchStream<F>>::default(
-                    multivariate_claim(s.clone()),
-                    bench_args.num_variables,
-                    s,
-                );
-            let transcript =
-                Sumcheck::<F>::prove::<BenchStream<F>, BlendyProver<F, BenchStream<F>>>(
-                    &mut BlendyProver::<F, BenchStream<F>>::new(config),
-                    &mut rng,
-                );
+                BlendyProverConfig::<F, BenchStream<F>>::default(bench_args.num_variables, s);
+            let transcript = Sumcheck::<F>::prove::<BenchStream<F>, BlendyProver<F, BenchStream<F>>>(
+                &mut BlendyProver::<F, BenchStream<F>>::new(config),
+                &mut rng,
+            );
             assert!(transcript.is_accepted);
         }
         AlgorithmLabel::VSBW => {
             let config: TimeProverConfig<F, BenchStream<F>> =
-                TimeProverConfig::<F, BenchStream<F>>::default(
-                    multivariate_claim(s.clone()),
+                TimeProverConfig::<F, BenchStream<F>>::new(
                     bench_args.num_variables,
                     s,
+                    ReduceMode::Pairwise,
                 );
             let transcript = Sumcheck::<F>::prove::<BenchStream<F>, TimeProver<F, BenchStream<F>>>(
                 &mut TimeProver::<F, BenchStream<F>>::new(config),
@@ -56,11 +47,7 @@ fn run_on_field<F: Field>(bench_args: BenchArgs) {
         }
         AlgorithmLabel::CTY => {
             let config: SpaceProverConfig<F, BenchStream<F>> =
-                SpaceProverConfig::<F, BenchStream<F>>::default(
-                    multivariate_claim(s.clone()),
-                    bench_args.num_variables,
-                    s,
-                );
+                SpaceProverConfig::<F, BenchStream<F>>::default(bench_args.num_variables, s);
             let transcript = Sumcheck::<F>::prove::<BenchStream<F>, SpaceProver<F, BenchStream<F>>>(
                 &mut SpaceProver::<F, BenchStream<F>>::new(config),
                 &mut rng,
@@ -69,11 +56,10 @@ fn run_on_field<F: Field>(bench_args: BenchArgs) {
         }
         AlgorithmLabel::ProductVSBW => {
             let config: TimeProductProverConfig<F, BenchStream<F>> =
-                TimeProductProverConfig::<F, BenchStream<F>> {
-                    claim: multivariate_product_claim(vec![s.clone(), s.clone()]),
-                    num_variables: bench_args.num_variables,
-                    streams: vec![s.clone(), s],
-                };
+                TimeProductProverConfig::<F, BenchStream<F>>::new(
+                    bench_args.num_variables,
+                    vec![s.clone(), s],
+                );
             let transcript = ProductSumcheck::<F>::prove::<
                 BenchStream<F>,
                 TimeProductProver<F, BenchStream<F>>,
@@ -85,12 +71,11 @@ fn run_on_field<F: Field>(bench_args: BenchArgs) {
         }
         AlgorithmLabel::ProductBlendy => {
             let config: BlendyProductProverConfig<F, BenchStream<F>> =
-                BlendyProductProverConfig::<F, BenchStream<F>> {
-                    claim: multivariate_product_claim(vec![s.clone(), s.clone()]),
-                    num_variables: bench_args.num_variables,
-                    num_stages: bench_args.stage_size,
-                    streams: vec![s.clone(), s],
-                };
+                BlendyProductProverConfig::<F, BenchStream<F>>::new(
+                    bench_args.num_variables,
+                    bench_args.stage_size,
+                    vec![s.clone(), s],
+                );
             let transcript = ProductSumcheck::<F>::prove::<
                 BenchStream<F>,
                 BlendyProductProver<F, BenchStream<F>>,
@@ -102,11 +87,10 @@ fn run_on_field<F: Field>(bench_args: BenchArgs) {
         }
         AlgorithmLabel::ProductCTY => {
             let config: SpaceProductProverConfig<F, BenchStream<F>> =
-                SpaceProductProverConfig::<F, BenchStream<F>> {
-                    claim: multivariate_product_claim(vec![s.clone(), s.clone()]),
-                    num_variables: bench_args.num_variables,
-                    streams: vec![s.clone(), s],
-                };
+                SpaceProductProverConfig::<F, BenchStream<F>>::new(
+                    bench_args.num_variables,
+                    vec![s.clone(), s],
+                );
             let transcript = ProductSumcheck::<F>::prove::<
                 BenchStream<F>,
                 SpaceProductProver<F, BenchStream<F>>,

@@ -11,13 +11,8 @@ impl<F: Field> Prover<F> for BasicProductProver<F> {
     type ProverMessage = Option<(F, F, F)>;
     type VerifierMessage = Option<F>;
 
-    fn claim(&self) -> F {
-        self.claim
-    }
-
     fn new(prover_config: Self::ProverConfig) -> Self {
         Self {
-            claim: prover_config.claim,
             current_round: 0,
             inverse_four: F::from(4_u32).inverse().unwrap(),
             num_variables: prover_config.num_variables,

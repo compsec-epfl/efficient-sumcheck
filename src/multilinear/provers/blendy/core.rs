@@ -16,7 +16,6 @@ where
     F: Field,
     S: Stream<F>,
 {
-    pub claimed_sum: F,
     pub current_round: usize,
     pub evaluation_stream: S,
     pub lag_polys: Vec<F>,

@@ -6,7 +6,6 @@ use crate::{
 };
 
 pub struct SpaceProver<F: Field, S: Stream<F>> {
-    pub claim: F,
     pub current_round: usize,
     pub evaluation_streams: Vec<S>,
     pub num_variables: usize,

@@ -11,14 +11,9 @@ impl<F: Field, S: Stream<F>> Prover<F> for TimeProductProver<F, S> {
     type ProverMessage = Option<(F, F, F)>;
     type VerifierMessage = Option<F>;
 
-    fn claim(&self) -> F {
-        self.claim
-    }
-
     fn new(prover_config: Self::ProverConfig) -> Self {
         let num_variables = prover_config.num_variables;
         Self {
-            claim: prover_config.claim,
             current_round: 0,
             evaluations: vec![None; prover_config.streams.len()],
             streams: Some(prover_config.streams),

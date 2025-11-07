@@ -6,7 +6,6 @@ use crate::{
     tests::polynomials::Polynomial,
 };
 pub struct BasicProver<F: Field> {
-    pub claim: F,
     pub current_round: usize,
     pub num_variables: usize,
     pub p: SparsePolynomial<F, SparseTerm>,
