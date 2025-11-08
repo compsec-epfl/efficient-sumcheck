@@ -47,3 +47,29 @@ impl Iterator for GraycodeOrder {
         self.next_index()
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanity() {
+        // https://docs.rs/gray-codes/latest/gray_codes/struct.GrayCode8.html#examples
+        let order_0 = GraycodeOrder::new(0);
+        let indices_0: Vec<usize> = order_0.collect();
+        assert_eq!(indices_0, vec![0]);
+
+        let order_1 = GraycodeOrder::new(1);
+        let indices_1: Vec<usize> = order_1.collect();
+        assert_eq!(indices_1, vec![0, 1]);
+
+        let order_2 = GraycodeOrder::new(2);
+        let indices_2: Vec<usize> = order_2.collect();
+        assert_eq!(indices_2, vec![0, 1, 3, 2]);
+
+        let order_3 = GraycodeOrder::new(3);
+        let indices_3: Vec<usize> = order_3.collect();
+        assert_eq!(indices_3, vec![0, 1, 3, 2, 6, 7, 5, 4]);
+    }
+}
