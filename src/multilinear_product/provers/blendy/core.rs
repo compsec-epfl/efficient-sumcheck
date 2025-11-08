@@ -71,7 +71,9 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
             // Lag Poly
             let mut sequential_lag_poly: LagrangePolynomial<F, SignificantBitOrder> =
                 LagrangePolynomial::new(&self.verifier_messages_round_comp);
-            let lag_polys_len = Hypercube::<SignificantBitOrder>::stop_value(self.current_round);
+            let lag_polys_len = Hypercube::<SignificantBitOrder, SignificantBitOrder>::stop_value(
+                self.current_round,
+            );
             let mut lag_polys: Vec<F> = vec![F::ONE; lag_polys_len];
 
             // reset the streams
@@ -79,9 +81,9 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                 .iter_mut()
                 .for_each(|stream_it| stream_it.reset());
 
-            for (x_index, _) in
-                Hypercube::<SignificantBitOrder>::new(self.num_variables - self.current_round - 1)
-            {
+            for (x_index, _) in Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(
+                self.num_variables - self.current_round - 1,
+            ) {
                 // can avoid unnecessary additions for first round since there is no lag poly: gives a small speedup
                 if self.is_initial_round() {
                     let p0 = self.stream_iterators[0].next().unwrap();
@@ -96,7 +98,9 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                     let mut partial_sum_p_1 = F::ZERO;
                     let mut partial_sum_q_0 = F::ZERO;
                     let mut partial_sum_q_1 = F::ZERO;
-                    for (b_index, _) in Hypercube::<SignificantBitOrder>::new(self.current_round) {
+                    for (b_index, _) in Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(
+                        self.current_round,
+                    ) {
                         if x_index == 0 {
                             lag_polys[b_index] = sequential_lag_poly.next().unwrap();
                         }
@@ -104,7 +108,9 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                         partial_sum_p_0 += self.stream_iterators[0].next().unwrap() * lag_poly;
                         partial_sum_q_0 += self.stream_iterators[1].next().unwrap() * lag_poly;
                     }
-                    for (b_index, _) in Hypercube::<SignificantBitOrder>::new(self.current_round) {
+                    for (b_index, _) in Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(
+                        self.current_round,
+                    ) {
                         let lag_poly = lag_polys[b_index];
                         partial_sum_p_1 += self.stream_iterators[0].next().unwrap() * lag_poly;
                         partial_sum_q_1 += self.stream_iterators[1].next().unwrap() * lag_poly;
@@ -129,12 +135,17 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
             // Lag Poly
             let mut sequential_lag_poly: LagrangePolynomial<F, GraycodeOrder> =
                 LagrangePolynomial::new(&self.verifier_messages_round_comp);
-            let lag_polys_len = Hypercube::<GraycodeOrder>::stop_value(b_prime_num_vars);
+            let lag_polys_len =
+                Hypercube::<GraycodeOrder, SignificantBitOrder>::stop_value(b_prime_num_vars);
             let mut lag_polys: Vec<F> = vec![F::ONE; lag_polys_len];
 
             // Sums
-            for (b_prime_index, _) in Hypercube::<GraycodeOrder>::new(b_prime_num_vars) {
-                for (b_prime_prime_index, _) in Hypercube::<GraycodeOrder>::new(b_prime_num_vars) {
+            for (b_prime_index, _) in
+                Hypercube::<GraycodeOrder, SignificantBitOrder>::new(b_prime_num_vars)
+            {
+                for (b_prime_prime_index, _) in
+                    Hypercube::<GraycodeOrder, SignificantBitOrder>::new(b_prime_num_vars)
+                {
                     // doing it like this, for each hypercube member lag_poly is computed exactly once
                     if b_prime_index == 0 {
                         lag_polys[b_prime_prime_index] = sequential_lag_poly.next().unwrap();
@@ -143,7 +154,9 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                     let lag_poly_1 = lag_polys[b_prime_index];
                     let lag_poly_2 = lag_polys[b_prime_prime_index];
                     let lag_poly = lag_poly_1 * lag_poly_2;
-                    for (v_index, _) in Hypercube::<GraycodeOrder>::new(v_num_vars) {
+                    for (v_index, _) in
+                        Hypercube::<GraycodeOrder, SignificantBitOrder>::new(v_num_vars)
+                    {
                         let b_prime_0_v =
                             b_prime_index << b_prime_index_left_shift | 0 << v_num_vars | v_index;
                         let b_prime_prime_0_v = b_prime_prime_index << b_prime_index_left_shift
@@ -179,7 +192,7 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
             let t = self.prev_table_size;
 
             // zero out the table
-            let table_len = Hypercube::<SignificantBitOrder>::stop_value(t);
+            let table_len = Hypercube::<SignificantBitOrder, SignificantBitOrder>::stop_value(t);
             self.j_prime_table = vec![vec![F::ZERO; table_len]; table_len];
 
             // basically, this needs to get "zeroed" out at the beginning of state computation
@@ -198,10 +211,13 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                 LagrangePolynomial::new(&self.verifier_messages);
 
             assert!(x_num_vars == self.verifier_messages.messages.len());
-            let lag_polys_len = Hypercube::<SignificantBitOrder>::stop_value(x_num_vars);
+            let lag_polys_len =
+                Hypercube::<SignificantBitOrder, SignificantBitOrder>::stop_value(x_num_vars);
             let mut lag_polys: Vec<F> = vec![F::ONE; lag_polys_len];
 
-            for (x_index, _) in Hypercube::<SignificantBitOrder>::new(x_num_vars) {
+            for (x_index, _) in
+                Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(x_num_vars)
+            {
                 lag_polys[x_index] = sequential_lag_poly.next().unwrap();
             }
 
@@ -211,23 +227,33 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                 .for_each(|stream_it| stream_it.reset());
 
             // Ensure x_table and y_table are initialized with the correct size
-            self.x_table = vec![F::ZERO; Hypercube::<SignificantBitOrder>::stop_value(t)];
-            self.y_table = vec![F::ZERO; Hypercube::<SignificantBitOrder>::stop_value(t)];
+            self.x_table =
+                vec![F::ZERO; Hypercube::<SignificantBitOrder, SignificantBitOrder>::stop_value(t)];
+            self.y_table =
+                vec![F::ZERO; Hypercube::<SignificantBitOrder, SignificantBitOrder>::stop_value(t)];
 
-            for (_, _) in Hypercube::<SignificantBitOrder>::new(b_num_vars) {
-                for (b_prime_index, _) in Hypercube::<SignificantBitOrder>::new(t) {
+            for (_, _) in Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(b_num_vars) {
+                for (b_prime_index, _) in
+                    Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(t)
+                {
                     self.x_table[b_prime_index] = F::ZERO;
                     self.y_table[b_prime_index] = F::ZERO;
 
-                    for (x_index, _) in Hypercube::<SignificantBitOrder>::new(x_num_vars) {
+                    for (x_index, _) in
+                        Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(x_num_vars)
+                    {
                         self.x_table[b_prime_index] +=
                             lag_polys[x_index] * self.stream_iterators[0].next().unwrap();
                         self.y_table[b_prime_index] +=
                             lag_polys[x_index] * self.stream_iterators[1].next().unwrap();
                     }
                 }
-                for (b_prime_index, _) in Hypercube::<SignificantBitOrder>::new(t) {
-                    for (b_prime_prime_index, _) in Hypercube::<SignificantBitOrder>::new(t) {
+                for (b_prime_index, _) in
+                    Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(t)
+                {
+                    for (b_prime_prime_index, _) in
+                        Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(t)
+                    {
                         self.j_prime_table[b_prime_index][b_prime_prime_index] +=
                             self.x_table[b_prime_index] * self.y_table[b_prime_prime_index];
                     }
@@ -247,10 +273,12 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
             let mut evaluations_p = vec![F::ZERO; 1 << num_variables_new];
             let mut evaluations_q = vec![F::ZERO; 1 << num_variables_new];
 
-            for (b_prime_index, _) in Hypercube::<SignificantBitOrder>::new(num_variables_new) {
+            for (b_prime_index, _) in
+                Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(num_variables_new)
+            {
                 let mut sequential_lag_poly: LagrangePolynomial<F, SignificantBitOrder> =
                     LagrangePolynomial::new(&self.verifier_messages);
-                for (_, _) in Hypercube::<SignificantBitOrder>::new(j - 1) {
+                for (_, _) in Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(j - 1) {
                     let lag_poly = sequential_lag_poly.next().unwrap();
                     evaluations_p[b_prime_index] +=
                         lag_poly * self.stream_iterators[0].next().unwrap();

@@ -27,9 +27,9 @@ impl<F: Field, S: Stream<F>> SpaceProductProver<F, S> {
             .iter_mut()
             .for_each(|stream_it| stream_it.reset());
 
-        for (_, _) in
-            Hypercube::<SignificantBitOrder>::new(self.num_variables - self.current_round - 1)
-        {
+        for (_, _) in Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(
+            self.num_variables - self.current_round - 1,
+        ) {
             // can avoid unnecessary additions for first round since there is no lag poly: gives a small speedup
             if self.current_round == 0 {
                 let p0 = self.stream_iterators[0].next().unwrap();
@@ -47,7 +47,9 @@ impl<F: Field, S: Stream<F>> SpaceProductProver<F, S> {
 
                 let mut sequential_lag_poly: LagrangePolynomial<F, SignificantBitOrder> =
                     LagrangePolynomial::new(&self.verifier_messages);
-                for (_, _) in Hypercube::<SignificantBitOrder>::new(self.current_round) {
+                for (_, _) in
+                    Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(self.current_round)
+                {
                     let lag_poly = sequential_lag_poly.next().unwrap();
                     partial_sum_p_0 += self.stream_iterators[0].next().unwrap() * lag_poly;
                     partial_sum_q_0 += self.stream_iterators[1].next().unwrap() * lag_poly;
@@ -55,7 +57,9 @@ impl<F: Field, S: Stream<F>> SpaceProductProver<F, S> {
 
                 let mut sequential_lag_poly: LagrangePolynomial<F, SignificantBitOrder> =
                     LagrangePolynomial::new(&self.verifier_messages);
-                for (_, _) in Hypercube::<SignificantBitOrder>::new(self.current_round) {
+                for (_, _) in
+                    Hypercube::<SignificantBitOrder, SignificantBitOrder>::new(self.current_round)
+                {
                     let lag_poly = sequential_lag_poly.next().unwrap();
                     partial_sum_p_1 += self.stream_iterators[0].next().unwrap() * lag_poly;
                     partial_sum_q_1 += self.stream_iterators[1].next().unwrap() * lag_poly;

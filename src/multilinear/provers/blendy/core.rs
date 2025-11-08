@@ -2,6 +2,7 @@ use ark_ff::Field;
 use ark_std::cfg_iter_mut;
 use ark_std::{cfg_into_iter, vec::Vec};
 
+use crate::order_strategy::SignificantBitOrder;
 use crate::{
     hypercube::Hypercube, interpolation::LagrangePolynomial, messages::VerifierMessages,
     order_strategy::GraycodeOrder, streams::Stream,
@@ -46,7 +47,8 @@ where
         let j_prime = self.current_round - stage_start_index;
 
         // Iterate through b2_start indices using Hypercube::new(j_prime + 1)
-        for (b2_start_index, _) in Hypercube::<GraycodeOrder>::new(j_prime + 1) {
+        for (b2_start_index, _) in Hypercube::<GraycodeOrder, SignificantBitOrder>::new(j_prime + 1)
+        {
             // Calculate b2_start_index_0 and b2_start_index_1 for indexing partial_sums
             let shift_amount = if self.num_variables - stage_start_index < self.stage_size {
                 // this is the oddly sized last stage when k doesn't divide num_vars
@@ -115,13 +117,15 @@ where
 
         // 3. For each b1 ∈ {0,1}^(s-1)l
         let len_sums: usize = self.sums.len();
-        for (b1_index, _) in Hypercube::<GraycodeOrder>::new(b1_num_vars) {
+        for (b1_index, _) in Hypercube::<GraycodeOrder, SignificantBitOrder>::new(b1_num_vars) {
             // (a) Compute (LagPoly, st) := LagNext(st)
             let lag_poly = sequential_lag_poly.next().unwrap();
 
             // (b) For each b2 ∈ {0,1}^l, for each b2 ∈ {0,1}^(k-s)l
-            for (b2_index, _) in Hypercube::<GraycodeOrder>::new(b2_num_vars) {
-                for (b3_index, _) in Hypercube::<GraycodeOrder>::new(b3_num_vars) {
+            for (b2_index, _) in Hypercube::<GraycodeOrder, SignificantBitOrder>::new(b2_num_vars) {
+                for (b3_index, _) in
+                    Hypercube::<GraycodeOrder, SignificantBitOrder>::new(b3_num_vars)
+                {
                     // Calculate the index for the current combination of b1, b2, and b3
                     let index = b1_index << (b2_num_vars + b3_num_vars)
                         | b2_index << b3_num_vars
@@ -146,7 +150,8 @@ where
         let j_prime = self.current_round - (self.current_stage() * self.stage_size);
 
         // Iterate through b2_start indices using Hypercube::new(j_prime + 1)
-        for (b2_start_index, _) in Hypercube::<GraycodeOrder>::new(j_prime + 1) {
+        for (b2_start_index, _) in Hypercube::<GraycodeOrder, SignificantBitOrder>::new(j_prime + 1)
+        {
             // calculate lag_poly from precomputed
             let lag_poly = match j_prime {
                 0 => F::ONE,

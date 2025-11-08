@@ -1,5 +1,8 @@
+use ark_std::log2;
+
 use crate::{hypercube::Hypercube, order_strategy::OrderStrategy};
 
+#[derive(PartialEq, Debug)]
 pub struct GraycodeOrder {
     current_index: usize,
     stop_value: usize, // exclusive
@@ -17,10 +20,18 @@ impl GraycodeOrder {
 }
 
 impl OrderStrategy for GraycodeOrder {
-    fn new(num_vars: usize) -> Self {
+    fn new(len: usize) -> Self {
         Self {
             current_index: 0,
-            stop_value: Hypercube::<Self>::stop_value(num_vars), // exclusive
+            stop_value: len,
+            num_vars: log2(len) as usize,
+        }
+    }
+
+    fn new_from_num_vars(num_vars: usize) -> Self {
+        Self {
+            current_index: 0,
+            stop_value: Hypercube::<Self, Self>::stop_value(num_vars),
             num_vars,
         }
     }

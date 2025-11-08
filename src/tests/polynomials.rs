@@ -1,6 +1,6 @@
 use crate::{
     hypercube::{Hypercube, HypercubeMember},
-    order_strategy::GraycodeOrder,
+    order_strategy::{GraycodeOrder, SignificantBitOrder},
 };
 use ark_ff::Field;
 use ark_poly::{
@@ -74,7 +74,11 @@ pub trait Polynomial<F: Field> {
 
     // Evaluates the polynomial at the provided point (expressed as a hypercube member)
     // using the given number of variables.
-    fn evaluate_from_hypercube(&self, num_vars: usize, point: HypercubeMember) -> Option<F>;
+    fn evaluate_from_hypercube(
+        &self,
+        num_vars: usize,
+        point: HypercubeMember<SignificantBitOrder>,
+    ) -> Option<F>;
 
     // Converts the polynomial into a vector containing evaluations at every
     // point of the hypercube.
@@ -95,7 +99,11 @@ impl<F: Field> Polynomial<F> for SparsePolynomial<F, SparseTerm> {
         Some(result)
     }
 
-    fn evaluate_from_hypercube(&self, num_vars: usize, point: HypercubeMember) -> Option<F> {
+    fn evaluate_from_hypercube(
+        &self,
+        num_vars: usize,
+        point: HypercubeMember<SignificantBitOrder>,
+    ) -> Option<F> {
         // Convert the boolean representation into field elements.
         let mut field_values: Vec<F> = Vec::with_capacity(num_vars);
         for bit in point {
@@ -113,7 +121,7 @@ impl<F: Field> Polynomial<F> for SparsePolynomial<F, SparseTerm> {
 
     fn to_evaluations(&self) -> Vec<F> {
         let num_vars = DenseMVPolynomial::<F>::num_vars(self);
-        let total_points = Hypercube::<GraycodeOrder>::stop_value(num_vars);
+        let total_points = Hypercube::<GraycodeOrder, SignificantBitOrder>::stop_value(num_vars);
         let mut evaluations = Vec::with_capacity(total_points);
 
         // Iterate through each index of the hypercube.

@@ -25,10 +25,10 @@ impl<'a, F: Field, O: OrderStrategy> LagrangePolynomial<'a, F, O> {
             position: 0,
             value: verifier_messages.product_of_message_hats,
             verifier_messages,
-            stop_position: Hypercube::<O>::stop_value(num_vars),
+            stop_position: Hypercube::<O, SignificantBitOrder>::stop_value(num_vars),
         }
     }
-    pub fn lag_poly(x: Vec<F>, x_hat: Vec<F>, b: HypercubeMember) -> F {
+    pub fn lag_poly(x: Vec<F>, x_hat: Vec<F>, b: HypercubeMember<SignificantBitOrder>) -> F {
         // Iterate over the zipped triple x, x_hat, and boolean hypercube vectors
         x.iter().zip(x_hat.iter()).zip(b).fold(
             // Initial the accumulation to F::ONE

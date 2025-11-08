@@ -2,7 +2,9 @@ use ark_ff::Field;
 use ark_poly::multivariate::{SparsePolynomial, SparseTerm};
 
 use crate::{
-    hypercube::Hypercube, messages::VerifierMessages, order_strategy::LexicographicOrder,
+    hypercube::Hypercube,
+    messages::VerifierMessages,
+    order_strategy::{LexicographicOrder, SignificantBitOrder},
     tests::polynomials::Polynomial,
 };
 pub struct BasicProver<F: Field> {
@@ -15,9 +17,9 @@ pub struct BasicProver<F: Field> {
 impl<F: Field> BasicProver<F> {
     pub fn compute_round(&self) -> (F, F) {
         let mut m: (F, F) = (F::ZERO, F::ZERO);
-        for (_, b) in
-            Hypercube::<LexicographicOrder>::new(self.num_variables - self.current_round - 1)
-        {
+        for (_, b) in Hypercube::<LexicographicOrder, SignificantBitOrder>::new(
+            self.num_variables - self.current_round - 1,
+        ) {
             let partial_point: Vec<F> = b
                 .to_vec_bool()
                 .into_iter()

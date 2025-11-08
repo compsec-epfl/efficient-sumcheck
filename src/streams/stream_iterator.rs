@@ -11,7 +11,7 @@ pub struct StreamIterator<F: Field, S: Stream<F>, O: OrderStrategy> {
 
 impl<F: Field, S: Stream<F>, O: OrderStrategy> StreamIterator<F, S, O> {
     pub fn new(stream: S) -> Self {
-        let order = O::new(stream.num_variables());
+        let order = O::new_from_num_vars(stream.num_variables());
         Self {
             stream,
             order,
@@ -19,7 +19,7 @@ impl<F: Field, S: Stream<F>, O: OrderStrategy> StreamIterator<F, S, O> {
         }
     }
     pub fn reset(&mut self) {
-        self.order = O::new(self.stream.num_variables());
+        self.order = O::new_from_num_vars(self.stream.num_variables());
     }
 }
 
