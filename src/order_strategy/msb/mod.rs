@@ -1,3 +1,4 @@
-mod core;
+#[allow(clippy::module_inception)]
+mod msb;
 
-pub use core::MSBOrder;
+pub use msb::MSBOrder;
