@@ -4,13 +4,13 @@ use crate::{
     hypercube::Hypercube,
     interpolation::LagrangePolynomial,
     messages::VerifierMessages,
-    order_strategy::SignificantBitOrder,
+    order_strategy::MSBOrder,
     streams::{Stream, StreamIterator},
 };
 
 pub struct SpaceProductProver<F: Field, S: Stream<F>> {
     pub current_round: usize,
-    pub stream_iterators: Vec<StreamIterator<F, S, SignificantBitOrder>>,
+    pub stream_iterators: Vec<StreamIterator<F, S, MSBOrder>>,
     pub num_variables: usize,
     pub verifier_messages: VerifierMessages<F>,
     pub inverse_four: F,
@@ -27,9 +27,7 @@ impl<F: Field, S: Stream<F>> SpaceProductProver<F, S> {
             .iter_mut()
             .for_each(|stream_it| stream_it.reset());
 
-        for (_, _) in
-            Hypercube::<SignificantBitOrder>::new(self.num_variables - self.current_round - 1)
-        {
+        for (_, _) in Hypercube::<MSBOrder>::new(self.num_variables - self.current_round - 1) {
             // can avoid unnecessary additions for first round since there is no lag poly: gives a small speedup
             if self.current_round == 0 {
                 let p0 = self.stream_iterators[0].next().unwrap();
@@ -45,17 +43,17 @@ impl<F: Field, S: Stream<F>> SpaceProductProver<F, S> {
                 let mut partial_sum_q_0 = F::ZERO;
                 let mut partial_sum_q_1 = F::ZERO;
 
-                let mut sequential_lag_poly: LagrangePolynomial<F, SignificantBitOrder> =
+                let mut sequential_lag_poly: LagrangePolynomial<F, MSBOrder> =
                     LagrangePolynomial::new(&self.verifier_messages);
-                for (_, _) in Hypercube::<SignificantBitOrder>::new(self.current_round) {
+                for (_, _) in Hypercube::<MSBOrder>::new(self.current_round) {
                     let lag_poly = sequential_lag_poly.next().unwrap();
                     partial_sum_p_0 += self.stream_iterators[0].next().unwrap() * lag_poly;
                     partial_sum_q_0 += self.stream_iterators[1].next().unwrap() * lag_poly;
                 }
 
-                let mut sequential_lag_poly: LagrangePolynomial<F, SignificantBitOrder> =
+                let mut sequential_lag_poly: LagrangePolynomial<F, MSBOrder> =
                     LagrangePolynomial::new(&self.verifier_messages);
-                for (_, _) in Hypercube::<SignificantBitOrder>::new(self.current_round) {
+                for (_, _) in Hypercube::<MSBOrder>::new(self.current_round) {
                     let lag_poly = sequential_lag_poly.next().unwrap();
                     partial_sum_p_1 += self.stream_iterators[0].next().unwrap() * lag_poly;
                     partial_sum_q_1 += self.stream_iterators[1].next().unwrap() * lag_poly;

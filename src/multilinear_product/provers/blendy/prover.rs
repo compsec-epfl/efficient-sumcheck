@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use crate::{
     messages::VerifierMessages,
     multilinear_product::{BlendyProductProver, BlendyProductProverConfig, TimeProductProver},
-    order_strategy::SignificantBitOrder,
+    order_strategy::MSBOrder,
     prover::Prover,
     streams::{Stream, StreamIterator},
 };
@@ -49,7 +49,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
             .streams
             .iter()
             .cloned()
-            .map(|s| StreamIterator::<F, S, SignificantBitOrder>::new(s))
+            .map(|s| StreamIterator::<F, S, MSBOrder>::new(s))
             .collect();
 
         // return the BlendyProver instance
@@ -112,7 +112,7 @@ mod tests {
 
     use crate::{
         multilinear_product::{BlendyProductProver, BlendyProductProverConfig},
-        order_strategy::SignificantBitOrder,
+        order_strategy::MSBOrder,
         prover::{ProductProverConfig, Prover},
         streams::{multivariate_product_claim, MemoryStream, Stream},
         tests::{
@@ -140,7 +140,7 @@ mod tests {
         }
 
         // create the stream in SigBit order
-        let s: MemoryStream<F64> = MemoryStream::new_from_lex::<SignificantBitOrder>(evals.clone());
+        let s: MemoryStream<F64> = MemoryStream::new_from_lex::<MSBOrder>(evals.clone());
         let claim: F64 = multivariate_product_claim(vec![s.clone(), s.clone()]);
 
         // get transcript from Blendy prover

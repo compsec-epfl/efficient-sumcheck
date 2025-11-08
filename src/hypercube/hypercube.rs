@@ -39,7 +39,7 @@ impl<O: OrderStrategy> Iterator for Hypercube<O> {
 mod tests {
     use crate::{
         hypercube::{Hypercube, HypercubeMember},
-        order_strategy::{GraycodeOrder, LexicographicOrder},
+        order_strategy::{AscendingOrder, GraycodeOrder},
     };
 
     fn is_eq(given: HypercubeMember, expected: Vec<bool>) {
@@ -56,22 +56,22 @@ mod tests {
     #[test]
     fn lexicographic_hypercube_members() {
         // for n=0, should return empty vec first call, none second call
-        let mut hypercube_size_0 = Hypercube::<LexicographicOrder>::new(0);
+        let mut hypercube_size_0 = Hypercube::<AscendingOrder>::new(0);
         is_eq(hypercube_size_0.next().unwrap().1, vec![]);
         // for n=1, should return vec[false] first call, vec[true] second call and None third call
-        let mut hypercube_size_1: Hypercube<LexicographicOrder> = Hypercube::new(1);
+        let mut hypercube_size_1: Hypercube<AscendingOrder> = Hypercube::new(1);
         is_eq(hypercube_size_1.next().unwrap().1, vec![false]);
         is_eq(hypercube_size_1.next().unwrap().1, vec![true]);
         assert_eq!(hypercube_size_1.next(), None);
         // so on for n=2
-        let mut hypercube_size_2: Hypercube<LexicographicOrder> = Hypercube::new(2);
+        let mut hypercube_size_2: Hypercube<AscendingOrder> = Hypercube::new(2);
         is_eq(hypercube_size_2.next().unwrap().1, vec![false, false]);
         is_eq(hypercube_size_2.next().unwrap().1, vec![false, true]);
         is_eq(hypercube_size_2.next().unwrap().1, vec![true, false]);
         is_eq(hypercube_size_2.next().unwrap().1, vec![true, true]);
         assert_eq!(hypercube_size_2.next(), None);
         // so on for n=3
-        let mut hypercube_size_3: Hypercube<LexicographicOrder> = Hypercube::new(3);
+        let mut hypercube_size_3: Hypercube<AscendingOrder> = Hypercube::new(3);
         is_eq(
             hypercube_size_3.next().unwrap().1,
             vec![false, false, false],
@@ -89,22 +89,22 @@ mod tests {
     #[test]
     fn lexicographic_indices() {
         // for n=0, should return empty vec first call, none second call
-        let mut hypercube_size_0 = Hypercube::<LexicographicOrder>::new(0);
+        let mut hypercube_size_0 = Hypercube::<AscendingOrder>::new(0);
         assert_eq!(hypercube_size_0.next().unwrap().0, 0);
         // for n=1, should return vec[false] first call, vec[true] second call and None third call
-        let mut hypercube_size_1: Hypercube<LexicographicOrder> = Hypercube::new(1);
+        let mut hypercube_size_1: Hypercube<AscendingOrder> = Hypercube::new(1);
         assert_eq!(hypercube_size_1.next().unwrap().0, 0);
         assert_eq!(hypercube_size_1.next().unwrap().0, 1);
         assert_eq!(hypercube_size_1.next(), None);
         // so on for n=2
-        let mut hypercube_size_2: Hypercube<LexicographicOrder> = Hypercube::new(2);
+        let mut hypercube_size_2: Hypercube<AscendingOrder> = Hypercube::new(2);
         assert_eq!(hypercube_size_2.next().unwrap().0, 0);
         assert_eq!(hypercube_size_2.next().unwrap().0, 1);
         assert_eq!(hypercube_size_2.next().unwrap().0, 2);
         assert_eq!(hypercube_size_2.next().unwrap().0, 3);
         assert_eq!(hypercube_size_2.next(), None);
         // so on for n=3
-        let mut hypercube_size_3: Hypercube<LexicographicOrder> = Hypercube::new(3);
+        let mut hypercube_size_3: Hypercube<AscendingOrder> = Hypercube::new(3);
         assert_eq!(hypercube_size_3.next().unwrap().0, 0);
         assert_eq!(hypercube_size_3.next().unwrap().0, 1);
         assert_eq!(hypercube_size_3.next().unwrap().0, 2);
@@ -118,7 +118,6 @@ mod tests {
 
     #[test]
     fn graycode_hypercube_members() {
-        // https://docs.rs/gray-codes/latest/gray_codes/struct.GrayCode8.html#examples
         // for n=0, should return empty vec first call, none second call
         let mut hypercube_size_0 = Hypercube::<GraycodeOrder>::new(0);
         is_eq(hypercube_size_0.next().unwrap().1, vec![]);
@@ -152,7 +151,6 @@ mod tests {
 
     #[test]
     fn graycode_indices() {
-        // https://docs.rs/gray-codes/latest/gray_codes/struct.GrayCode8.html#examples
         // for n=0, should return empty vec first call, none second call
         let mut hypercube_size_0 = Hypercube::<GraycodeOrder>::new(0);
         assert_eq!(hypercube_size_0.next().unwrap().0, 0);

@@ -1,9 +1,11 @@
+mod ascending;
 mod core;
+mod descending;
 mod graycode;
-mod lexicographic;
-mod significant_bit;
+mod msb;
 
+pub use ascending::AscendingOrder;
 pub use core::OrderStrategy;
+pub use descending::DescendingOrder;
 pub use graycode::GraycodeOrder;
-pub use lexicographic::LexicographicOrder;
-pub use significant_bit::SignificantBitOrder;
+pub use msb::MSBOrder;
