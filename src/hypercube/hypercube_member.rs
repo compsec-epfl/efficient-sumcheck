@@ -75,6 +75,43 @@ impl Iterator for HypercubeMember {
 #[cfg(test)]
 mod tests {
     use crate::hypercube::HypercubeMember;
+
+    #[test]
+    fn sanity() {
+        let test_0_0 = HypercubeMember::new(0, 0);
+        let vals_0_0: Vec<bool> = test_0_0.collect();
+        assert_eq!(vals_0_0, vec![]);
+
+        let test_0_1 = HypercubeMember::new(0, 1);
+        let vals_0_1: Vec<bool> = test_0_1.collect();
+        assert_eq!(vals_0_1, vec![]);
+
+        let test_1_0 = HypercubeMember::new(1, 0);
+        let vals_1_0: Vec<bool> = test_1_0.collect();
+        assert_eq!(vals_1_0, vec![false]);
+
+        let test_1_1 = HypercubeMember::new(1, 1);
+        let vals_1_1: Vec<bool> = test_1_1.collect();
+        assert_eq!(vals_1_1, vec![true]);
+
+        let test_2_0 = HypercubeMember::new(2, 0);
+        let vals_2_0: Vec<bool> = test_2_0.collect();
+        assert_eq!(vals_2_0, vec![false, false]);
+
+        let test_2_1 = HypercubeMember::new(2, 1);
+        let vals_2_1: Vec<bool> = test_2_1.collect();
+        assert_eq!(vals_2_1, vec![false, true]);
+
+        let test_2_2 = HypercubeMember::new(2, 2);
+        let vals_2_2: Vec<bool> = test_2_2.collect();
+        assert_eq!(vals_2_2, vec![true, false]);
+
+        let test_2_3 = HypercubeMember::new(2, 3);
+        let vals_2_3: Vec<bool> = test_2_3.collect();
+        assert_eq!(vals_2_3, vec![true, true]);
+    }
+
+
     #[test]
     fn elements_at_indices() {
         let test_1 = vec![true, false, false, false, false];
