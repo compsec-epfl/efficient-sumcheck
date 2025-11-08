@@ -3,7 +3,7 @@ use ark_ff::Field;
 use crate::{
     messages::VerifierMessages,
     multilinear_product::{SpaceProductProver, SpaceProductProverConfig},
-    order_strategy::SignificantBitOrder,
+    order_strategy::MSBOrder,
     prover::Prover,
     streams::{Stream, StreamIterator},
 };
@@ -18,7 +18,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for SpaceProductProver<F, S> {
             .streams
             .iter()
             .cloned()
-            .map(|s| StreamIterator::<F, S, SignificantBitOrder>::new(s))
+            .map(|s| StreamIterator::<F, S, MSBOrder>::new(s))
             .collect();
 
         Self {
