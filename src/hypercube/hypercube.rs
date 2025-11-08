@@ -39,7 +39,7 @@ impl<O: OrderStrategy> Iterator for Hypercube<O> {
 mod tests {
     use crate::{
         hypercube::{Hypercube, HypercubeMember},
-        order_strategy::{GraycodeOrder, AscendingOrder},
+        order_strategy::{AscendingOrder, GraycodeOrder},
     };
 
     fn is_eq(given: HypercubeMember, expected: Vec<bool>) {

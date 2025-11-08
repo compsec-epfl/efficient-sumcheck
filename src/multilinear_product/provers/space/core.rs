@@ -27,9 +27,7 @@ impl<F: Field, S: Stream<F>> SpaceProductProver<F, S> {
             .iter_mut()
             .for_each(|stream_it| stream_it.reset());
 
-        for (_, _) in
-            Hypercube::<MSBOrder>::new(self.num_variables - self.current_round - 1)
-        {
+        for (_, _) in Hypercube::<MSBOrder>::new(self.num_variables - self.current_round - 1) {
             // can avoid unnecessary additions for first round since there is no lag poly: gives a small speedup
             if self.current_round == 0 {
                 let p0 = self.stream_iterators[0].next().unwrap();

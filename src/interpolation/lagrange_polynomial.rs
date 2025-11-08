@@ -1,7 +1,7 @@
 use crate::{
     hypercube::{Hypercube, HypercubeMember},
     messages::VerifierMessages,
-    order_strategy::{GraycodeOrder, OrderStrategy, MSBOrder},
+    order_strategy::{GraycodeOrder, MSBOrder, OrderStrategy},
 };
 use ark_ff::Field;
 
@@ -130,19 +130,15 @@ impl<'a, F: Field> Iterator for LagrangePolynomial<'a, F, MSBOrder> {
             != self.verifier_messages.zero_ones_mask
         {
             // NOTICE! we do not update last_position in this case
-            self.position = MSBOrder::next_value_in_msb_order(
-                self.position,
-                self.order.num_vars() as u32,
-            );
+            self.position =
+                MSBOrder::next_value_in_msb_order(self.position, self.order.num_vars() as u32);
             return Some(F::ZERO);
         }
         // Step 3: check if position is 0, which is a special case
         // Notice! step 2 could apply when position == 0
         if self.position == 0 {
-            self.position = MSBOrder::next_value_in_msb_order(
-                self.position,
-                self.order.num_vars() as u32,
-            );
+            self.position =
+                MSBOrder::next_value_in_msb_order(self.position, self.order.num_vars() as u32);
             return Some(self.value);
         }
         // Step 3: update the value
@@ -158,10 +154,8 @@ impl<'a, F: Field> Iterator for LagrangePolynomial<'a, F, MSBOrder> {
 
         // Step 5: increment positions
         self.last_position = self.position;
-        self.position = MSBOrder::next_value_in_msb_order(
-            self.position,
-            self.order.num_vars() as u32,
-        );
+        self.position =
+            MSBOrder::next_value_in_msb_order(self.position, self.order.num_vars() as u32);
 
         // Step 6: return
         Some(self.value)

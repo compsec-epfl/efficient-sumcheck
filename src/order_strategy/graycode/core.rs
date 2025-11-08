@@ -48,7 +48,6 @@ impl Iterator for GraycodeOrder {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

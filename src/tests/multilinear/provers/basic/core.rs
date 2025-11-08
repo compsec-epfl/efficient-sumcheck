@@ -15,8 +15,7 @@ pub struct BasicProver<F: Field> {
 impl<F: Field> BasicProver<F> {
     pub fn compute_round(&self) -> (F, F) {
         let mut m: (F, F) = (F::ZERO, F::ZERO);
-        for (_, b) in
-            Hypercube::<AscendingOrder>::new(self.num_variables - self.current_round - 1)
+        for (_, b) in Hypercube::<AscendingOrder>::new(self.num_variables - self.current_round - 1)
         {
             let partial_point: Vec<F> = b
                 .to_vec_bool()

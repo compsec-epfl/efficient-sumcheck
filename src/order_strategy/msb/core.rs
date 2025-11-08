@@ -32,10 +32,8 @@ impl OrderStrategy for MSBOrder {
     fn next_index(&mut self) -> Option<usize> {
         if self.current_index < self.stop_value {
             let old_index = self.current_index;
-            self.current_index = MSBOrder::next_value_in_msb_order(
-                self.current_index,
-                self.num_vars as u32,
-            );
+            self.current_index =
+                MSBOrder::next_value_in_msb_order(self.current_index, self.num_vars as u32);
             if self.current_index == 0 {
                 // if the sequence rounds back to 0, we need to stop
                 self.current_index = self.stop_value;
