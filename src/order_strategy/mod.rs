@@ -7,7 +7,7 @@ mod graycode;
 mod msb;
 
 pub use ascending::AscendingOrder;
-pub use order_strategy::OrderStrategy;
 pub use descending::DescendingOrder;
 pub use graycode::GraycodeOrder;
 pub use msb::MSBOrder;
+pub use order_strategy::OrderStrategy;

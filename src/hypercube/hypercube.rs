@@ -1,3 +1,4 @@
+use crate::order_strategy::AscendingOrder;
 use crate::{hypercube::HypercubeMember, order_strategy::OrderStrategy};
 
 // mod hypercube;
@@ -23,7 +24,7 @@ impl<O: OrderStrategy> Hypercube<O> {
 }
 
 impl<O: OrderStrategy> Iterator for Hypercube<O> {
-    type Item = (usize, HypercubeMember);
+    type Item = (usize, HypercubeMember<AscendingOrder>);
     fn next(&mut self) -> Option<Self::Item> {
         match self.order.next_index() {
             Some(current_index) => Some((
@@ -42,7 +43,7 @@ mod tests {
         order_strategy::{AscendingOrder, GraycodeOrder},
     };
 
-    fn is_eq(given: HypercubeMember, expected: Vec<bool>) {
+    fn is_eq(given: HypercubeMember<AscendingOrder>, expected: Vec<bool>) {
         // check each value in the vec
         for (i, (a, b)) in given.zip(expected.clone()).enumerate() {
             assert_eq!(

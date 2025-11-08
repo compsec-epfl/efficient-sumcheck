@@ -1,6 +1,6 @@
 use crate::{hypercube::Hypercube, order_strategy::OrderStrategy};
 
-#[derive(PartialEq, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DescendingOrder {
     current_index: isize,
     stop_value: isize,

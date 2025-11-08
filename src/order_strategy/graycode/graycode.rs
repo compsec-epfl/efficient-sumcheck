@@ -1,5 +1,6 @@
 use crate::{hypercube::Hypercube, order_strategy::OrderStrategy};
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct GraycodeOrder {
     current_index: usize,
     stop_value: usize, // exclusive

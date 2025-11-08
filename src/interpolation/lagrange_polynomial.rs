@@ -1,3 +1,4 @@
+use crate::order_strategy::AscendingOrder;
 use crate::{
     hypercube::{Hypercube, HypercubeMember},
     messages::VerifierMessages,
@@ -28,7 +29,7 @@ impl<'a, F: Field, O: OrderStrategy> LagrangePolynomial<'a, F, O> {
             stop_position: Hypercube::<O>::stop_value(num_vars),
         }
     }
-    pub fn lag_poly(x: Vec<F>, x_hat: Vec<F>, b: HypercubeMember) -> F {
+    pub fn lag_poly(x: Vec<F>, x_hat: Vec<F>, b: HypercubeMember<AscendingOrder>) -> F {
         // Iterate over the zipped triple x, x_hat, and boolean hypercube vectors
         x.iter().zip(x_hat.iter()).zip(b).fold(
             // Initial the accumulation to F::ONE
