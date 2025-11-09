@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use ark_ff::Field;
 
-use crate::{prover::ProductProverConfig, streams::Stream};
+use crate::{multilinear::ReduceMode, prover::ProductProverConfig, streams::Stream};
 
 pub struct TimeProductProverConfig<F, S>
 where
@@ -11,6 +11,7 @@ where
 {
     pub num_variables: usize,
     pub streams: Vec<S>,
+    pub reduce_mode: ReduceMode,
     _f: PhantomData<F>,
 }
 
@@ -19,10 +20,11 @@ where
     F: Field,
     S: Stream<F>,
 {
-    pub fn new(num_variables: usize, streams: Vec<S>) -> Self {
+    pub fn new(num_variables: usize, streams: Vec<S>, reduce_mode: ReduceMode) -> Self {
         Self {
             num_variables,
             streams,
+            reduce_mode,
             _f: PhantomData::<F>,
         }
     }
@@ -33,6 +35,7 @@ impl<F: Field, S: Stream<F>> ProductProverConfig<F, S> for TimeProductProverConf
         Self {
             num_variables,
             streams,
+            reduce_mode: ReduceMode::Variablewise,
             _f: PhantomData::<F>,
         }
     }
