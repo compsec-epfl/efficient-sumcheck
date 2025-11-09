@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     messages::VerifierMessages,
+    multilinear::ReduceMode,
     multilinear_product::{BlendyProductProver, BlendyProductProverConfig, TimeProductProver},
     order_strategy::MSBOrder,
     prover::Prover,
@@ -43,6 +44,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
             streams: None,
             num_variables: num_variables - last_round + 1,
             inverse_four: F::from(4_u32).inverse().unwrap(),
+            reduce_mode: ReduceMode::Variablewise,
         };
 
         let stream_iterators = prover_config
