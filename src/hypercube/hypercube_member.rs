@@ -1,5 +1,3 @@
-use ark_std::log2;
-
 use crate::order_strategy::OrderStrategy;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -22,7 +20,10 @@ impl<O: OrderStrategy> HypercubeMember<O> {
         }
     }
     pub fn new_from_vec_bool(value: Vec<bool>) -> Self {
-        HypercubeMember::new(value.len(), HypercubeMember::<O>::usize_from_vec_bool(value))
+        HypercubeMember::new(
+            value.len(),
+            HypercubeMember::<O>::usize_from_vec_bool(value),
+        )
     }
     pub fn len(&self) -> usize {
         self.num_vars
@@ -74,7 +75,11 @@ impl<O: OrderStrategy> Iterator for HypercubeMember<O> {
         }
         // Return if value is bit high at bit_index
         self.bit_index -= 1;
-        println!("self.bit_index: {}, next(): {}", self.bit_index, self.order.next().unwrap());
+        println!(
+            "self.bit_index: {}, next(): {}",
+            self.bit_index,
+            self.order.next().unwrap()
+        );
         let bit_mask = 1 << self.bit_index;
         Some(self.value & bit_mask != 0)
     }
@@ -139,10 +144,16 @@ mod tests {
     fn vec_bool_to_usize() {
         let test_1 = vec![true, false, false];
         let exp_1 = 4;
-        assert_eq!(HypercubeMember::<AscendingOrder>::usize_from_vec_bool(test_1), exp_1);
+        assert_eq!(
+            HypercubeMember::<AscendingOrder>::usize_from_vec_bool(test_1),
+            exp_1
+        );
         let test_2 = vec![false, true, true];
         let exp_2 = 3;
-        assert_eq!(HypercubeMember::<AscendingOrder>::usize_from_vec_bool(test_2), exp_2);
+        assert_eq!(
+            HypercubeMember::<AscendingOrder>::usize_from_vec_bool(test_2),
+            exp_2
+        );
     }
     #[test]
     fn to_vec_bool() {

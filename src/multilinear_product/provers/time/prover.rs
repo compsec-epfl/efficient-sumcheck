@@ -1,10 +1,95 @@
 use ark_ff::Field;
 
 use crate::{
-    multilinear_product::{TimeProductProver, TimeProductProverConfig},
+    multilinear::{
+        reductions::{pairwise, variablewise},
+        ReduceMode,
+    },
+    multilinear_product::{
+        reductions::{pairwise as product_pairwise, variablewise as product_variablewise},
+        TimeProductProver, TimeProductProverConfig,
+    },
     prover::Prover,
     streams::Stream,
 };
+
+impl<F: Field, S: Stream<F>> TimeProductProver<F, S> {
+    fn next_message_pairwise(&mut self, verifier_message: Option<F>) -> Option<(F, F, F)> {
+        if self.current_round >= self.total_rounds() {
+            return None;
+        }
+
+        if self.current_round != 0 {
+            if self.current_round > 1 {
+                for table in &mut self.evaluations {
+                    pairwise::reduce_evaluations(table, verifier_message.unwrap());
+                }
+            } else {
+                for i in 0..self.streams.len() {
+                    pairwise::reduce_evaluations_from_stream(
+                        &self.streams[i],
+                        self.evaluations[i].as_mut(),
+                        verifier_message.unwrap(),
+                    );
+                }
+            }
+        }
+
+        // evaluate using vsbw
+        let sums: (F, F, F) = match self.current_round == 0 {
+            true => {
+                product_pairwise::product_evaluate_from_stream(&self.streams, self.inverse_four)
+            }
+            false => product_pairwise::product_evaluate(&self.evaluations, self.inverse_four),
+        };
+
+        // Increment the round counter
+        self.current_round += 1;
+
+        // Return the computed polynomial
+        Some(sums)
+    }
+    fn next_message_variablewise(&mut self, verifier_message: Option<F>) -> Option<(F, F, F)> {
+        if self.current_round >= self.total_rounds() {
+            return None;
+        }
+
+        if self.current_round != 0 {
+            if self.current_round > 1 {
+                for table in &mut self.evaluations {
+                    variablewise::reduce_evaluations(
+                        table,
+                        verifier_message.unwrap(),
+                        F::ONE - verifier_message.unwrap(),
+                    );
+                }
+            } else {
+                for i in 0..self.streams.len() {
+                    variablewise::reduce_evaluations_from_stream(
+                        &self.streams[i],
+                        self.evaluations[i].as_mut(),
+                        verifier_message.unwrap(),
+                        F::ONE - verifier_message.unwrap(),
+                    );
+                }
+            }
+        }
+
+        // evaluate using vsbw
+        let sums: (F, F, F) = match self.current_round == 0 {
+            true => {
+                product_variablewise::product_evaluate_from_stream(&self.streams, self.inverse_four)
+            }
+            false => product_variablewise::product_evaluate(&self.evaluations, self.inverse_four),
+        };
+
+        // Increment the round counter
+        self.current_round += 1;
+
+        // Return the computed polynomial
+        Some(sums)
+    }
+}
 
 impl<F: Field, S: Stream<F>> Prover<F> for TimeProductProver<F, S> {
     type ProverConfig = TimeProductProverConfig<F, S>;
@@ -15,36 +100,19 @@ impl<F: Field, S: Stream<F>> Prover<F> for TimeProductProver<F, S> {
         let num_variables = prover_config.num_variables;
         Self {
             current_round: 0,
-            evaluations: vec![None; prover_config.streams.len()],
-            streams: Some(prover_config.streams),
+            evaluations: vec![vec![]; prover_config.streams.len()],
+            streams: prover_config.streams,
             num_variables,
             inverse_four: F::from(4_u32).inverse().unwrap(),
+            reduce_mode: prover_config.reduce_mode,
         }
     }
 
     fn next_message(&mut self, verifier_message: Option<F>) -> Option<(F, F, F)> {
-        // Ensure the current round is within bounds
-        if self.current_round >= self.total_rounds() {
-            return None;
+        match self.reduce_mode {
+            ReduceMode::Pairwise => self.next_message_pairwise(verifier_message),
+            ReduceMode::Variablewise => self.next_message_variablewise(verifier_message),
         }
-
-        // If it's not the first round, reduce the evaluations table
-        if self.current_round != 0 {
-            // update the evaluations table by absorbing leftmost variable assigned to verifier_message
-            self.vsbw_reduce_evaluations(
-                verifier_message.unwrap(),
-                F::ONE - verifier_message.unwrap(),
-            );
-        }
-
-        // evaluate using vsbw
-        let sums = self.vsbw_evaluate();
-
-        // Increment the round counter
-        self.current_round += 1;
-
-        // Return the computed polynomial
-        Some(sums)
     }
 }
 

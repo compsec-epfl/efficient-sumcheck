@@ -258,8 +258,8 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                         lag_poly * self.stream_iterators[1].next().unwrap();
                 }
             }
-            self.vsbw_prover.evaluations[0] = Some(evaluations_p);
-            self.vsbw_prover.evaluations[1] = Some(evaluations_q);
+            self.vsbw_prover.evaluations[0] = evaluations_p;
+            self.vsbw_prover.evaluations[1] = evaluations_q;
         } else if self.switched_to_vsbw {
             let verifier_message = self.verifier_messages.messages[self.current_round - 1];
             self.vsbw_prover
