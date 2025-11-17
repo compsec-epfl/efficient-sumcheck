@@ -1,4 +1,4 @@
-use ark_ff::{BigInt, Fp2, Fp2Config, Fp4, Fp4Config, UniformRand};
+use ark_ff::{Fp2, Fp2Config, Fp4, Fp4Config, UniformRand};
 use ark_std::test_rng;
 use criterion::{criterion_group, criterion_main, Criterion};
 use efficient_sumcheck::tests::{

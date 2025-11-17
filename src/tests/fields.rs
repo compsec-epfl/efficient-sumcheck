@@ -1,9 +1,9 @@
-use ark_ff::SqrtPrecomputation;
 use ark_ff::{
     ark_ff_macros::SmallFpConfig,
     fields::{Fp128, Fp64, MontBackend, MontConfig},
     BigInt, SmallFp, SmallFpConfig,
 };
+use ark_ff::{Fp2, Fp2Config, Fp4, Fp4Config, SqrtPrecomputation};
 #[derive(MontConfig)]
 #[modulus = "19"]
 #[generator = "2"]
@@ -48,3 +48,39 @@ pub type SmallM31 = SmallFp<SmallM31ConfigMont>;
 #[backend = "montgomery"]
 pub struct SmallF64ConfigMont;
 pub type SmallGoldilocks = SmallFp<SmallF64ConfigMont>;
+
+// SmallM31 extensions
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Fp2SmallM31Config;
+
+impl Fp2Config for Fp2SmallM31Config {
+    type Fp = SmallM31;
+
+    // Use const_new to build compile-time constants
+    const NONRESIDUE: SmallM31 = SmallM31::new(3);
+
+    // These Frobenius coeffs aren't used for arithmetic benchmarks anyway
+    const FROBENIUS_COEFF_FP2_C1: &'static [SmallM31] = &[SmallM31::new(1), SmallM31::new(3)];
+}
+
+pub type Fp2SmallM31 = Fp2<Fp2SmallM31Config>;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Fp4SmallM31Config;
+
+impl Fp4Config for Fp4SmallM31Config {
+    type Fp2Config = Fp2SmallM31Config;
+
+    const NONRESIDUE: Fp2<Fp2SmallM31Config> =
+        Fp2::<Fp2SmallM31Config>::new(SmallM31::new(3), SmallM31::new(0));
+
+    // 👇 now a slice of base‐field elements, not Fp2 elements
+    const FROBENIUS_COEFF_FP4_C1: &'static [SmallM31] = &[
+        SmallM31::new(1),
+        SmallM31::new(3),
+        SmallM31::new(9),
+        SmallM31::new(27),
+    ];
+}
+
+pub type Fp4SmallM31 = Fp4<Fp4SmallM31Config>;

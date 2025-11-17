@@ -34,14 +34,10 @@ pub fn evaluate_from_stream<F: Field, S: Stream<F>>(src: &S) -> (F, F) {
     (even_sum, odd_sum)
 }
 
-pub fn reduce_evaluations<F: Field>(
-    src: &mut Vec<F>,
-    verifier_message: F,
-    verifier_message_hat: F,
-) {
+pub fn reduce_evaluations<F: Field>(src: &mut Vec<F>, verifier_message: F) {
     // compute from src
     let out: Vec<F> = cfg_chunks!(src, 2)
-        .map(|chunk| chunk[0] * verifier_message_hat + chunk[1] * verifier_message)
+        .map(|chunk| chunk[0] + verifier_message * (chunk[1] - chunk[0]))
         .collect();
     // write back into src
     src[..out.len()].copy_from_slice(&out);
@@ -52,7 +48,6 @@ pub fn reduce_evaluations_from_stream<F: Field, S: Stream<F>>(
     src: &S,
     dst: &mut Vec<F>,
     verifier_message: F,
-    verifier_message_hat: F,
 ) {
     // compute from stream
     let len = 1usize << src.num_variables();
@@ -60,7 +55,7 @@ pub fn reduce_evaluations_from_stream<F: Field, S: Stream<F>>(
         .map(|i| {
             let a = src.evaluation(2 * i);
             let b = src.evaluation((2 * i) + 1);
-            a * verifier_message_hat + b * verifier_message
+            a + verifier_message * (b - a)
         })
         .collect();
     *dst = out;

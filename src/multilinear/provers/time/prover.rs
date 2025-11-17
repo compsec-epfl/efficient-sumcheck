@@ -22,7 +22,6 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
                 pairwise::reduce_evaluations(
                     self.evaluations.as_mut().unwrap(),
                     verifier_message.unwrap(),
-                    F::ONE - verifier_message.unwrap(),
                 );
             } else {
                 self.evaluations = Some(vec![]);
@@ -30,7 +29,6 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
                     &self.evaluation_streams[0],
                     self.evaluations.as_mut().unwrap(),
                     verifier_message.unwrap(),
-                    F::ONE - verifier_message.unwrap(),
                 );
             }
         }
@@ -58,7 +56,6 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
                 variablewise::reduce_evaluations(
                     self.evaluations.as_mut().unwrap(),
                     verifier_message.unwrap(),
-                    F::ONE - verifier_message.unwrap(),
                 );
             } else {
                 self.evaluations = Some(vec![]);
@@ -66,7 +63,6 @@ impl<F: Field, S: Stream<F>> TimeProver<F, S> {
                     &self.evaluation_streams[0],
                     self.evaluations.as_mut().unwrap(),
                     verifier_message.unwrap(),
-                    F::ONE - verifier_message.unwrap(),
                 );
             }
         }

@@ -5,4 +5,4 @@ mod reductions;
 
 pub use config::TimeProverConfig;
 pub use core::TimeProver;
-pub use reductions::ReduceMode;
+pub use reductions::{pairwise, variablewise, ReduceMode};
