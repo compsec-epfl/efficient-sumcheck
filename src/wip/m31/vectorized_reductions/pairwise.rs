@@ -9,7 +9,7 @@ use rayon::{
     prelude::ParallelSlice,
 };
 
-use crate::tests::{Fp4SmallM31, SmallM31};
+use crate::tests::{Fp2SmallM31, Fp4SmallM31, SmallM31};
 
 const M31_MODULUS: u32 = 2_147_483_647;
 
@@ -129,8 +129,11 @@ pub fn reduce_evaluations_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) ->
     cfg_chunks!(src, 2)
         .map(|chunk| {
             let v0 = Fp4SmallM31::from_base_prime_field(chunk[0]);
-            let v1 = Fp4SmallM31::from_base_prime_field(chunk[1]);
-            v0 + verifier_message * (v1 - v0)
+            let mut verifier_message_copy: Fp4SmallM31 = verifier_message;
+            let v1_minus_v0: SmallM31 = chunk[1] - chunk[0];
+            let v1_minus_v0_fp2: Fp2SmallM31 = Fp2SmallM31::from_base_prime_field(v1_minus_v0);
+            verifier_message_copy.mul_assign_by_basefield(&v1_minus_v0_fp2);
+            v0 + verifier_message_copy
         })
         .collect()
 }
