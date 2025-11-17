@@ -2,8 +2,8 @@
 name = "efficient-sumcheck"
 version = "0.0.2"
 authors = ["arkworks maintainers"]
-description = "TODO"
-repository = "https://github.com/compsec-epfl/space-efficient-sumcheck"
+description = "Systematized abstractions and algorithms for the sumcheck protocol"
+repository = "https://github.com/compsec-epfl/efficient-sumcheck"
 include = ["Cargo.toml", "src", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
 edition = "2021"
 
