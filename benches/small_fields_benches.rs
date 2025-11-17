@@ -143,10 +143,7 @@ fn bench_reduce_evaluations_bf(c: &mut Criterion) {
             // so we clone src each iteration for a fair benchmark.
             let mut src_copy = src.clone();
 
-            pairwise::reduce_evaluations(
-                black_box(&mut src_copy),
-                black_box(challenge),
-            );
+            pairwise::reduce_evaluations(black_box(&mut src_copy), black_box(challenge));
 
             black_box(src_copy);
         });

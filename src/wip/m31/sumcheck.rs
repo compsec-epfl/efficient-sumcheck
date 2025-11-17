@@ -34,19 +34,91 @@ fn prove(evals: &[SmallM31], fs: &mut impl FiatShamir<Fp4SmallM31>) -> Sumcheck<
         } else {
             // evaluate
             let sums = pairwise::evaluate(&new_evals);
+            prover_messages.push(sums);
             // absorb
             fs.absorb(sums.0);
             fs.absorb(sums.1);
-            // squeeze
-            let verifier_message = fs.squeeze();
-            verifier_messages.push(verifier_message);
-            // reduce
-            pairwise::reduce_evaluations(&mut new_evals, verifier_message);
+            if i != num_vars - 1 {
+                // squeeze
+                let verifier_message = fs.squeeze();
+                verifier_messages.push(verifier_message);
+                // reduce
+                pairwise::reduce_evaluations(&mut new_evals, verifier_message);
+            }
         }
     }
     Sumcheck::<Fp4SmallM31> {
         prover_messages,
         verifier_messages,
         is_accepted: true, // this should be removed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Sumcheck;
+    use crate::{
+        multilinear::{ReduceMode, TimeProver},
+        prover::Prover,
+        tests::{BenchStream, Fp4SmallM31, SmallM31},
+        wip::{fiat_shamir::BenchFiatShamir, m31::sumcheck::prove},
+    };
+    use ark_ff::Field;
+
+    #[test]
+    fn sanity() {
+        const NUM_VARIABLES: usize = 16;
+
+        // take an evaluation stream
+        let evaluation_stream: BenchStream<SmallM31> = BenchStream::new(NUM_VARIABLES);
+        let claim = evaluation_stream.claimed_sum;
+
+        // time_prover
+        let mut time_prover =
+            TimeProver::<SmallM31, BenchStream<SmallM31>>::new(<TimeProver<
+                SmallM31,
+                BenchStream<SmallM31>,
+            > as Prover<SmallM31>>::ProverConfig::new(
+                claim,
+                NUM_VARIABLES,
+                evaluation_stream.clone(),
+                ReduceMode::Pairwise,
+            ));
+        let time_prover_transcript = Sumcheck::<SmallM31>::prove::<
+            BenchStream<SmallM31>,
+            TimeProver<SmallM31, BenchStream<SmallM31>>,
+        >(&mut time_prover, &mut ark_std::test_rng());
+
+        // take the same evaluation stream
+        let len = 1 << NUM_VARIABLES;
+        let evals: Vec<SmallM31> = (0..len).map(|x| SmallM31::from(x as u32)).collect();
+        let mut fs = BenchFiatShamir::<Fp4SmallM31, _>::new(ark_std::test_rng());
+        let transcript = prove(&evals, &mut fs);
+
+        // were the challenges the same?
+        let verifier_messages_fp4: Vec<Fp4SmallM31> = time_prover_transcript
+            .verifier_messages
+            .iter()
+            .map(|a| Fp4SmallM31::from_base_prime_field(*a))
+            .collect();
+        assert_eq!(
+            verifier_messages_fp4, transcript.verifier_messages,
+            "challenges not same"
+        );
+
+        let prover_messages_fp4: Vec<(Fp4SmallM31, Fp4SmallM31)> = time_prover_transcript
+            .prover_messages
+            .iter()
+            .map(|&(a, b)| {
+                (
+                    Fp4SmallM31::from_base_prime_field(a),
+                    Fp4SmallM31::from_base_prime_field(b),
+                )
+            })
+            .collect();
+        assert_eq!(
+            prover_messages_fp4, transcript.prover_messages,
+            "prover messages not same"
+        );
     }
 }

@@ -7,7 +7,7 @@ const M31_MODULUS: u32 = 2_147_483_647;
 const LANES: usize = 4;
 
 #[inline(always)]
-fn mul_mod_m31_u32x4(a: Simd<u32, LANES>, b: Simd<u32, LANES>) -> Simd<u32, LANES> {
+pub fn mul_mod_m31_u32x4(a: Simd<u32, LANES>, b: Simd<u32, LANES>) -> Simd<u32, LANES> {
     let a64: Simd<u64, LANES> = a.cast();
     let b64: Simd<u64, LANES> = b.cast();
     let t = a64 * b64;
@@ -29,6 +29,7 @@ fn mul_mod_m31_u32x4(a: Simd<u32, LANES>, b: Simd<u32, LANES>) -> Simd<u32, LANE
 
     x.cast()
 }
+
 pub fn mul_assign_m31_vectorized(a: &mut [u32], b: &[u32]) {
     assert_eq!(a.len(), b.len());
 

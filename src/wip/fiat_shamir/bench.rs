@@ -28,7 +28,8 @@ where
     }
 
     fn squeeze(&mut self) -> F {
-        F::rand(&mut self.rng)
+        let r: F::BasePrimeField = F::BasePrimeField::rand(&mut self.rng);
+        F::from_base_prime_field(r)
     }
 }
 

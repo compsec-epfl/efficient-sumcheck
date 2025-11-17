@@ -27,6 +27,16 @@ fn run_on_field<F: Field>(bench_args: BenchArgs) {
 
     // switch on algorithm_label
     match bench_args.algorithm_label {
+        AlgorithmLabel::M31Extension => {
+            let config: BlendyProverConfig<F, BenchStream<F>> =
+                BlendyProverConfig::<F, BenchStream<F>>::default(
+                    multivariate_claim(s.clone()),
+                    bench_args.num_variables,
+                    s,
+                );
+            let transcript = prove(evals, );
+            assert!(transcript.is_accepted);
+        }
         AlgorithmLabel::Blendy => {
             let config: BlendyProverConfig<F, BenchStream<F>> =
                 BlendyProverConfig::<F, BenchStream<F>>::default(
