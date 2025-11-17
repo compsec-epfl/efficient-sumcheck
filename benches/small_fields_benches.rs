@@ -3,15 +3,11 @@ use ark_std::{hint::black_box, test_rng, UniformRand};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use efficient_sumcheck::{
-    multilinear::pairwise,
-    tests::{Fp4SmallM31, SmallF16, SmallM31},
-    wip::{
-        f16::mul_assign_16_bit_vectorized,
-        m31::{
-            mul_assign_m31_vectorized,
-            vectorized_reductions::{self, pairwise::reduce_evaluations_bf},
-        },
-    },
+    Sumcheck, multilinear::{ReduceMode, TimeProver, pairwise}, prover::Prover, tests::{BenchStream, F128, Fp4SmallM31, SmallF16, SmallM31}, wip::{
+        f16::mul_assign_16_bit_vectorized, fiat_shamir::BenchFiatShamir, m31::{
+            mul_assign_m31_vectorized, sumcheck, vectorized_reductions::{self, pairwise::reduce_evaluations_bf}
+        }
+    }
 };
 
 fn bench_pairwise_mul_16_bit_prime(c: &mut Criterion) {
@@ -150,8 +146,53 @@ fn bench_reduce_evaluations_bf(c: &mut Criterion) {
     });
 }
 
+
+pub fn bench_sumcheck_time(c: &mut Criterion) {
+    const NUM_VARIABLES: usize = 20;
+    // ------------ TimeProver<SmallM31> ------------
+    // Prepare an evaluation stream and claim once; reuse across iterations.
+    let evaluation_stream: BenchStream<F128> = BenchStream::new(NUM_VARIABLES);
+    let claim = evaluation_stream.claimed_sum;
+
+    c.bench_function("sumcheck::time_prover_smallm31_2^16", |b| {
+        b.iter(|| {
+            // Fresh prover + RNG each iteration to simulate a full run
+            let mut time_prover = TimeProver::<F128, BenchStream<F128>>::new(
+                <TimeProver<F128, BenchStream<F128>> as Prover<F128>>::ProverConfig::new(
+                    claim,
+                    NUM_VARIABLES,
+                    evaluation_stream.clone(),
+                    ReduceMode::Pairwise,
+                ),
+            );
+
+            let mut rng = test_rng();
+            let transcript = Sumcheck::<F128>::prove::<
+                BenchStream<F128>,
+                TimeProver<F128, BenchStream<F128>>,
+            >(&mut time_prover, &mut rng);
+
+            black_box(transcript);
+        });
+    });
+
+    // ------------ Fp4SmallM31 prover (prove) ------------
+    // Same logical table size; here we just use the simple 0..len pattern.
+    let len = 1 << NUM_VARIABLES;
+    let evals: Vec<SmallM31> = (0..len).map(|x| SmallM31::from(x as u32)).collect();
+
+    c.bench_function("sumcheck::fp4_smallm31_2^16", |b| {
+        b.iter(|| {
+            let mut fs = BenchFiatShamir::<Fp4SmallM31, _>::new(test_rng());
+            let transcript = sumcheck::prove(&evals, &mut fs);
+            black_box(transcript);
+        });
+    });
+}
+
 criterion_group!(
     benches,
+    bench_sumcheck_time,
     bench_reduce_evaluations_bf,
     bench_pairwise_evaluate,
     bench_pairwise_mul_16_bit_prime,

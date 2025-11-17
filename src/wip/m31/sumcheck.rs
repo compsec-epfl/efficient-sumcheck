@@ -5,7 +5,7 @@ use crate::tests::{Fp4SmallM31, SmallM31};
 use crate::wip::m31::vectorized_reductions::pairwise::{evaluate_bf, reduce_evaluations_bf};
 use crate::{wip::fiat_shamir::FiatShamir, Sumcheck};
 
-fn prove(evals: &[SmallM31], fs: &mut impl FiatShamir<Fp4SmallM31>) -> Sumcheck<Fp4SmallM31> {
+pub fn prove(evals: &[SmallM31], fs: &mut impl FiatShamir<Fp4SmallM31>) -> Sumcheck<Fp4SmallM31> {
     let len = evals.len();
     assert!(len.count_ones() == 1, "evals len must be power of 2");
     let num_vars = len.trailing_zeros();
