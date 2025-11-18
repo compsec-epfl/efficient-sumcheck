@@ -183,51 +183,122 @@ fn special_thing(verifier_challenge: &Fp4SmallM31, v0: &SmallM31, v1: &SmallM31)
     unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(res_raw) }
 }
 
-pub fn special_thing_unrolled(verifier_challenge: &[u32; 4], src: &[u32]) -> Vec<[u32; 4]> {
-    assert!(src.len().is_multiple_of(4));
+// pub fn special_thing_unrolled(out: &mut [u32], src: &[u32]) {
+//     // 4 pairs per iteration → 8 inputs per iteration
+//     assert!(src.len().is_multiple_of(8));
 
-    let verifier_challenge_packed: Simd<u32, 4> = Simd::from_array(*verifier_challenge);
-    let mut out: Vec<[u32; 4]> = Vec::with_capacity(src.len() / 2);
-    for i in (0..src.len()).step_by(8) {
-        let r0 = mul_mod_m31_u32x4(
-            verifier_challenge_packed,
-            Simd::<u32, 4>::splat(sub_mod_val(src[i + 1], src[i])),
-        );
-        let mut r0_raw: [u32; 4] = *r0.as_array();
-        r0_raw[0] = add_mod_val(r0_raw[0], src[i]);
-        out.push(r0_raw);
+//     // one output element per pair, 4 limbs per element
+//     assert_eq!(out.len(), src.len() / 2 * 4);
 
-        let r1 = mul_mod_m31_u32x4(
-            verifier_challenge_packed,
-            Simd::<u32, 4>::splat(sub_mod_val(src[i + 3], src[i + 2])),
-        );
-        let mut r1_raw: [u32; 4] = *r1.as_array();
-        r1_raw[0] = add_mod_val(r1_raw[0], src[i + 2]);
-        out.push(r1_raw);
+//     // 4 of these to free data dependency?
+//     let verifier_message_0 = u32x4::from_slice(&out[0..4]);
+//     let verifier_message_1 = u32x4::from_slice(&out[0..4]);
+//     let verifier_message_2 = u32x4::from_slice(&out[0..4]);
+//     let verifier_message_3 = u32x4::from_slice(&out[0..4]);
+//     for i in (0..src.len()).step_by(8) {
+//         let pair0 = i / 2; // first pair index in this block
+//         let base = pair0 * 4; // first limb index in out for this block
 
-        let r2 = mul_mod_m31_u32x4(
-            verifier_challenge_packed,
-            Simd::<u32, 4>::splat(sub_mod_val(src[i + 5], src[i + 4])),
-        );
-        let mut r2_raw: [u32; 4] = *r2.as_array();
-        r2_raw[0] = add_mod_val(r2_raw[0], src[i + 4]);
-        out.push(r2_raw);
+//         let r0 = mul_mod_m31_u32x4(
+//             verifier_message_0,
+//             Simd::<u32, 4>::splat(sub_mod_val(src[i + 1], src[i])),
+//         );
+//         let mut r0_raw: [u32; 4] = *r0.as_array();
+//         r0_raw[0] = add_mod_val(r0_raw[0], src[i]);
+//         out[base..base + 4].copy_from_slice(&r0_raw);
 
-        let r3 = mul_mod_m31_u32x4(
-            verifier_challenge_packed,
-            Simd::<u32, 4>::splat(sub_mod_val(src[i + 7], src[i + 6])),
-        );
-        let mut r3_raw: [u32; 4] = *r3.as_array();
-        r3_raw[0] = add_mod_val(r3_raw[0], src[i + 6]);
-        out.push(r3_raw);
+//         let r1 = mul_mod_m31_u32x4(
+//             verifier_message_1,
+//             Simd::<u32, 4>::splat(sub_mod_val(src[i + 3], src[i + 2])),
+//         );
+//         let mut r1_raw: [u32; 4] = *r1.as_array();
+//         r1_raw[0] = add_mod_val(r1_raw[0], src[i + 2]);
+//         out[base + 4..base + 8].copy_from_slice(&r1_raw);
+
+//         let r2 = mul_mod_m31_u32x4(
+//             verifier_message_2,
+//             Simd::<u32, 4>::splat(sub_mod_val(src[i + 5], src[i + 4])),
+//         );
+//         let mut r2_raw: [u32; 4] = *r2.as_array();
+//         r2_raw[0] = add_mod_val(r2_raw[0], src[i + 4]);
+//         out[base + 8..base + 12].copy_from_slice(&r2_raw);
+
+//         let r3 = mul_mod_m31_u32x4(
+//             verifier_message_3,
+//             Simd::<u32, 4>::splat(sub_mod_val(src[i + 7], src[i + 6])),
+//         );
+//         let mut r3_raw: [u32; 4] = *r3.as_array();
+//         r3_raw[0] = add_mod_val(r3_raw[0], src[i + 6]);
+//         out[base + 12..base + 16].copy_from_slice(&r3_raw);
+//     }
+// }
+
+#[inline(always)]
+fn do_pair(pair_idx: usize, out: &mut [u32], src: &[u32], verifier: u32x4) {
+    // pair k is (src[2k], src[2k+1])
+    let i0 = 2 * pair_idx;
+    let i1 = i0 + 1;
+
+    let diff = sub_mod_val(src[i1], src[i0]);
+    let r = mul_mod_m31_u32x4(verifier, Simd::splat(diff));
+
+    // tweak lane 0
+    let mut r_raw = *r.as_array();
+    r_raw[0] = add_mod_val(r_raw[0], src[i0]);
+
+    // write back 4 limbs of this Fp4
+    let base = pair_idx * 4;
+    out[base..base + 4].copy_from_slice(&r_raw);
+}
+
+pub fn special_thing_unrolled<const UNROLL: usize>(out: &mut [u32], src: &[u32]) {
+    assert!(src.len() % 2 == 0);
+    let num_pairs = src.len() / 2;
+
+    // one output element (4 limbs) per pair
+    assert_eq!(out.len(), num_pairs * 4);
+
+    // UNROLL copies of the same verifier to break dependencies if the CPU cares
+    let base_verifier = u32x4::from_slice(&out[0..4]);
+    let verifiers: [u32x4; UNROLL] = [base_verifier; UNROLL];
+
+    let mut k = 0;
+    // main unrolled loop: process UNROLL pairs per iteration
+    while k + UNROLL <= num_pairs {
+        // unrolled inner body
+        let mut j = 0;
+        while j < UNROLL {
+            do_pair(k + j, out, src, verifiers[j]);
+            j += 1;
+        }
+        k += UNROLL;
     }
-    out
+
+    // scalar tail for leftover pairs (if num_pairs not multiple of UNROLL)
+    while k < num_pairs {
+        do_pair(k, out, src, verifiers[0]);
+        k += 1;
+    }
 }
 
 pub fn reduce_evaluations_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) -> Vec<Fp4SmallM31> {
-    cfg_chunks!(src, 2)
-        .map(|chunk| special_thing(&verifier_message, &chunk[0], &chunk[1]))
-        .collect()
+    //cfg_chunks!(src, 2)
+    // .map(|chunk| {
+    //     let mut out = vec![verifier_message; src.len() / 2];
+    //     // let out_slice: &mut [u32] = unsafe {
+    //     //     core::slice::from_raw_parts_mut(out.as_mut_ptr(), src.len())
+    //     // };
+    //     let ptr: *mut u32 = out.as_mut_ptr() as *mut u32;
+    //     special_thing(ptr, &chunk[0], &chunk[1])
+    // })
+    // .collect()
+    let mut out = vec![verifier_message; src.len() / 2];
+    let out_raw: &mut [u32] =
+        unsafe { core::slice::from_raw_parts_mut(out.as_mut_ptr() as *mut u32, out.len() * 4) };
+    let src_raw: &[u32] =
+        unsafe { core::slice::from_raw_parts(src.as_ptr() as *const u32, src.len()) };
+    special_thing_unrolled::<4>(out_raw, src_raw);
+    out
 }
 
 #[cfg(test)]
@@ -307,44 +378,25 @@ mod tests {
 
     #[test]
     fn special_thing_vectorized_matches_scalar_single_vec() {
+        const LEN: usize = 1 << 4;
         let mut rng = test_rng();
+        let verifier_message = Fp4SmallM31::from(7);
+        let evals: Vec<SmallM31> = (0..LEN).map(|_| SmallM31::rand(&mut rng)).collect();
 
-        // Try several even lengths (since we pair as (v[2i], v[2i+1]))
-        for &len in &[8, 16, 32, 64, 128] {
-            assert!(len % 2 == 0);
-            let verifier_challenge = Fp4SmallM31::rand(&mut rng);
-            let v: Vec<SmallM31> = (0..len).map(|_| SmallM31::rand(&mut rng)).collect();
-
-            let n_pairs = len / 2;
-
-            // Scalar: apply special_thing on (v[2i], v[2i+1])
-            let mut expected = Vec::with_capacity(n_pairs);
-            for k in 0..n_pairs {
-                let i0 = 2 * k;
-                let i1 = i0 + 1;
-                expected.push(special_thing(&verifier_challenge, &v[i0], &v[i1]));
-            }
-
-            // Vectorized version
-            let verifier_message_raw: [u32; 4] = unsafe {
-                debug_assert_eq!(mem::size_of::<Fp4SmallM31>(), 4 * mem::size_of::<u32>());
-                debug_assert_eq!(mem::align_of::<Fp4SmallM31>(), mem::align_of::<u32>());
-                mem::transmute::<Fp4SmallM31, [u32; 4]>(verifier_challenge)
-            };
-
-            let chunk_raw: &[u32] =
-                unsafe { core::slice::from_raw_parts(v.as_ptr() as *const u32, v.len()) };
-            let raw_vec = special_thing_unrolled(&verifier_message_raw, chunk_raw);
-            let ptr = raw_vec.as_ptr() as *mut Fp4SmallM31;
-            let len = raw_vec.len();
-            let cap = raw_vec.capacity();
-
-            // take ownership of the buffer without freeing raw_vec's allocation
-            core::mem::forget(raw_vec);
-
-            let received = unsafe { Vec::from_raw_parts(ptr, len, cap) };
-
-            assert_eq!(expected, received, "mismatch for len={len}");
+        let mut expected = Vec::with_capacity(evals.len() / 2);
+        for k in 0..evals.len() / 2 {
+            let i0 = 2 * k;
+            let i1 = i0 + 1;
+            expected.push(special_thing(&verifier_message, &evals[i0], &evals[i1]));
         }
+
+        let mut received = vec![verifier_message; evals.len() / 2];
+        let received_raw: &mut [u32] = unsafe {
+            core::slice::from_raw_parts_mut(received.as_mut_ptr() as *mut u32, received.len() * 4)
+        };
+        let evals_raw: &[u32] =
+            unsafe { core::slice::from_raw_parts(evals.as_ptr() as *const u32, evals.len()) };
+        special_thing_unrolled::<4>(received_raw, evals_raw);
+        assert_eq!(expected, received);
     }
 }

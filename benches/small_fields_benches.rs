@@ -3,11 +3,18 @@ use ark_std::{hint::black_box, test_rng, UniformRand};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use efficient_sumcheck::{
-    Sumcheck, multilinear::{ReduceMode, TimeProver, pairwise}, prover::Prover, tests::{BenchStream, F128, Fp4SmallM31, SmallF16, SmallM31}, wip::{
-        f16::mul_assign_16_bit_vectorized, fiat_shamir::BenchFiatShamir, m31::{
-            mul_assign_m31_vectorized, sumcheck, vectorized_reductions::{self, pairwise::reduce_evaluations_bf}
-        }
-    }
+    multilinear::{pairwise, ReduceMode, TimeProver},
+    prover::Prover,
+    tests::{BenchStream, Fp4SmallM31, SmallF16, SmallM31, F128},
+    wip::{
+        f16::mul_assign_16_bit_vectorized,
+        fiat_shamir::BenchFiatShamir,
+        m31::{
+            mul_assign_m31_vectorized, sumcheck,
+            vectorized_reductions::{self, pairwise::reduce_evaluations_bf},
+        },
+    },
+    Sumcheck,
 };
 
 fn bench_pairwise_mul_16_bit_prime(c: &mut Criterion) {
@@ -114,38 +121,66 @@ fn bench_pairwise_evaluate(c: &mut Criterion) {
 }
 
 fn bench_reduce_evaluations_bf(c: &mut Criterion) {
-    const LEN: usize = 1 << 20;
+    const LEN_SMALL: usize = 1 << 10; // 1K
+    const LEN_MED: usize = 1 << 16; // 64K
+    const LEN_LARGE: usize = 1 << 20; // 1M
+
     let mut rng = test_rng();
 
     // Shared input vector in the base field
-    let src: Vec<SmallM31> = (0..LEN).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_small: Vec<SmallM31> = (0..LEN_SMALL).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_med: Vec<SmallM31> = (0..LEN_MED).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_large: Vec<SmallM31> = (0..LEN_LARGE).map(|_| SmallM31::rand(&mut rng)).collect();
 
     let challenge = SmallM31::from(7u32);
     let challenge_ext = Fp4SmallM31::from_base_prime_field(challenge);
 
     // 2) New: direct extension-field reduce_evaluations_bf
-    c.bench_function("reduce_evaluations_bf", |b| {
+    c.bench_function("reduce_evaluations_bf::evaluate_1K", |b| {
         b.iter(|| {
-            let out_ext = reduce_evaluations_bf(black_box(&src), black_box(challenge_ext));
-
+            let v = src_small.clone();
+            let out_ext = reduce_evaluations_bf(black_box(&v), black_box(challenge_ext));
             black_box(out_ext);
         });
     });
 
-    // 1) Baseline: base-field reduce_evaluations + lift to Fp4SmallM31
-    c.bench_function("reduce_evaluations", |b| {
+    c.bench_function("reduce_evaluations_bf::evaluate_64K", |b| {
         b.iter(|| {
-            // pairwise::reduce_evaluations mutates & shrinks the vector,
-            // so we clone src each iteration for a fair benchmark.
-            let mut src_copy = src.clone();
+            let v = src_med.clone();
+            let out_ext = reduce_evaluations_bf(black_box(&v), black_box(challenge_ext));
+            black_box(out_ext);
+        });
+    });
 
-            pairwise::reduce_evaluations(black_box(&mut src_copy), black_box(challenge));
+    c.bench_function("reduce_evaluations_bf::evaluate_1M", |b| {
+        b.iter(|| {
+            let v = src_large.clone();
+            let out_ext = reduce_evaluations_bf(black_box(&v), black_box(challenge_ext));
+            black_box(out_ext);
+        });
+    });
 
-            black_box(src_copy);
+    c.bench_function("reduce_evaluations::evaluate_1K", |b| {
+        b.iter(|| {
+            let mut v = src_small.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge));
+        });
+    });
+
+    c.bench_function("reduce_evaluations::evaluate_64K", |b| {
+        b.iter(|| {
+            let mut v = src_med.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge));
+        });
+    });
+
+    c.bench_function("reduce_evaluations::evaluate_1M", |b| {
+        b.iter(|| {
+            let mut v = src_large.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge));
         });
     });
 }
-
 
 pub fn bench_sumcheck_time(c: &mut Criterion) {
     const NUM_VARIABLES: usize = 20;
@@ -157,14 +192,15 @@ pub fn bench_sumcheck_time(c: &mut Criterion) {
     c.bench_function("sumcheck::time_prover_smallm31_2^16", |b| {
         b.iter(|| {
             // Fresh prover + RNG each iteration to simulate a full run
-            let mut time_prover = TimeProver::<F128, BenchStream<F128>>::new(
-                <TimeProver<F128, BenchStream<F128>> as Prover<F128>>::ProverConfig::new(
-                    claim,
-                    NUM_VARIABLES,
-                    evaluation_stream.clone(),
-                    ReduceMode::Pairwise,
-                ),
-            );
+            let mut time_prover = TimeProver::<F128, BenchStream<F128>>::new(<TimeProver<
+                F128,
+                BenchStream<F128>,
+            > as Prover<F128>>::ProverConfig::new(
+                claim,
+                NUM_VARIABLES,
+                evaluation_stream.clone(),
+                ReduceMode::Pairwise,
+            ));
 
             let mut rng = test_rng();
             let transcript = Sumcheck::<F128>::prove::<
@@ -192,7 +228,7 @@ pub fn bench_sumcheck_time(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_sumcheck_time,
+    // bench_sumcheck_time,
     bench_reduce_evaluations_bf,
     bench_pairwise_evaluate,
     bench_pairwise_mul_16_bit_prime,
