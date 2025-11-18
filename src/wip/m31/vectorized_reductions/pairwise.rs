@@ -3,6 +3,7 @@ use ark_std::simd::{cmp::SimdPartialOrd, num::SimdUint, u32x4, Mask, Simd};
 use ark_std::{cfg_chunks, cfg_into_iter};
 use ark_std::{mem, vec::Vec};
 use rayon::current_num_threads;
+use rayon::slice::ParallelSliceMut;
 #[cfg(feature = "parallel")]
 use rayon::{
     iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator},
@@ -297,7 +298,24 @@ pub fn reduce_evaluations_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) ->
         unsafe { core::slice::from_raw_parts_mut(out.as_mut_ptr() as *mut u32, out.len() * 4) };
     let src_raw: &[u32] =
         unsafe { core::slice::from_raw_parts(src.as_ptr() as *const u32, src.len()) };
-    special_thing_unrolled::<4>(out_raw, src_raw);
+    // special_thing_unrolled::<4>(out_raw, src_raw);
+
+    let n_threads = current_num_threads();
+    let out_chunk_size = out_raw.len() / n_threads;
+    let src_chunk_size = src.len() / n_threads;
+    out_raw
+        .par_chunks_mut(out_chunk_size)
+        .zip(src_raw.par_chunks(src_chunk_size))
+        .for_each(|(out_chunk, src_chunk)| {
+            // Last chunk may be smaller; special_thing_unrolled requires:
+            //  - src_chunk.len() % 2 == 0
+            //  - out_chunk.len() == src_chunk.len()/2 * 4
+            debug_assert!(src_chunk.len() % 2 == 0);
+            debug_assert_eq!(out_chunk.len(), src_chunk.len() / 2 * 4);
+
+            special_thing_unrolled::<4>(out_chunk, src_chunk);
+        });
+
     out
 }
 

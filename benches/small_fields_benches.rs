@@ -132,8 +132,14 @@ fn bench_reduce_evaluations_bf(c: &mut Criterion) {
     let src_med: Vec<SmallM31> = (0..LEN_MED).map(|_| SmallM31::rand(&mut rng)).collect();
     let src_large: Vec<SmallM31> = (0..LEN_LARGE).map(|_| SmallM31::rand(&mut rng)).collect();
 
+    let src_small_f128: Vec<F128> = (0..LEN_SMALL).map(|_| F128::rand(&mut rng)).collect();
+    let src_med_f128: Vec<F128> = (0..LEN_MED).map(|_| F128::rand(&mut rng)).collect();
+    let src_large_f128: Vec<F128> = (0..LEN_LARGE).map(|_| F128::rand(&mut rng)).collect();
+
     let challenge = SmallM31::from(7u32);
     let challenge_ext = Fp4SmallM31::from_base_prime_field(challenge);
+
+    let challenge_f128 = F128::from(7u32);
 
     // 2) New: direct extension-field reduce_evaluations_bf
     c.bench_function("reduce_evaluations_bf::evaluate_1K", |b| {
@@ -162,22 +168,22 @@ fn bench_reduce_evaluations_bf(c: &mut Criterion) {
 
     c.bench_function("reduce_evaluations::evaluate_1K", |b| {
         b.iter(|| {
-            let mut v = src_small.clone();
-            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge));
+            let mut v = src_small_f128.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge_f128));
         });
     });
 
     c.bench_function("reduce_evaluations::evaluate_64K", |b| {
         b.iter(|| {
-            let mut v = src_med.clone();
-            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge));
+            let mut v = src_med_f128.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge_f128));
         });
     });
 
     c.bench_function("reduce_evaluations::evaluate_1M", |b| {
         b.iter(|| {
-            let mut v = src_large.clone();
-            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge));
+            let mut v = src_large_f128.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge_f128));
         });
     });
 }
@@ -228,7 +234,7 @@ pub fn bench_sumcheck_time(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    // bench_sumcheck_time,
+    bench_sumcheck_time,
     bench_reduce_evaluations_bf,
     bench_pairwise_evaluate,
     bench_pairwise_mul_16_bit_prime,
