@@ -189,13 +189,13 @@ fn bench_reduce_evaluations_bf(c: &mut Criterion) {
 }
 
 pub fn bench_sumcheck_time(c: &mut Criterion) {
-    const NUM_VARIABLES: usize = 20;
+    const NUM_VARIABLES: usize = 16;
     // ------------ TimeProver<SmallM31> ------------
     // Prepare an evaluation stream and claim once; reuse across iterations.
     let evaluation_stream: BenchStream<F128> = BenchStream::new(NUM_VARIABLES);
     let claim = evaluation_stream.claimed_sum;
 
-    c.bench_function("sumcheck::time_prover_smallm31_2^16", |b| {
+    c.bench_function("sumcheck::time_prover_smallm31_2^20", |b| {
         b.iter(|| {
             // Fresh prover + RNG each iteration to simulate a full run
             let mut time_prover = TimeProver::<F128, BenchStream<F128>>::new(<TimeProver<
@@ -223,7 +223,7 @@ pub fn bench_sumcheck_time(c: &mut Criterion) {
     let len = 1 << NUM_VARIABLES;
     let evals: Vec<SmallM31> = (0..len).map(|x| SmallM31::from(x as u32)).collect();
 
-    c.bench_function("sumcheck::fp4_smallm31_2^16", |b| {
+    c.bench_function("sumcheck::fp4_smallm31_2^20", |b| {
         b.iter(|| {
             let mut fs = BenchFiatShamir::<Fp4SmallM31, _>::new(test_rng());
             let transcript = sumcheck::prove(&evals, &mut fs);

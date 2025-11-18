@@ -1,3 +1,5 @@
+use std::slice;
+
 use ark_ff::Field;
 use ark_std::simd::{cmp::SimdPartialOrd, num::SimdUint, u32x4, Mask, Simd};
 use ark_std::{cfg_chunks, cfg_into_iter};
@@ -67,6 +69,16 @@ fn sub_mod_val(a: u32, b: u32) -> u32 {
     }
 }
 
+#[inline(always)]
+fn add_fp4_raw(a: [u32; 4], b: [u32; 4]) -> [u32; 4] {
+    [
+        add_mod_val(a[0], b[0]),
+        add_mod_val(a[1], b[1]),
+        add_mod_val(a[2], b[2]),
+        add_mod_val(a[3], b[3]),
+    ]
+}
+
 const LANES: usize = 4;
 pub fn reduce_sum_packed(values: &[u32]) -> (u32, u32) {
     let packed_modulus: Simd<u32, LANES> = u32x4::splat(M31_MODULUS);
@@ -102,6 +114,103 @@ pub fn reduce_sum_packed(values: &[u32]) -> (u32, u32) {
         packed_sums3.to_array(),
         packed_sums4.to_array(),
     )
+}
+
+pub fn reduce_sum_packed_ext(values: &[u32]) -> ([u32; 4], [u32; 4]) {
+    let packed_modulus: Simd<u32, LANES> = u32x4::splat(M31_MODULUS);
+    let mut packed_sums1: Simd<u32, LANES> = u32x4::splat(0);
+    let mut packed_sums2: Simd<u32, LANES> = u32x4::splat(0);
+    let mut packed_sums3: Simd<u32, LANES> = u32x4::splat(0);
+    let mut packed_sums4: Simd<u32, LANES> = u32x4::splat(0);
+    for i in (0..values.len()).step_by(16) {
+        let tmp_packed_sums_1: Simd<u32, LANES> =
+            packed_sums1 + u32x4::from_slice(&values[i..i + 4]);
+        let tmp_packed_sums_2: Simd<u32, LANES> =
+            packed_sums2 + u32x4::from_slice(&values[i + 4..i + 8]);
+        let tmp_packed_sums_3: Simd<u32, LANES> =
+            packed_sums3 + u32x4::from_slice(&values[i + 8..i + 12]);
+        let tmp_packed_sums_4: Simd<u32, LANES> =
+            packed_sums4 + u32x4::from_slice(&values[i + 12..i + 16]);
+        let is_mod_needed_1: Mask<i32, LANES> = tmp_packed_sums_1.simd_ge(packed_modulus);
+        let is_mod_needed_2: Mask<i32, LANES> = tmp_packed_sums_2.simd_ge(packed_modulus);
+        let is_mod_needed_3: Mask<i32, LANES> = tmp_packed_sums_3.simd_ge(packed_modulus);
+        let is_mod_needed_4: Mask<i32, LANES> = tmp_packed_sums_4.simd_ge(packed_modulus);
+        packed_sums1 =
+            is_mod_needed_1.select(tmp_packed_sums_1 - packed_modulus, tmp_packed_sums_1);
+        packed_sums2 =
+            is_mod_needed_2.select(tmp_packed_sums_2 - packed_modulus, tmp_packed_sums_2);
+        packed_sums3 =
+            is_mod_needed_3.select(tmp_packed_sums_3 - packed_modulus, tmp_packed_sums_3);
+        packed_sums4 =
+            is_mod_needed_4.select(tmp_packed_sums_4 - packed_modulus, tmp_packed_sums_4);
+    }
+
+    packed_sums1 += packed_sums3;
+    let is_mod_needed_1: Mask<i32, LANES> = packed_sums1.simd_ge(packed_modulus);
+    packed_sums1 = is_mod_needed_1.select(packed_sums1 - packed_modulus, packed_sums1);
+
+    packed_sums2 += packed_sums4;
+    let is_mod_needed_2: Mask<i32, LANES> = packed_sums2.simd_ge(packed_modulus);
+    packed_sums2 = is_mod_needed_2.select(packed_sums2 - packed_modulus, packed_sums2);
+    (*packed_sums1.as_array(), *packed_sums2.as_array())
+}
+
+pub fn evaluate_ext(src: &[Fp4SmallM31]) -> (Fp4SmallM31, Fp4SmallM31) {
+    // Each Fp4 is 4 limbs, and reduce_sum_packed_ext processes 16 u32
+    // = 4 Fp4 per iteration, so require multiple of 4 Fp4.
+    assert!(src.len().is_multiple_of(4));
+
+    // TODO (z-tech): machine dependent threshold
+    const PARALLEL_BREAK_EVEN: usize = 1 << 17;
+
+    if src.len() < PARALLEL_BREAK_EVEN || !cfg!(feature = "parallel") {
+        // --- scalar / single-threaded path ---
+
+        // reinterpret &[Fp4SmallM31] as &[u32] (4 limbs per element)
+        let src_raw: &[u32] =
+            unsafe { slice::from_raw_parts(src.as_ptr() as *const u32, src.len() * 4) };
+
+        let (sum0_raw, sum1_raw) = reduce_sum_packed_ext(src_raw);
+
+        let sum0: Fp4SmallM31 = unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(sum0_raw) };
+        let sum1: Fp4SmallM31 = unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(sum1_raw) };
+
+        return (sum0, sum1);
+    }
+
+    // --- parallel path ---
+    #[cfg(feature = "parallel")]
+    {
+        let n_threads = rayon::current_num_threads();
+
+        // choose chunk_size in *Fp4 elements*, not u32 limbs
+        let chunk_size_fp4 = src.len() / n_threads;
+        // we want each chunk to be a multiple of 4 Fp4 so values.len() is a multiple of 16 u32
+        let chunk_size_fp4 = chunk_size_fp4 - (chunk_size_fp4 % 4); // round down to multiple of 4
+        assert!(chunk_size_fp4 > 0);
+
+        let sums = src
+            .par_chunks(chunk_size_fp4)
+            .map(|chunk_of_fp4| {
+                let chunk_raw: &[u32] = unsafe {
+                    slice::from_raw_parts(
+                        chunk_of_fp4.as_ptr() as *const u32,
+                        chunk_of_fp4.len() * 4,
+                    )
+                };
+                reduce_sum_packed_ext(chunk_raw)
+            })
+            .reduce(
+                || ([0u32; 4], [0u32; 4]),
+                |(e1, o1), (e2, o2)| (add_fp4_raw(e1, e2), add_fp4_raw(o1, o2)),
+            );
+
+        let (sum0_raw, sum1_raw) = sums;
+        let sum0: Fp4SmallM31 = unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(sum0_raw) };
+        let sum1: Fp4SmallM31 = unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(sum1_raw) };
+
+        (sum0, sum1)
+    }
 }
 
 pub fn evaluate_bf(src: &[SmallM31]) -> (SmallM31, SmallM31) {
