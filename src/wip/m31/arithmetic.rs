@@ -30,6 +30,22 @@ pub fn mul_mod_m31_u32x4(a: Simd<u32, LANES>, b: Simd<u32, LANES>) -> Simd<u32, 
     x.cast()
 }
 
+#[inline(always)]
+pub fn sub_mod_m31_u32x4(a: Simd<u32, LANES>, b: Simd<u32, LANES>) -> Simd<u32, LANES> {
+    // tmp = a - b (wrapping in unsigned arithmetic)
+    let tmp = a - b;
+
+    // mask = a < b  (per-lane borrow)
+    let borrow = a.simd_lt(b);
+
+    // If we borrowed (a < b), add modulus back; else keep tmp
+    let p = Simd::<u32, LANES>::splat(M31_MODULUS);
+    let tmp_plus_p = tmp + p;
+
+    // select(tmp + p, tmp) where borrow is true
+    borrow.select(tmp_plus_p, tmp)
+}
+
 pub fn mul_assign_m31_vectorized(a: &mut [u32], b: &[u32]) {
     assert_eq!(a.len(), b.len());
 

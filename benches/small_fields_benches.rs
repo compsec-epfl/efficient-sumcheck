@@ -232,9 +232,57 @@ pub fn bench_sumcheck_time(c: &mut Criterion) {
     });
 }
 
+#[inline(never)]
+fn expand_src(src: &[SmallM31]) -> Vec<u32> {
+    let mut src_expanded = Vec::with_capacity(src.len() * 4);
+    for &x in src {
+        // SAFETY: assumes SmallM31 is a transparent wrapper over u32
+        let v: u32 = unsafe { core::mem::transmute::<SmallM31, u32>(x) };
+        src_expanded.push(v);
+        src_expanded.push(v);
+        src_expanded.push(v);
+        src_expanded.push(v);
+    }
+    src_expanded
+}
+
+fn bench_expand_src(c: &mut Criterion) {
+    const LEN_SMALL: usize = 1 << 10; // 1K
+    const LEN_MED: usize = 1 << 16; // 64K
+    const LEN_LARGE: usize = 1 << 20; // 1M
+
+    let mut rng = test_rng();
+
+    let src_small: Vec<SmallM31> = (0..LEN_SMALL).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_med: Vec<SmallM31> = (0..LEN_MED).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_large: Vec<SmallM31> = (0..LEN_LARGE).map(|_| SmallM31::rand(&mut rng)).collect();
+
+    c.bench_function("expand_src::1K", |b| {
+        b.iter(|| {
+            let out = expand_src(black_box(&src_small));
+            black_box(out);
+        });
+    });
+
+    c.bench_function("expand_src::64K", |b| {
+        b.iter(|| {
+            let out = expand_src(black_box(&src_med));
+            black_box(out);
+        });
+    });
+
+    c.bench_function("expand_src::1M", |b| {
+        b.iter(|| {
+            let out = expand_src(black_box(&src_large));
+            black_box(out);
+        });
+    });
+}
+
 criterion_group!(
     benches,
-    bench_sumcheck_time,
+    // bench_expand_src,
+    // bench_sumcheck_time,
     bench_reduce_evaluations_bf,
     bench_pairwise_evaluate,
     bench_pairwise_mul_16_bit_prime,

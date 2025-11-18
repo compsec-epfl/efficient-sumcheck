@@ -1,8 +1,11 @@
+use std::slice;
+
 use ark_ff::Field;
 use ark_std::simd::{cmp::SimdPartialOrd, num::SimdUint, u32x4, Mask, Simd};
 use ark_std::{cfg_chunks, cfg_into_iter};
 use ark_std::{mem, vec::Vec};
 use rayon::current_num_threads;
+use rayon::iter::IntoParallelRefIterator;
 use rayon::slice::ParallelSliceMut;
 #[cfg(feature = "parallel")]
 use rayon::{
@@ -10,7 +13,7 @@ use rayon::{
     prelude::ParallelSlice,
 };
 
-use crate::wip::m31::arithmetic::mul_mod_m31_u32x4;
+use crate::wip::m31::arithmetic::{mul_mod_m31_u32x4, sub_mod_m31_u32x4};
 
 use crate::tests::{Fp2SmallM31, Fp4SmallM31, SmallM31};
 
@@ -282,6 +285,38 @@ pub fn special_thing_unrolled<const UNROLL: usize>(out: &mut [u32], src: &[u32])
     }
 }
 
+type U32x4 = Simd<u32, 4>;
+
+pub fn reduce_evaluations_bf_flat(src_raw: &[u32], vm: U32x4) -> Vec<u32> {
+    assert!(src_raw.len() % 2 == 0);
+    let num_pairs = src_raw.len() / 2;
+
+    let mut out = Vec::with_capacity(num_pairs * 4);
+
+    let mut i = 0;
+    while i < src_raw.len() {
+        let a0 = src_raw[i];
+        let a1 = src_raw[i + 1];
+
+        let va = U32x4::splat(a0);
+        let vb = U32x4::splat(a1);
+
+        // (b - a) mod M31
+        let mut r = sub_mod_m31_u32x4(vb, va);
+        // vm * (b - a)
+        r = mul_mod_m31_u32x4(vm, r);
+
+        let mut r_raw = *r.as_array();
+        r_raw[0] = add_mod_val(r_raw[0], a0);
+
+        out.extend_from_slice(&r_raw);
+
+        i += 2;
+    }
+
+    out
+}
+
 pub fn reduce_evaluations_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) -> Vec<Fp4SmallM31> {
     //cfg_chunks!(src, 2)
     // .map(|chunk| {
@@ -293,30 +328,49 @@ pub fn reduce_evaluations_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) ->
     //     special_thing(ptr, &chunk[0], &chunk[1])
     // })
     // .collect()
-    let mut out = vec![verifier_message; src.len() / 2];
-    let out_raw: &mut [u32] =
-        unsafe { core::slice::from_raw_parts_mut(out.as_mut_ptr() as *mut u32, out.len() * 4) };
+
     let src_raw: &[u32] =
         unsafe { core::slice::from_raw_parts(src.as_ptr() as *const u32, src.len()) };
-    // special_thing_unrolled::<4>(out_raw, src_raw);
 
-    let n_threads = current_num_threads();
-    let out_chunk_size = out_raw.len() / n_threads;
-    let src_chunk_size = src.len() / n_threads;
-    out_raw
-        .par_chunks_mut(out_chunk_size)
-        .zip(src_raw.par_chunks(src_chunk_size))
-        .for_each(|(out_chunk, src_chunk)| {
-            // Last chunk may be smaller; special_thing_unrolled requires:
-            //  - src_chunk.len() % 2 == 0
-            //  - out_chunk.len() == src_chunk.len()/2 * 4
-            debug_assert!(src_chunk.len() % 2 == 0);
-            debug_assert_eq!(out_chunk.len(), src_chunk.len() / 2 * 4);
+    let verifier_message_raw: [u32; 4] =
+        unsafe { mem::transmute::<Fp4SmallM31, [u32; 4]>(verifier_message) };
 
-            special_thing_unrolled::<4>(out_chunk, src_chunk);
-        });
+    let vm: Simd<u32, 4> = Simd::from_slice(&verifier_message_raw);
 
-    out
+    // let out: Vec<u32> = cfg_chunks!(src_raw, 2)
+    //     .flat_map(|chunk| {
+    //         let a: Simd<u32, 4> = Simd::splat(chunk[0]);
+    //         let mut b: Simd<u32, 4> = Simd::splat(chunk[1]);
+    //         b = sub_mod_m31_u32x4(b, a);
+    //         b = mul_mod_m31_u32x4(vm, b);
+    //         let mut b_raw = *b.as_array();
+    //         b_raw[0] = add_mod_val(b_raw[0], chunk[0]);
+    //         b_raw
+    //     })
+    //     .collect();
+    let out = reduce_evaluations_bf_flat(src_raw, vm);
+
+    // special_thing_unrolled::<4>(src_expanded_raw, verifier_message_raw);
+
+    // let n_threads = current_num_threads();
+    // let out_chunk_size = out_raw.len() / n_threads;
+    // let src_chunk_size = src.len() / n_threads;
+    // out_raw
+    //     .par_chunks_mut(out_chunk_size)
+    //     .zip(src_raw.par_chunks(src_chunk_size))
+    //     .for_each(|(out_chunk, src_chunk)| {
+    //         // Last chunk may be smaller; special_thing_unrolled requires:
+    //         //  - src_chunk.len() % 2 == 0
+    //         //  - out_chunk.len() == src_chunk.len()/2 * 4
+    //         debug_assert!(src_chunk.len() % 2 == 0);
+    //         debug_assert_eq!(out_chunk.len(), src_chunk.len() / 2 * 4);
+
+    //         special_thing_unrolled::<4>(out_chunk, src_chunk);
+    //     });
+
+    let len_fp4 = out.len() / 4;
+    let ptr = out.as_ptr() as *mut Fp4SmallM31;
+    unsafe { slice::from_raw_parts(ptr, len_fp4).to_vec() }
 }
 
 #[cfg(test)]
