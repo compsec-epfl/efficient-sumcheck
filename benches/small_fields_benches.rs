@@ -10,8 +10,12 @@ use efficient_sumcheck::{
         f16::mul_assign_16_bit_vectorized,
         fiat_shamir::BenchFiatShamir,
         m31::{
+            evaluate_ef::evaluate_ef,
             mul_assign_m31_vectorized, sumcheck,
-            vectorized_reductions::{self, pairwise::reduce_evaluations_bf},
+            vectorized_reductions::{
+                self,
+                pairwise::{reduce_evaluations_bf, reduce_evaluations_ext},
+            },
         },
     },
     Sumcheck,
@@ -188,6 +192,68 @@ fn bench_reduce_evaluations_bf(c: &mut Criterion) {
     });
 }
 
+fn bench_reduce_evaluations_ext(c: &mut Criterion) {
+    const LEN_SMALL: usize = 1 << 10; // 1K
+    const LEN_MED: usize = 1 << 16; // 64K
+    const LEN_LARGE: usize = 1 << 20; // 1M
+
+    let mut rng = test_rng();
+
+    // Shared input vector in the base field
+    let src_small: Vec<Fp4SmallM31> = (0..LEN_SMALL)
+        .map(|_| Fp4SmallM31::rand(&mut rng))
+        .collect();
+    let src_med: Vec<Fp4SmallM31> = (0..LEN_MED).map(|_| Fp4SmallM31::rand(&mut rng)).collect();
+    let src_large: Vec<Fp4SmallM31> = (0..LEN_LARGE)
+        .map(|_| Fp4SmallM31::rand(&mut rng))
+        .collect();
+
+    let challenge = Fp4SmallM31::from(7u32);
+
+    // 2) New: direct extension-field reduce_evaluations_bf
+    c.bench_function("reduce_evaluations_ext::evaluate_1K", |b| {
+        b.iter(|| {
+            let mut v = src_small.clone();
+            reduce_evaluations_ext(black_box(&mut v), black_box(challenge));
+        });
+    });
+
+    c.bench_function("reduce_evaluations_ext::evaluate_64K", |b| {
+        b.iter(|| {
+            let mut v = src_med.clone();
+            reduce_evaluations_ext(black_box(&mut v), black_box(challenge));
+        });
+    });
+
+    c.bench_function("reduce_evaluations_ext::evaluate_1M", |b| {
+        b.iter(|| {
+            let mut v = src_large.clone();
+            reduce_evaluations_ext(black_box(&mut v), black_box(challenge));
+        });
+    });
+
+    c.bench_function("reduce_evaluations_ext::evaluate_1K", |b| {
+        b.iter(|| {
+            let mut v = src_small.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge));
+        });
+    });
+
+    c.bench_function("reduce_evaluations_ext::evaluate_64K", |b| {
+        b.iter(|| {
+            let mut v = src_med.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge));
+        });
+    });
+
+    c.bench_function("reduce_evaluations_ext::evaluate_1M", |b| {
+        b.iter(|| {
+            let mut v = src_large.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge));
+        });
+    });
+}
+
 pub fn bench_sumcheck_time(c: &mut Criterion) {
     const NUM_VARIABLES: usize = 16;
     // ------------ TimeProver<SmallM31> ------------
@@ -232,8 +298,88 @@ pub fn bench_sumcheck_time(c: &mut Criterion) {
     });
 }
 
+fn bench_evaluate_ef(c: &mut Criterion) {
+    const LEN_SMALL: usize = 1 << 10; // 1K
+    const LEN_MED: usize = 1 << 16; // 64K
+    const LEN_LARGE: usize = 1 << 18; // 256K
+    const LEN_XLARGE: usize = 1 << 20; // 1M
+
+    let mut rng = test_rng();
+
+    // Shared input vector in the base field
+    let src_small: Vec<Fp4SmallM31> = (0..LEN_SMALL)
+        .map(|_| Fp4SmallM31::rand(&mut rng))
+        .collect();
+    let src_med: Vec<Fp4SmallM31> = (0..LEN_MED).map(|_| Fp4SmallM31::rand(&mut rng)).collect();
+    let src_large: Vec<Fp4SmallM31> = (0..LEN_LARGE)
+        .map(|_| Fp4SmallM31::rand(&mut rng))
+        .collect();
+    let src_xlarge: Vec<Fp4SmallM31> = (0..LEN_XLARGE)
+        .map(|_| Fp4SmallM31::rand(&mut rng))
+        .collect();
+
+    // This should be faster
+    c.bench_function("evaluate_ef::evaluate_1K", |b| {
+        b.iter(|| {
+            let v = src_small.clone();
+            evaluate_ef::<4, 2_147_483_647>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_ef::evaluate_64K", |b| {
+        b.iter(|| {
+            let v = src_med.clone();
+            evaluate_ef::<4, 2_147_483_647>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_ef::evaluate_256K", |b| {
+        b.iter(|| {
+            let v = src_large.clone();
+            evaluate_ef::<4, 2_147_483_647>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_ef::evaluate_1M", |b| {
+        b.iter(|| {
+            let v = src_xlarge.clone();
+            evaluate_ef::<4, 2_147_483_647>(black_box(&v));
+        });
+    });
+
+    c.bench_function("pairwise::evaluate_1K", |b| {
+        b.iter(|| {
+            let v = src_small.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+
+    c.bench_function("pairwise::evaluate_64K", |b| {
+        b.iter(|| {
+            let v = src_med.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+
+    c.bench_function("pairwise::evaluate_256K", |b| {
+        b.iter(|| {
+            let v = src_large.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+
+    c.bench_function("pairwise::evaluate_1M", |b| {
+        b.iter(|| {
+            let v = src_xlarge.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+}
+
 criterion_group!(
     benches,
+    bench_evaluate_ef,
+    // bench_reduce_evaluations_ext,
     bench_sumcheck_time,
     bench_reduce_evaluations_bf,
     bench_pairwise_evaluate,

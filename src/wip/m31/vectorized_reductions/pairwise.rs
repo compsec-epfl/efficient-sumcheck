@@ -12,7 +12,7 @@ use rayon::{
     prelude::ParallelSlice,
 };
 
-use crate::wip::m31::arithmetic::mul_mod_m31_u32x4;
+use crate::wip::m31::arithmetic::{add_mod_m31_u32x4, mul_mod_m31_u32x4, sub_mod_m31_u32x4};
 
 use crate::tests::{Fp2SmallM31, Fp4SmallM31, SmallM31};
 
@@ -70,7 +70,7 @@ fn sub_mod_val(a: u32, b: u32) -> u32 {
 }
 
 #[inline(always)]
-fn add_fp4_raw(a: [u32; 4], b: [u32; 4]) -> [u32; 4] {
+pub fn add_fp4_raw(a: [u32; 4], b: [u32; 4]) -> [u32; 4] {
     [
         add_mod_val(a[0], b[0]),
         add_mod_val(a[1], b[1]),
@@ -426,6 +426,47 @@ pub fn reduce_evaluations_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) ->
         });
 
     out
+}
+
+pub fn reduce_evaluations_ext(src: &mut Vec<Fp4SmallM31>, verifier_message: Fp4SmallM31) {
+    let src_raw: &[u32] =
+        unsafe { core::slice::from_raw_parts(src.as_ptr() as *const u32, src.len() * 4) };
+
+    let verifier_message_raw: [u32; 4] = unsafe {
+        debug_assert_eq!(mem::size_of::<Fp4SmallM31>(), 4 * mem::size_of::<u32>());
+        debug_assert_eq!(mem::align_of::<Fp4SmallM31>(), mem::align_of::<u32>());
+        mem::transmute::<Fp4SmallM31, [u32; 4]>(verifier_message)
+    };
+    let verifier_challenge_packed: Simd<u32, 4> = Simd::from_array(verifier_message_raw);
+    // compute from src
+    let out: Vec<Fp4SmallM31> = cfg_chunks!(src_raw, 8)
+        .map(|chunk| {
+            let b_minus_a = sub_mod_m31_u32x4(
+                Simd::from_slice(&chunk[4..8]),
+                Simd::from_slice(&chunk[0..4]),
+            );
+            let b_minus_a_raw = b_minus_a.to_array();
+            let first_limb = Simd::splat(b_minus_a_raw[0]);
+            let mut tmp = mul_mod_m31_u32x4(verifier_challenge_packed, first_limb);
+
+            let second_limb = Simd::splat(b_minus_a_raw[1]);
+            tmp = mul_mod_m31_u32x4(tmp, second_limb);
+
+            let third_limb = Simd::splat(b_minus_a_raw[2]);
+            tmp = mul_mod_m31_u32x4(tmp, third_limb);
+
+            let fourth_limb = Simd::splat(b_minus_a_raw[3]);
+            tmp = mul_mod_m31_u32x4(tmp, fourth_limb);
+
+            let res = add_mod_m31_u32x4(Simd::from_slice(&chunk[0..4]), tmp);
+
+            let res_raw = res.to_array();
+            unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(res_raw) }
+        })
+        .collect();
+    // write back into src
+    src[..out.len()].copy_from_slice(&out);
+    src.truncate(out.len());
 }
 
 #[cfg(test)]

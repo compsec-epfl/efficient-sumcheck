@@ -1,5 +1,7 @@
 mod arithmetic;
-pub mod reduce_ext;
+pub mod evaluate_ef;
+pub mod reduce_bf;
+pub mod reduce_ef;
 pub mod sumcheck;
 pub mod vectorized_reductions;
 

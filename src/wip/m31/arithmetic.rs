@@ -30,6 +30,33 @@ pub fn mul_mod_m31_u32x4(a: Simd<u32, LANES>, b: Simd<u32, LANES>) -> Simd<u32, 
     x.cast()
 }
 
+#[inline(always)]
+pub fn sub_mod_m31_u32x4(a: Simd<u32, LANES>, b: Simd<u32, LANES>) -> Simd<u32, LANES> {
+    // tmp = a - b (mod 2^32)
+    let tmp = a - b;
+
+    // detect wraparound: a < b  (per-lane borrow)
+    let borrow = a.simd_lt(b);
+
+    // if wrapped, add modulus back; else keep tmp
+    let p = Simd::<u32, LANES>::splat(M31_MODULUS);
+    let tmp_plus_p = tmp + p;
+
+    borrow.select(tmp_plus_p, tmp)
+}
+
+#[inline(always)]
+pub fn add_mod_m31_u32x4(a: Simd<u32, LANES>, b: Simd<u32, LANES>) -> Simd<u32, LANES> {
+    // lane-wise sum in u32
+    let sum = a + b;
+
+    // single reduction step: because 0 <= a,b < p, we have 0 <= sum <= 2p-2,
+    // so at most one subtraction of p is needed
+    let p = Simd::<u32, LANES>::splat(M31_MODULUS);
+    let ge = sum.simd_ge(p); // mask: sum >= p
+    ge.select(sum - p, sum) // if ge: sum - p else sum
+}
+
 pub fn mul_assign_m31_vectorized(a: &mut [u32], b: &[u32]) {
     assert_eq!(a.len(), b.len());
 
