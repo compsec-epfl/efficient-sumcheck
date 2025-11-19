@@ -299,7 +299,8 @@ pub fn bench_sumcheck_time(c: &mut Criterion) {
 }
 
 fn bench_evaluate_ef(c: &mut Criterion) {
-    const LEN_SMALL: usize = 1 << 10; // 1K
+    const LEN_XSMALL: usize = 1 << 10; // 1K
+    const LEN_SMALL: usize = 1 << 14; // 16K
     const LEN_MED: usize = 1 << 16; // 64K
     const LEN_LARGE: usize = 1 << 18; // 256K
     const LEN_XLARGE: usize = 1 << 20; // 1M
@@ -307,6 +308,9 @@ fn bench_evaluate_ef(c: &mut Criterion) {
     let mut rng = test_rng();
 
     // Shared input vector in the base field
+    let src_xsmall: Vec<Fp4SmallM31> = (0..LEN_XSMALL)
+        .map(|_| Fp4SmallM31::rand(&mut rng))
+        .collect();
     let src_small: Vec<Fp4SmallM31> = (0..LEN_SMALL)
         .map(|_| Fp4SmallM31::rand(&mut rng))
         .collect();
@@ -320,6 +324,13 @@ fn bench_evaluate_ef(c: &mut Criterion) {
 
     // This should be faster
     c.bench_function("evaluate_ef::evaluate_1K", |b| {
+        b.iter(|| {
+            let v = src_xsmall.clone();
+            evaluate_ef::<4, 2_147_483_647>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_ef::evaluate_16K", |b| {
         b.iter(|| {
             let v = src_small.clone();
             evaluate_ef::<4, 2_147_483_647>(black_box(&v));
@@ -348,6 +359,13 @@ fn bench_evaluate_ef(c: &mut Criterion) {
     });
 
     c.bench_function("pairwise::evaluate_1K", |b| {
+        b.iter(|| {
+            let v = src_xsmall.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+
+    c.bench_function("pairwise::evaluate_16K", |b| {
         b.iter(|| {
             let v = src_small.clone();
             pairwise::evaluate(black_box(&v));

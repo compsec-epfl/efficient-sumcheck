@@ -1,6 +1,6 @@
 use ark_std::{
     mem,
-    simd::{cmp::SimdPartialOrd, LaneCount, Mask, Simd, SupportedLaneCount},
+    simd::{cmp::SimdPartialOrd, LaneCount, Simd, SupportedLaneCount},
     slice,
     slice::from_raw_parts,
 };
@@ -76,7 +76,7 @@ pub fn evaluate_ef<const LANES: usize, const MODULUS: u32>(
     src: &[Fp4SmallM31],
 ) -> (Fp4SmallM31, Fp4SmallM31) {
     // TODO (z-tech): break even is machine dependent
-    if is_serial_better(src.len(), 1 << 17) || !cfg!(feature = "parallel") {
+    if is_serial_better(src.len(), 1 << 16) || !cfg!(feature = "parallel") {
         let src_raw: &[u32] = unsafe { from_raw_parts(src.as_ptr() as *const u32, src.len() * 4) };
         let (sum0_raw, sum1_raw) = reduce_sum_packed_ef::<MODULUS>(src_raw);
         return (
