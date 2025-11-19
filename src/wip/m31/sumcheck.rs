@@ -3,10 +3,7 @@ use ark_ff::Field;
 use crate::multilinear::pairwise;
 use crate::tests::{Fp4SmallM31, SmallM31};
 use crate::wip::m31::{
-    evaluate_bf::evaluate_bf,
-    evaluate_ef::evaluate_ef,
-    reduce_bf::reduce_bf,
-    reduce_ef::reduce_ef,
+    evaluate_bf::evaluate_bf, evaluate_ef::evaluate_ef, reduce_bf::reduce_bf, reduce_ef::reduce_ef,
 };
 use crate::{wip::fiat_shamir::FiatShamir, Sumcheck};
 
@@ -54,7 +51,7 @@ pub fn prove(evals: &[SmallM31], fs: &mut impl FiatShamir<Fp4SmallM31>) -> Sumch
                 let verifier_message = fs.squeeze();
                 verifier_messages.push(verifier_message);
                 // reduce
-                reduce_ef(&mut new_evals, verifier_message);
+                pairwise::reduce_evaluations(&mut new_evals, verifier_message);
             }
         }
     }

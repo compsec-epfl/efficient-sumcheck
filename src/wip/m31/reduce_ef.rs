@@ -3,7 +3,10 @@ use ark_std::{cfg_into_iter, mem, simd::Simd};
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-use crate::{tests::Fp4SmallM31, wip::m31::{evaluate_bf::{add_mod_val, mul_mod_val}}};
+use crate::{
+    tests::Fp4SmallM31,
+    wip::m31::evaluate_bf::{add_mod_val, mul_mod_val},
+};
 
 #[inline(always)]
 fn mul_fp4_smallm31(a: [u32; 4], b: [u32; 4]) -> [u32; 4] {
@@ -70,13 +73,12 @@ pub fn reduce_ef(src: &mut Vec<Fp4SmallM31>, verifier_message: Fp4SmallM31) {
 
             // verifier_message * (b - a)
             let tmp0 = mul_fp4_smallm31(verifier_message_raw, b_minus_a_raw);
-            assert_eq!(tmp0, (verifier_message_vector * Simd::from_array(b_minus_a_raw)).to_array());
 
             // a + verifier_message * (b - a)
-            let a_raw = unsafe { mem::transmute::<Fp4SmallM31, [u32; 4]>(*a) };
-            let tmp1 = Simd::from_array(tmp0) + Simd::from_array(a_raw);
+            let mut tmp1 = unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(tmp0) };
+            tmp1 += a;
 
-            unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(*tmp1.as_array()) }
+            tmp1
         })
         .collect();
     // write back into src

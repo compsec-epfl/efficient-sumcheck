@@ -104,7 +104,12 @@ pub fn evaluate_ef<const MODULUS: u32>(src: &[Fp4SmallM31]) -> (Fp4SmallM31, Fp4
             })
             .reduce(
                 || ([0u32; 4], [0u32; 4]),
-                |(e1, o1), (e2, o2)| (add_fp4_raw::<MODULUS>(e1, e2), add_fp4_raw::<MODULUS>(o1, o2)),
+                |(e1, o1), (e2, o2)| {
+                    (
+                        add_fp4_raw::<MODULUS>(e1, e2),
+                        add_fp4_raw::<MODULUS>(o1, o2),
+                    )
+                },
             );
 
         let (sum0_raw, sum1_raw) = sums;

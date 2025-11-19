@@ -1,263 +1,23 @@
-use ark_ff::Field;
 use ark_std::{hint::black_box, test_rng, UniformRand};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use efficient_sumcheck::{
     multilinear::{pairwise, ReduceMode, TimeProver},
     prover::Prover,
-    tests::{BenchStream, Fp4SmallM31, SmallF16, SmallM31, F128},
+    tests::{BenchStream, Fp4SmallM31, SmallM31, F128},
     wip::{
-        f16::mul_assign_16_bit_vectorized,
         fiat_shamir::BenchFiatShamir,
         m31::{
-            evaluate_ef::evaluate_ef,
-            mul_assign_m31_vectorized, sumcheck,
-            vectorized_reductions::{
-                self,
-                pairwise::{reduce_evaluations_bf, reduce_evaluations_ext},
-            },
+            evaluate_bf::evaluate_bf, evaluate_ef::evaluate_ef, reduce_bf::reduce_bf,
+            reduce_ef::reduce_ef, sumcheck,
         },
     },
     Sumcheck,
 };
 
-fn bench_pairwise_mul_16_bit_prime(c: &mut Criterion) {
-    let mut rng = test_rng();
-    let mut a: Vec<SmallF16> = (0..1 << 20).map(|_| SmallF16::rand(&mut rng)).collect();
-    let b: Vec<SmallF16> = (0..1 << 20).map(|_| SmallF16::rand(&mut rng)).collect();
-
-    c.bench_function("pairwise_mul_16_bit_prime", |bencher| {
-        bencher.iter(|| {
-            for i in 0..a.len() {
-                a[i] *= &b[i];
-            }
-            black_box(&a);
-        });
-    });
-}
-
-fn bench_pairwise_mul_16_bit_prime_vectorized(c: &mut Criterion) {
-    let mut rng = test_rng();
-    let mut a: Vec<SmallF16> = (0..1 << 20).map(|_| SmallF16::rand(&mut rng)).collect();
-    let b: Vec<SmallF16> = (0..1 << 20).map(|_| SmallF16::rand(&mut rng)).collect();
-
-    let a_raw: &mut [u16] =
-        unsafe { core::slice::from_raw_parts_mut(a.as_mut_ptr() as *mut u16, a.len()) };
-    let b_raw: &[u16] = unsafe { core::slice::from_raw_parts(b.as_ptr() as *const u16, b.len()) };
-
-    c.bench_function("pairwise_mul_16_bit_prime_vectorized", |bencher| {
-        bencher.iter(|| {
-            mul_assign_16_bit_vectorized(a_raw, b_raw);
-            black_box(&a);
-        });
-    });
-}
-
-fn bench_pairwise_mul_m31(c: &mut Criterion) {
-    let mut rng = test_rng();
-    let mut a: Vec<SmallM31> = (0..1 << 20).map(|_| SmallM31::rand(&mut rng)).collect();
-    let b: Vec<SmallM31> = (0..1 << 20).map(|_| SmallM31::rand(&mut rng)).collect();
-
-    c.bench_function("pairwise_mul_m31", |bencher| {
-        bencher.iter(|| {
-            for i in 0..a.len() {
-                a[i] *= &b[i];
-            }
-            black_box(&a);
-        });
-    });
-}
-
-fn bench_pairwise_mul_m31_vectorized(c: &mut Criterion) {
-    let mut rng = test_rng();
-    let mut a: Vec<SmallM31> = (0..1 << 20).map(|_| SmallM31::rand(&mut rng)).collect();
-    let b: Vec<SmallM31> = (0..1 << 20).map(|_| SmallM31::rand(&mut rng)).collect();
-
-    let a_raw: &mut [u32] =
-        unsafe { core::slice::from_raw_parts_mut(a.as_mut_ptr() as *mut u32, a.len()) };
-    let b_raw: &[u32] = unsafe { core::slice::from_raw_parts(b.as_ptr() as *const u32, b.len()) };
-
-    c.bench_function("pairwise_mul_m31_vectorized", |bencher| {
-        bencher.iter(|| {
-            mul_assign_m31_vectorized(a_raw, b_raw);
-            black_box(&a);
-        });
-    });
-}
-
-fn bench_pairwise_evaluate(c: &mut Criterion) {
-    const LEN_SMALL: usize = 1 << 10; // 1K
-    const LEN_MED: usize = 1 << 16; // 64K
-    const LEN_LARGE: usize = 1 << 20; // 1M
-
-    let mut rng = test_rng();
-
-    // Prepare inputs once and reuse them in all iterations
-    let src_small: Vec<SmallM31> = (0..LEN_SMALL).map(|_| SmallM31::rand(&mut rng)).collect();
-    let src_med: Vec<SmallM31> = (0..LEN_MED).map(|_| SmallM31::rand(&mut rng)).collect();
-    let src_large: Vec<SmallM31> = (0..LEN_LARGE).map(|_| SmallM31::rand(&mut rng)).collect();
-
-    // ----- SIMD evaluate -----
-    c.bench_function("vectorized::pairwise::evaluate_1K", |b| {
-        b.iter(|| vectorized_reductions::pairwise::evaluate_bf(black_box(&src_small)));
-    });
-
-    c.bench_function("vectorized::pairwise::evaluate_64K", |b| {
-        b.iter(|| vectorized_reductions::pairwise::evaluate_bf(black_box(&src_med)));
-    });
-
-    c.bench_function("vectorized::pairwise::evaluate_1M", |b| {
-        b.iter(|| vectorized_reductions::pairwise::evaluate_bf(black_box(&src_large)));
-    });
-
-    // ----- scalar (pairwise) -----
-    c.bench_function("pairwise::evaluate_1K", |b| {
-        b.iter(|| pairwise::evaluate(black_box(&src_small)));
-    });
-
-    c.bench_function("pairwise::evaluate_64K", |b| {
-        b.iter(|| pairwise::evaluate(black_box(&src_med)));
-    });
-
-    c.bench_function("pairwise::evaluate_1M", |b| {
-        b.iter(|| pairwise::evaluate(black_box(&src_large)));
-    });
-}
-
-fn bench_reduce_evaluations_bf(c: &mut Criterion) {
-    const LEN_SMALL: usize = 1 << 10; // 1K
-    const LEN_MED: usize = 1 << 16; // 64K
-    const LEN_LARGE: usize = 1 << 20; // 1M
-
-    let mut rng = test_rng();
-
-    // Shared input vector in the base field
-    let src_small: Vec<SmallM31> = (0..LEN_SMALL).map(|_| SmallM31::rand(&mut rng)).collect();
-    let src_med: Vec<SmallM31> = (0..LEN_MED).map(|_| SmallM31::rand(&mut rng)).collect();
-    let src_large: Vec<SmallM31> = (0..LEN_LARGE).map(|_| SmallM31::rand(&mut rng)).collect();
-
-    let src_small_f128: Vec<F128> = (0..LEN_SMALL).map(|_| F128::rand(&mut rng)).collect();
-    let src_med_f128: Vec<F128> = (0..LEN_MED).map(|_| F128::rand(&mut rng)).collect();
-    let src_large_f128: Vec<F128> = (0..LEN_LARGE).map(|_| F128::rand(&mut rng)).collect();
-
-    let challenge = SmallM31::from(7u32);
-    let challenge_ext = Fp4SmallM31::from_base_prime_field(challenge);
-
-    let challenge_f128 = F128::from(7u32);
-
-    // 2) New: direct extension-field reduce_evaluations_bf
-    c.bench_function("reduce_evaluations_bf::evaluate_1K", |b| {
-        b.iter(|| {
-            let v = src_small.clone();
-            let out_ext = reduce_evaluations_bf(black_box(&v), black_box(challenge_ext));
-            black_box(out_ext);
-        });
-    });
-
-    c.bench_function("reduce_evaluations_bf::evaluate_64K", |b| {
-        b.iter(|| {
-            let v = src_med.clone();
-            let out_ext = reduce_evaluations_bf(black_box(&v), black_box(challenge_ext));
-            black_box(out_ext);
-        });
-    });
-
-    c.bench_function("reduce_evaluations_bf::evaluate_1M", |b| {
-        b.iter(|| {
-            let v = src_large.clone();
-            let out_ext = reduce_evaluations_bf(black_box(&v), black_box(challenge_ext));
-            black_box(out_ext);
-        });
-    });
-
-    c.bench_function("reduce_evaluations::evaluate_1K", |b| {
-        b.iter(|| {
-            let mut v = src_small_f128.clone();
-            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge_f128));
-        });
-    });
-
-    c.bench_function("reduce_evaluations::evaluate_64K", |b| {
-        b.iter(|| {
-            let mut v = src_med_f128.clone();
-            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge_f128));
-        });
-    });
-
-    c.bench_function("reduce_evaluations::evaluate_1M", |b| {
-        b.iter(|| {
-            let mut v = src_large_f128.clone();
-            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge_f128));
-        });
-    });
-}
-
-fn bench_reduce_evaluations_ext(c: &mut Criterion) {
-    const LEN_SMALL: usize = 1 << 10; // 1K
-    const LEN_MED: usize = 1 << 16; // 64K
-    const LEN_LARGE: usize = 1 << 20; // 1M
-
-    let mut rng = test_rng();
-
-    // Shared input vector in the base field
-    let src_small: Vec<Fp4SmallM31> = (0..LEN_SMALL)
-        .map(|_| Fp4SmallM31::rand(&mut rng))
-        .collect();
-    let src_med: Vec<Fp4SmallM31> = (0..LEN_MED).map(|_| Fp4SmallM31::rand(&mut rng)).collect();
-    let src_large: Vec<Fp4SmallM31> = (0..LEN_LARGE)
-        .map(|_| Fp4SmallM31::rand(&mut rng))
-        .collect();
-
-    let challenge = Fp4SmallM31::from(7u32);
-
-    // 2) New: direct extension-field reduce_evaluations_bf
-    c.bench_function("reduce_evaluations_ext::evaluate_1K", |b| {
-        b.iter(|| {
-            let mut v = src_small.clone();
-            reduce_evaluations_ext(black_box(&mut v), black_box(challenge));
-        });
-    });
-
-    c.bench_function("reduce_evaluations_ext::evaluate_64K", |b| {
-        b.iter(|| {
-            let mut v = src_med.clone();
-            reduce_evaluations_ext(black_box(&mut v), black_box(challenge));
-        });
-    });
-
-    c.bench_function("reduce_evaluations_ext::evaluate_1M", |b| {
-        b.iter(|| {
-            let mut v = src_large.clone();
-            reduce_evaluations_ext(black_box(&mut v), black_box(challenge));
-        });
-    });
-
-    c.bench_function("reduce_evaluations_ext::evaluate_1K", |b| {
-        b.iter(|| {
-            let mut v = src_small.clone();
-            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge));
-        });
-    });
-
-    c.bench_function("reduce_evaluations_ext::evaluate_64K", |b| {
-        b.iter(|| {
-            let mut v = src_med.clone();
-            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge));
-        });
-    });
-
-    c.bench_function("reduce_evaluations_ext::evaluate_1M", |b| {
-        b.iter(|| {
-            let mut v = src_large.clone();
-            pairwise::reduce_evaluations(black_box(&mut v), black_box(challenge));
-        });
-    });
-}
-
 pub fn bench_sumcheck_time(c: &mut Criterion) {
-    const NUM_VARIABLES: usize = 16;
-    // ------------ TimeProver<SmallM31> ------------
-    // Prepare an evaluation stream and claim once; reuse across iterations.
+    const NUM_VARIABLES: usize = 18;
+
     let evaluation_stream: BenchStream<F128> = BenchStream::new(NUM_VARIABLES);
     let claim = evaluation_stream.claimed_sum;
 
@@ -284,8 +44,6 @@ pub fn bench_sumcheck_time(c: &mut Criterion) {
         });
     });
 
-    // ------------ Fp4SmallM31 prover (prove) ------------
-    // Same logical table size; here we just use the simple 0..len pattern.
     let len = 1 << NUM_VARIABLES;
     let evals: Vec<SmallM31> = (0..len).map(|x| SmallM31::from(x as u32)).collect();
 
@@ -294,6 +52,296 @@ pub fn bench_sumcheck_time(c: &mut Criterion) {
             let mut fs = BenchFiatShamir::<Fp4SmallM31, _>::new(test_rng());
             let transcript = sumcheck::prove(&evals, &mut fs);
             black_box(transcript);
+        });
+    });
+}
+
+fn bench_reduce_ef(c: &mut Criterion) {
+    const LEN_XSMALL: usize = 1 << 10; // 1K
+    const LEN_SMALL: usize = 1 << 14; // 16K
+    const LEN_MED: usize = 1 << 16; // 64K
+    const LEN_LARGE: usize = 1 << 18; // 256K
+    const LEN_XLARGE: usize = 1 << 20; // 1M
+
+    let mut rng = test_rng();
+
+    // Shared input vector in the base field
+    let src_xsmall: Vec<Fp4SmallM31> = (0..LEN_XSMALL)
+        .map(|_| Fp4SmallM31::rand(&mut rng))
+        .collect();
+    let src_small: Vec<Fp4SmallM31> = (0..LEN_SMALL)
+        .map(|_| Fp4SmallM31::rand(&mut rng))
+        .collect();
+    let src_med: Vec<Fp4SmallM31> = (0..LEN_MED).map(|_| Fp4SmallM31::rand(&mut rng)).collect();
+    let src_large: Vec<Fp4SmallM31> = (0..LEN_LARGE)
+        .map(|_| Fp4SmallM31::rand(&mut rng))
+        .collect();
+    let src_xlarge: Vec<Fp4SmallM31> = (0..LEN_XLARGE)
+        .map(|_| Fp4SmallM31::rand(&mut rng))
+        .collect();
+
+    let challenge_ef = Fp4SmallM31::from(7);
+
+    // This should be faster
+    c.bench_function("reduce_ef::reduce_1K", |b| {
+        b.iter(|| {
+            let mut v = src_xsmall.clone();
+            reduce_ef(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("reduce_ef::reduce_16K", |b| {
+        b.iter(|| {
+            let mut v = src_small.clone();
+            reduce_ef(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("reduce_ef::reduce_64K", |b| {
+        b.iter(|| {
+            let mut v = src_med.clone();
+            reduce_ef(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("reduce_ef::reduce_256K", |b| {
+        b.iter(|| {
+            let mut v = src_large.clone();
+            reduce_ef(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("reduce_ef::reduce_1M", |b| {
+        b.iter(|| {
+            let mut v = src_xlarge.clone();
+            reduce_ef(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("ef_pairwise::reduce_1K", |b| {
+        b.iter(|| {
+            let mut v = src_xsmall.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("ef_pairwise::reduce_16K", |b| {
+        b.iter(|| {
+            let mut v = src_small.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("ef_pairwise::reduce_64K", |b| {
+        b.iter(|| {
+            let mut v = src_med.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("ef_pairwise::reduce_256K", |b| {
+        b.iter(|| {
+            let mut v = src_large.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("ef_pairwise::reduce_1M", |b| {
+        b.iter(|| {
+            let mut v = src_xlarge.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_ef);
+        });
+    });
+}
+
+fn bench_reduce_bf(c: &mut Criterion) {
+    const LEN_XSMALL: usize = 1 << 10; // 1K
+    const LEN_SMALL: usize = 1 << 14; // 16K
+    const LEN_MED: usize = 1 << 16; // 64K
+    const LEN_LARGE: usize = 1 << 18; // 256K
+    const LEN_XLARGE: usize = 1 << 20; // 1M
+
+    let mut rng = test_rng();
+
+    // Shared input vector in the base field
+    let src_xsmall: Vec<SmallM31> = (0..LEN_XSMALL).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_small: Vec<SmallM31> = (0..LEN_SMALL).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_med: Vec<SmallM31> = (0..LEN_MED).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_large: Vec<SmallM31> = (0..LEN_LARGE).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_xlarge: Vec<SmallM31> = (0..LEN_XLARGE).map(|_| SmallM31::rand(&mut rng)).collect();
+
+    let challenge_ef = Fp4SmallM31::from(7);
+
+    let src_xsmall_f128: Vec<F128> = (0..LEN_XSMALL).map(|_| F128::rand(&mut rng)).collect();
+    let src_small_f128: Vec<F128> = (0..LEN_SMALL).map(|_| F128::rand(&mut rng)).collect();
+    let src_med_f128: Vec<F128> = (0..LEN_MED).map(|_| F128::rand(&mut rng)).collect();
+    let src_large_f128: Vec<F128> = (0..LEN_LARGE).map(|_| F128::rand(&mut rng)).collect();
+    let src_xlarge_f128: Vec<F128> = (0..LEN_XLARGE).map(|_| F128::rand(&mut rng)).collect();
+
+    let challenge_f128 = F128::from(7);
+
+    // This should be faster
+    c.bench_function("reduce_bf::reduce_1K", |b| {
+        b.iter(|| {
+            let v = src_xsmall.clone();
+            reduce_bf(black_box(&v), challenge_ef);
+        });
+    });
+
+    c.bench_function("reduce_bf::reduce_16K", |b| {
+        b.iter(|| {
+            let v = src_small.clone();
+            reduce_bf(black_box(&v), challenge_ef);
+        });
+    });
+
+    c.bench_function("reduce_bf::reduce_64K", |b| {
+        b.iter(|| {
+            let v = src_med.clone();
+            reduce_bf(black_box(&v), challenge_ef);
+        });
+    });
+
+    c.bench_function("reduce_bf::reduce_256K", |b| {
+        b.iter(|| {
+            let v = src_large.clone();
+            reduce_bf(black_box(&v), challenge_ef);
+        });
+    });
+
+    c.bench_function("reduce_bf::reduce_1M", |b| {
+        b.iter(|| {
+            let v = src_xlarge.clone();
+            reduce_bf(black_box(&v), challenge_ef);
+        });
+    });
+
+    c.bench_function("bf_pairwise::reduce_1K", |b| {
+        b.iter(|| {
+            let mut v = src_xsmall_f128.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_f128);
+        });
+    });
+
+    c.bench_function("bf_pairwise::reduce_16K", |b| {
+        b.iter(|| {
+            let mut v = src_small_f128.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_f128);
+        });
+    });
+
+    c.bench_function("bf_pairwise::reduce_64K", |b| {
+        b.iter(|| {
+            let mut v = src_med_f128.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_f128);
+        });
+    });
+
+    c.bench_function("bf_pairwise::reduce_256K", |b| {
+        b.iter(|| {
+            let mut v = src_large_f128.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_f128);
+        });
+    });
+
+    c.bench_function("bf_pairwise::reduce_1M", |b| {
+        b.iter(|| {
+            let mut v = src_xlarge_f128.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_f128);
+        });
+    });
+}
+
+fn bench_evaluate_bf(c: &mut Criterion) {
+    const LEN_XSMALL: usize = 1 << 10; // 1K
+    const LEN_SMALL: usize = 1 << 14; // 16K
+    const LEN_MED: usize = 1 << 16; // 64K
+    const LEN_LARGE: usize = 1 << 18; // 256K
+    const LEN_XLARGE: usize = 1 << 20; // 1M
+
+    let mut rng = test_rng();
+
+    // Shared input vector in the base field
+    let src_xsmall: Vec<SmallM31> = (0..LEN_XSMALL).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_small: Vec<SmallM31> = (0..LEN_SMALL).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_med: Vec<SmallM31> = (0..LEN_MED).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_large: Vec<SmallM31> = (0..LEN_LARGE).map(|_| SmallM31::rand(&mut rng)).collect();
+    let src_xlarge: Vec<SmallM31> = (0..LEN_XLARGE).map(|_| SmallM31::rand(&mut rng)).collect();
+
+    let src_xsmall_f128: Vec<F128> = (0..LEN_XSMALL).map(|_| F128::rand(&mut rng)).collect();
+    let src_small_f128: Vec<F128> = (0..LEN_SMALL).map(|_| F128::rand(&mut rng)).collect();
+    let src_med_f128: Vec<F128> = (0..LEN_MED).map(|_| F128::rand(&mut rng)).collect();
+    let src_large_f128: Vec<F128> = (0..LEN_LARGE).map(|_| F128::rand(&mut rng)).collect();
+    let src_xlarge_f128: Vec<F128> = (0..LEN_XLARGE).map(|_| F128::rand(&mut rng)).collect();
+
+    // This should be faster
+    c.bench_function("evaluate_bf::evaluate_1K", |b| {
+        b.iter(|| {
+            let v = src_xsmall.clone();
+            evaluate_bf::<2_147_483_647>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_bf::evaluate_16K", |b| {
+        b.iter(|| {
+            let v = src_small.clone();
+            evaluate_bf::<2_147_483_647>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_bf::evaluate_64K", |b| {
+        b.iter(|| {
+            let v = src_med.clone();
+            evaluate_bf::<2_147_483_647>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_bf::evaluate_256K", |b| {
+        b.iter(|| {
+            let v = src_large.clone();
+            evaluate_bf::<2_147_483_647>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_bf::evaluate_1M", |b| {
+        b.iter(|| {
+            let v = src_xlarge.clone();
+            evaluate_bf::<2_147_483_647>(black_box(&v));
+        });
+    });
+
+    c.bench_function("bf_pairwise::evaluate_1K", |b| {
+        b.iter(|| {
+            let v = src_xsmall_f128.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+
+    c.bench_function("bf_pairwise::evaluate_16K", |b| {
+        b.iter(|| {
+            let v = src_small_f128.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+
+    c.bench_function("bf_pairwise::evaluate_64K", |b| {
+        b.iter(|| {
+            let v = src_med_f128.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+
+    c.bench_function("bf_pairwise::evaluate_256K", |b| {
+        b.iter(|| {
+            let v = src_large_f128.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+
+    c.bench_function("bf_pairwise::evaluate_1M", |b| {
+        b.iter(|| {
+            let v = src_xlarge_f128.clone();
+            pairwise::evaluate(black_box(&v));
         });
     });
 }
@@ -326,35 +374,35 @@ fn bench_evaluate_ef(c: &mut Criterion) {
     c.bench_function("evaluate_ef::evaluate_1K", |b| {
         b.iter(|| {
             let v = src_xsmall.clone();
-            evaluate_ef::<4, 2_147_483_647>(black_box(&v));
+            evaluate_ef::<2_147_483_647>(black_box(&v));
         });
     });
 
     c.bench_function("evaluate_ef::evaluate_16K", |b| {
         b.iter(|| {
             let v = src_small.clone();
-            evaluate_ef::<4, 2_147_483_647>(black_box(&v));
+            evaluate_ef::<2_147_483_647>(black_box(&v));
         });
     });
 
     c.bench_function("evaluate_ef::evaluate_64K", |b| {
         b.iter(|| {
             let v = src_med.clone();
-            evaluate_ef::<4, 2_147_483_647>(black_box(&v));
+            evaluate_ef::<2_147_483_647>(black_box(&v));
         });
     });
 
     c.bench_function("evaluate_ef::evaluate_256K", |b| {
         b.iter(|| {
             let v = src_large.clone();
-            evaluate_ef::<4, 2_147_483_647>(black_box(&v));
+            evaluate_ef::<2_147_483_647>(black_box(&v));
         });
     });
 
     c.bench_function("evaluate_ef::evaluate_1M", |b| {
         b.iter(|| {
             let v = src_xlarge.clone();
-            evaluate_ef::<4, 2_147_483_647>(black_box(&v));
+            evaluate_ef::<2_147_483_647>(black_box(&v));
         });
     });
 
@@ -396,14 +444,10 @@ fn bench_evaluate_ef(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_evaluate_ef,
-    // bench_reduce_evaluations_ext,
     bench_sumcheck_time,
-    bench_reduce_evaluations_bf,
-    bench_pairwise_evaluate,
-    bench_pairwise_mul_16_bit_prime,
-    bench_pairwise_mul_16_bit_prime_vectorized,
-    bench_pairwise_mul_m31,
-    bench_pairwise_mul_m31_vectorized,
+    bench_reduce_ef,
+    bench_reduce_bf,
+    bench_evaluate_ef,
+    bench_evaluate_bf,
 );
 criterion_main!(benches);

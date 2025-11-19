@@ -1,12 +1,39 @@
-use ark_std::{cfg_into_iter, mem, simd::Simd};
+use ark_std::{
+    cfg_into_iter, mem,
+    simd::{cmp::SimdPartialOrd, num::SimdUint, Simd},
+};
 
 #[cfg(feature = "parallel")]
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
     tests::{Fp4SmallM31, SmallM31},
-    wip::m31::{arithmetic::mul_mod_m31_u32x4, evaluate_bf::add_mod_val},
+    wip::m31::evaluate_bf::add_mod_val,
 };
+
+#[inline(always)]
+pub fn mul_mod_m31_u32x4<const MODULUS: u32>(a: Simd<u32, 4>, b: Simd<u32, 4>) -> Simd<u32, 4> {
+    let a64: Simd<u64, 4> = a.cast();
+    let b64: Simd<u64, 4> = b.cast();
+    let t = a64 * b64;
+
+    let mask = Simd::<u64, 4>::splat((1u64 << 31) - 1);
+    let p64 = Simd::<u64, 4>::splat(MODULUS as u64);
+
+    // Mersenne reduction
+    let low = t & mask;
+    let high = t >> Simd::<u64, 4>::splat(31);
+    let mut x = low + high;
+
+    // At most 2 subtractions needed
+    let ge1 = x.simd_ge(p64);
+    x = ge1.select(x - p64, x);
+
+    let ge2 = x.simd_ge(p64);
+    x = ge2.select(x - p64, x);
+
+    x.cast()
+}
 
 pub fn reduce_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) -> Vec<Fp4SmallM31> {
     // will use these in the loop
@@ -24,7 +51,10 @@ pub fn reduce_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) -> Vec<Fp4Smal
             let b_minus_a_raw = unsafe { mem::transmute::<SmallM31, u32>(b_minus_a) };
 
             // verifier_message * (b - a)
-            let tmp = mul_mod_m31_u32x4(verifier_challenge_vector, Simd::splat(b_minus_a_raw));
+            let tmp = mul_mod_m31_u32x4::<2_147_483_647>(
+                verifier_challenge_vector,
+                Simd::splat(b_minus_a_raw),
+            );
             let mut raw = *tmp.as_array();
 
             // a + verifier_message * (b - a)
