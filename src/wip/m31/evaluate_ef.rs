@@ -7,17 +7,24 @@ use ark_std::{
 #[cfg(feature = "parallel")]
 use rayon::{iter::ParallelIterator, prelude::ParallelSlice};
 
-#[cfg(feature = "parallel")]
-use crate::wip::m31::vectorized_reductions::pairwise::add_fp4_raw;
+use crate::{tests::Fp4SmallM31, wip::m31::evaluate_bf::add_mod_val};
 
-use crate::tests::Fp4SmallM31;
-
-fn is_serial_better(len: usize, break_even_len: usize) -> bool {
+pub fn is_serial_better(len: usize, break_even_len: usize) -> bool {
     len < break_even_len
 }
 
 #[inline(always)]
-fn sum_assign<const LANES: usize, const MODULUS: u32>(
+pub fn add_fp4_raw<const MODULUS: u32>(a: [u32; 4], b: [u32; 4]) -> [u32; 4] {
+    [
+        add_mod_val::<MODULUS>(a[0], b[0]),
+        add_mod_val::<MODULUS>(a[1], b[1]),
+        add_mod_val::<MODULUS>(a[2], b[2]),
+        add_mod_val::<MODULUS>(a[3], b[3]),
+    ]
+}
+
+#[inline(always)]
+pub fn sum_assign<const LANES: usize, const MODULUS: u32>(
     a: &mut Simd<u32, LANES>,
     b: &Simd<u32, LANES>,
     modulus: &Simd<u32, LANES>,
@@ -72,9 +79,7 @@ fn reduce_sum_packed_ef<const MODULUS: u32>(src: &[u32]) -> ([u32; 4], [u32; 4])
     sums
 }
 
-pub fn evaluate_ef<const LANES: usize, const MODULUS: u32>(
-    src: &[Fp4SmallM31],
-) -> (Fp4SmallM31, Fp4SmallM31) {
+pub fn evaluate_ef<const MODULUS: u32>(src: &[Fp4SmallM31]) -> (Fp4SmallM31, Fp4SmallM31) {
     // TODO (z-tech): break even is machine dependent
     if is_serial_better(src.len(), 1 << 16) || !cfg!(feature = "parallel") {
         let src_raw: &[u32] = unsafe { from_raw_parts(src.as_ptr() as *const u32, src.len() * 4) };
@@ -99,7 +104,7 @@ pub fn evaluate_ef<const LANES: usize, const MODULUS: u32>(
             })
             .reduce(
                 || ([0u32; 4], [0u32; 4]),
-                |(e1, o1), (e2, o2)| (add_fp4_raw(e1, e2), add_fp4_raw(o1, o2)),
+                |(e1, o1), (e2, o2)| (add_fp4_raw::<MODULUS>(e1, e2), add_fp4_raw::<MODULUS>(o1, o2)),
             );
 
         let (sum0_raw, sum1_raw) = sums;
@@ -139,11 +144,8 @@ mod tests {
             Fp4SmallM31::from_base_prime_field(expected_bf.0),
             Fp4SmallM31::from_base_prime_field(expected_bf.1),
         );
-        let received_4_lanes_ef = evaluate_ef::<4, 2_147_483_647>(&src_ef);
+        let received_ef = evaluate_ef::<2_147_483_647>(&src_ef);
 
-        assert_eq!(expected_ef, received_4_lanes_ef);
-
-        let received_8_lanes_ef = evaluate_ef::<8, 2_147_483_647>(&src_ef);
-        assert_eq!(expected_ef, received_8_lanes_ef);
+        assert_eq!(expected_ef, received_ef);
     }
 }

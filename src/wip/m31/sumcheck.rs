@@ -2,9 +2,11 @@ use ark_ff::Field;
 
 use crate::multilinear::pairwise;
 use crate::tests::{Fp4SmallM31, SmallM31};
-use crate::wip::m31::evaluate_ef::evaluate_ef;
-use crate::wip::m31::vectorized_reductions::pairwise::{
-    evaluate_bf, evaluate_ext, reduce_evaluations_bf, reduce_evaluations_ext,
+use crate::wip::m31::{
+    evaluate_bf::evaluate_bf,
+    evaluate_ef::evaluate_ef,
+    reduce_bf::reduce_bf,
+    reduce_ef::reduce_ef,
 };
 use crate::{wip::fiat_shamir::FiatShamir, Sumcheck};
 
@@ -19,7 +21,7 @@ pub fn prove(evals: &[SmallM31], fs: &mut impl FiatShamir<Fp4SmallM31>) -> Sumch
     for i in 0..num_vars {
         if i == 0 {
             // evaluate
-            let sums: (SmallM31, SmallM31) = evaluate_bf(evals);
+            let sums: (SmallM31, SmallM31) = evaluate_bf::<2_147_483_647>(evals);
             // promote to EF
             let (sum_0, sum_1) = (
                 Fp4SmallM31::from_base_prime_field(sums.0),
@@ -33,11 +35,11 @@ pub fn prove(evals: &[SmallM31], fs: &mut impl FiatShamir<Fp4SmallM31>) -> Sumch
             let verifier_message = fs.squeeze();
             verifier_messages.push(verifier_message);
             // reduce
-            new_evals = reduce_evaluations_bf(evals, verifier_message);
+            new_evals = reduce_bf(evals, verifier_message);
         } else {
             // evaluate
             let sums = if i < num_vars - 1 {
-                evaluate_ef::<4, 2_147_483_647>(&new_evals)
+                evaluate_ef::<2_147_483_647>(&new_evals)
             } else {
                 pairwise::evaluate(&new_evals)
             };
@@ -47,19 +49,12 @@ pub fn prove(evals: &[SmallM31], fs: &mut impl FiatShamir<Fp4SmallM31>) -> Sumch
             // absorb
             fs.absorb(sums.0);
             fs.absorb(sums.1);
-            // if i < num_vars - 4 {
-            //     // squeeze
-            //     let verifier_message = fs.squeeze();
-            //     verifier_messages.push(verifier_message);
-            //     // reduce
-            //     reduce_evaluations_ext(&mut new_evals, verifier_message);
-            // } else
             if i != num_vars - 1 {
                 // squeeze
                 let verifier_message = fs.squeeze();
                 verifier_messages.push(verifier_message);
                 // reduce
-                pairwise::reduce_evaluations(&mut new_evals, verifier_message);
+                reduce_ef(&mut new_evals, verifier_message);
             }
         }
     }
