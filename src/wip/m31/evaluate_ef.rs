@@ -26,7 +26,6 @@ fn reduce_sum_packed_ef<const MODULUS: u32>(src: &[u32]) -> ([u32; 4], [u32; 4])
     // and they must come in pairs of two
     assert!(src.len().is_multiple_of(8));
 
-    let modulus = Simd::<u32, 4>::splat(MODULUS);
     let mut acc0: Simd<u32, 4> = Simd::<u32, 4>::splat(0);
     let mut acc1: Simd<u32, 4> = Simd::<u32, 4>::splat(0);
     let mut acc2: Simd<u32, 4> = Simd::<u32, 4>::splat(0);
@@ -35,27 +34,21 @@ fn reduce_sum_packed_ef<const MODULUS: u32>(src: &[u32]) -> ([u32; 4], [u32; 4])
     let len = src.len();
     let chunk_size = 4 * 4;
     for i in (0..len).step_by(chunk_size) {
-        acc0 = add_v(&acc0, &Simd::<u32, 4>::from_slice(&src[i..i + 4]), &modulus);
-        acc1 = add_v(
-            &acc1,
-            &Simd::<u32, 4>::from_slice(&src[i + 4..i + 2 * 4]),
-            &modulus,
-        );
+        acc0 = add_v(&acc0, &Simd::<u32, 4>::from_slice(&src[i..i + 4]));
+        acc1 = add_v(&acc1, &Simd::<u32, 4>::from_slice(&src[i + 4..i + 2 * 4]));
         acc2 = add_v(
             &acc2,
             &Simd::<u32, 4>::from_slice(&src[i + 2 * 4..i + 3 * 4]),
-            &modulus,
         );
         acc3 = add_v(
             &acc3,
             &Simd::<u32, 4>::from_slice(&src[i + 3 * 4..i + 4 * 4]),
-            &modulus,
         );
     }
 
     // one more reduction
-    acc0 = add_v(&acc0, &acc2, &modulus);
-    acc1 = add_v(&acc1, &acc3, &modulus);
+    acc0 = add_v(&acc0, &acc2);
+    acc1 = add_v(&acc1, &acc3);
 
     let sums = (*acc0.as_array(), *acc1.as_array());
     sums

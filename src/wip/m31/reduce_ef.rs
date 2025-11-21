@@ -5,10 +5,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
     tests::Fp4SmallM31,
-    wip::m31::{
-        arithmetic::{add::add_v, mul::mul_v},
-        experiment::mul_fp4_smallm31_2,
-    },
+    wip::m31::arithmetic::{add::add_v, mul::mul_v},
 };
 
 #[inline(always)]
@@ -17,85 +14,47 @@ pub fn mul_fp4_smallm31(scalar: [u32; 4], b: [u32; 4]) -> [u32; 4] {
     let [b0, b1, b2, b3] = b;
 
     // A0*B0
-    let t = mul_v(
-        &Simd::from_array([a0, a1]),
-        &Simd::from_array([b0, b1]),
-        &Simd::splat(2_147_483_647),
-    );
-    let t_prime = mul_v(
-        &Simd::from_array([a0, a1]),
-        &Simd::from_array([b1, b0]),
-        &Simd::splat(2_147_483_647),
-    );
+    let t = mul_v(&Simd::from_array([a0, a1]), &Simd::from_array([b0, b1]));
+    let t_prime = mul_v(&Simd::from_array([a0, a1]), &Simd::from_array([b1, b0]));
     let a0b0 = add_v(
         &Simd::from_array([t[0], t_prime[0]]),
         &Simd::from_array([t[1], t_prime[1]]),
-        &Simd::splat(2_147_483_647),
     );
 
     // A1*B1
-    let u = mul_v(
-        &Simd::from_array([a2, a3]),
-        &Simd::from_array([b2, b3]),
-        &Simd::splat(2_147_483_647),
-    );
-    let u_prime = mul_v(
-        &Simd::from_array([a2, a3]),
-        &Simd::from_array([b3, b2]),
-        &Simd::splat(2_147_483_647),
-    );
+    let u = mul_v(&Simd::from_array([a2, a3]), &Simd::from_array([b2, b3]));
+    let u_prime = mul_v(&Simd::from_array([a2, a3]), &Simd::from_array([b3, b2]));
     let a1b1 = add_v(
         &Simd::from_array([u[0], u_prime[0]]),
         &Simd::from_array([u[1], u_prime[1]]),
-        &Simd::splat(2_147_483_647),
     );
 
     // C0
     let c0 = add_v(
         &Simd::from_array([a0b0[0], a0b0[1]]),
         &Simd::from_array([a1b1[0], a1b1[1]]),
-        &Simd::splat(2_147_483_647),
     );
 
     // A0*B1
-    let v = mul_v(
-        &Simd::from_array([a0, a1]),
-        &Simd::from_array([b2, b3]),
-        &Simd::splat(2_147_483_647),
-    );
-    let v_prime = mul_v(
-        &Simd::from_array([a0, a1]),
-        &Simd::from_array([b3, b2]),
-        &Simd::splat(2_147_483_647),
-    );
+    let v = mul_v(&Simd::from_array([a0, a1]), &Simd::from_array([b2, b3]));
+    let v_prime = mul_v(&Simd::from_array([a0, a1]), &Simd::from_array([b3, b2]));
     let a0b1 = add_v(
         &Simd::from_array([v[0], v_prime[0]]),
         &Simd::from_array([v[1], v_prime[1]]),
-        &Simd::splat(2_147_483_647),
     );
 
     // A1*B0
-    let w = mul_v(
-        &Simd::from_array([a2, a3]),
-        &Simd::from_array([b0, b1]),
-        &Simd::splat(2_147_483_647),
-    );
-    let w_prime = mul_v(
-        &Simd::from_array([a2, a3]),
-        &Simd::from_array([b1, b0]),
-        &Simd::splat(2_147_483_647),
-    );
+    let w = mul_v(&Simd::from_array([a2, a3]), &Simd::from_array([b0, b1]));
+    let w_prime = mul_v(&Simd::from_array([a2, a3]), &Simd::from_array([b1, b0]));
     let a1b0 = add_v(
         &Simd::from_array([w[0], w_prime[0]]),
         &Simd::from_array([w[1], w_prime[1]]),
-        &Simd::splat(2_147_483_647),
     );
 
     // C1
     let c1 = add_v(
         &Simd::from_array([a0b1[0], a0b1[1]]),
         &Simd::from_array([a1b0[0], a1b0[1]]),
-        &Simd::splat(2_147_483_647),
     );
 
     [c0[0], c0[1], c1[0], c1[1]]

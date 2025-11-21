@@ -1,11 +1,7 @@
 use ark_std::simd::{cmp::SimdPartialOrd, num::SimdUint, LaneCount, Simd, SupportedLaneCount};
 
 #[inline(always)]
-pub fn mul_v<const LANES: usize>(
-    a: &Simd<u32, LANES>,
-    b: &Simd<u32, LANES>,
-    modulus: &Simd<u64, LANES>,
-) -> Simd<u32, LANES>
+pub fn mul_v<const LANES: usize>(a: &Simd<u32, LANES>, b: &Simd<u32, LANES>) -> Simd<u32, LANES>
 where
     LaneCount<LANES>: SupportedLaneCount,
 {
@@ -17,17 +13,14 @@ where
     widend_a *= widend_b;
 
     // mersenne reduction
+    let modulus = Simd::<u64, LANES>::splat(2_147_483_647); // const?
     let low = widend_a & modulus;
     let high = widend_a >> Simd::<u64, LANES>::splat(31);
     let mut reduced = low + high;
 
     // At most 2 subtractions needed
-    reduced = reduced
-        .simd_ge(*modulus)
-        .select(reduced - *modulus, reduced);
-    reduced = reduced
-        .simd_ge(*modulus)
-        .select(reduced - *modulus, reduced);
+    reduced = reduced.simd_ge(modulus).select(reduced - modulus, reduced);
+    reduced = reduced.simd_ge(modulus).select(reduced - modulus, reduced);
 
     // done
     reduced.cast()
@@ -63,7 +56,7 @@ mod tests {
             let b_simd = Simd::<u32, LANES>::from_slice(b_chunk);
 
             // perfom op
-            let res = mul_v(&a_simd, &b_simd, &Simd::<u64, LANES>::splat(2_147_483_647));
+            let res = mul_v(&a_simd, &b_simd);
 
             // write back into slice
             a_chunk.copy_from_slice(res.as_array());

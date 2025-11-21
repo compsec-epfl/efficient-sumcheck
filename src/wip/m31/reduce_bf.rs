@@ -12,7 +12,6 @@ pub fn reduce_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) -> Vec<Fp4Smal
     // will use these in the loop
     let verifier_challenge_vector: Simd<u32, 4> =
         Simd::from_array(unsafe { mem::transmute::<Fp4SmallM31, [u32; 4]>(verifier_message) });
-    let modulus: Simd<u64, 4> = Simd::splat(2_147_483_647);
 
     // generate out
     let out: Vec<Fp4SmallM31> = cfg_into_iter!(0..src.len() / 2)
@@ -26,7 +25,7 @@ pub fn reduce_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) -> Vec<Fp4Smal
 
             // verifier_message * (b - a)
             let mut tmp = Simd::splat(b_minus_a_raw);
-            tmp = mul_v(&tmp, &verifier_challenge_vector, &modulus);
+            tmp = mul_v(&tmp, &verifier_challenge_vector);
             let mut raw = *tmp.as_array();
 
             // a + verifier_message * (b - a)
