@@ -1,4 +1,18 @@
-use ark_std::simd::{cmp::SimdPartialOrd, num::SimdUint, LaneCount, Simd, SupportedLaneCount};
+use ark_std::{
+    mem,
+    simd::{cmp::SimdPartialOrd, num::SimdUint, LaneCount, Simd, SupportedLaneCount},
+};
+
+use crate::tests::SmallM31;
+
+const MODULUS: u64 = 2_147_483_647;
+
+#[inline(always)]
+pub fn mul(a: u32, b: u32) -> u32 {
+    let prod = unsafe { mem::transmute::<u32, SmallM31>(a) }
+        * unsafe { mem::transmute::<u32, SmallM31>(b) };
+    unsafe { mem::transmute::<SmallM31, u32>(prod) }
+}
 
 #[inline(always)]
 pub fn mul_v<const LANES: usize>(a: &Simd<u32, LANES>, b: &Simd<u32, LANES>) -> Simd<u32, LANES>
@@ -12,8 +26,10 @@ where
     // mul
     widend_a *= widend_b;
 
+    // TODO (z-tech): can this be made const?
+    let modulus = Simd::<u64, LANES>::splat(MODULUS);
+
     // mersenne reduction
-    let modulus = Simd::<u64, LANES>::splat(2_147_483_647); // const?
     let low = widend_a & modulus;
     let high = widend_a >> Simd::<u64, LANES>::splat(31);
     let mut reduced = low + high;

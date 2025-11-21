@@ -2,6 +2,8 @@ use core::simd::Simd;
 
 use crate::wip::m31::arithmetic::{add::add_v, mul::mul_v};
 
+// TODO (z-tech): I'm sure continuing in this direction could work
+
 #[inline(always)]
 pub fn mul_fp4_smallm31_2(scalar: [u32; 4], b: [u32; 4], c: [u32; 4]) -> ([u32; 4], [u32; 4]) {
     let [a0, a1, a2, a3] = scalar;

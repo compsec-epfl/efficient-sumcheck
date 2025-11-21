@@ -5,11 +5,11 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
     tests::{Fp4SmallM31, SmallM31},
-    wip::m31::{arithmetic::mul::mul_v, evaluate_bf::add_mod_val},
+    wip::m31::arithmetic::{add::add, mul::mul_v},
 };
 
 pub fn reduce_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) -> Vec<Fp4SmallM31> {
-    // will use these in the loop
+    // will use this in the loop
     let verifier_challenge_vector: Simd<u32, 4> =
         Simd::from_array(unsafe { mem::transmute::<Fp4SmallM31, [u32; 4]>(verifier_message) });
 
@@ -30,7 +30,7 @@ pub fn reduce_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) -> Vec<Fp4Smal
 
             // a + verifier_message * (b - a)
             let a_raw = unsafe { mem::transmute::<SmallM31, u32>(*a) };
-            raw[0] = add_mod_val::<2_147_483_647>(raw[0], a_raw);
+            raw[0] = add(raw[0], a_raw);
 
             unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(raw) }
         })

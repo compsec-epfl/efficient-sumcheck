@@ -63,7 +63,6 @@ pub fn mul_fp4_smallm31(scalar: [u32; 4], b: [u32; 4]) -> [u32; 4] {
 pub fn reduce_ef(src: &mut Vec<Fp4SmallM31>, verifier_message: Fp4SmallM31) {
     // will use these in the loop
     let verifier_message_raw = unsafe { mem::transmute::<Fp4SmallM31, [u32; 4]>(verifier_message) };
-    // let verifier_message_vector: Simd<u32, 4> = Simd::from_array(verifier_message_raw);
 
     // generate out
     let out: Vec<Fp4SmallM31> = cfg_into_iter!(0..src.len() / 2)
