@@ -6,29 +6,29 @@ const M31_MODULUS: u32 = 2_147_483_647;
 
 const LANES: usize = 4;
 
-#[inline(always)]
-pub fn mul_mod_m31_u32x4(a: Simd<u32, LANES>, b: Simd<u32, LANES>) -> Simd<u32, LANES> {
-    let a64: Simd<u64, LANES> = a.cast();
-    let b64: Simd<u64, LANES> = b.cast();
-    let t = a64 * b64;
+// #[inline(always)]
+// pub fn mul_mod_m31_u32x4(a: Simd<u32, LANES>, b: Simd<u32, LANES>) -> Simd<u32, LANES> {
+//     let a64: Simd<u64, LANES> = a.cast();
+//     let b64: Simd<u64, LANES> = b.cast();
+//     let t = a64 * b64;
 
-    let mask = Simd::<u64, LANES>::splat((1u64 << 31) - 1);
-    let p64 = Simd::<u64, LANES>::splat(M31_MODULUS as u64);
+//     let mask = Simd::<u64, LANES>::splat((1u64 << 31) - 1);
+//     let p64 = Simd::<u64, LANES>::splat(M31_MODULUS as u64);
 
-    // Mersenne reduction
-    let low = t & mask;
-    let high = t >> Simd::<u64, LANES>::splat(31);
-    let mut x = low + high;
+//     // Mersenne reduction
+//     let low = t & mask;
+//     let high = t >> Simd::<u64, LANES>::splat(31);
+//     let mut x = low + high;
 
-    // At most 2 subtractions needed
-    let ge1 = x.simd_ge(p64);
-    x = ge1.select(x - p64, x);
+//     // At most 2 subtractions needed
+//     let ge1 = x.simd_ge(p64);
+//     x = ge1.select(x - p64, x);
 
-    let ge2 = x.simd_ge(p64);
-    x = ge2.select(x - p64, x);
+//     let ge2 = x.simd_ge(p64);
+//     x = ge2.select(x - p64, x);
 
-    x.cast()
-}
+//     x.cast()
+// }
 
 #[inline(always)]
 pub fn sub_mod_m31_u32x4(a: Simd<u32, LANES>, b: Simd<u32, LANES>) -> Simd<u32, LANES> {

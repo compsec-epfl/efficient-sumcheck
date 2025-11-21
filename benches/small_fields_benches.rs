@@ -16,12 +16,12 @@ use efficient_sumcheck::{
 };
 
 pub fn bench_sumcheck_time(c: &mut Criterion) {
-    const NUM_VARIABLES: usize = 18;
+    const NUM_VARIABLES: usize = 20;
 
-    let evaluation_stream: BenchStream<F128> = BenchStream::new(NUM_VARIABLES);
-    let claim = evaluation_stream.claimed_sum;
+    let evaluation_stream_f128: BenchStream<F128> = BenchStream::new(NUM_VARIABLES);
+    let claim = evaluation_stream_f128.claimed_sum;
 
-    c.bench_function("sumcheck::time_prover_smallm31_2^20", |b| {
+    c.bench_function("sumcheck::time_prover_f128", |b| {
         b.iter(|| {
             // Fresh prover + RNG each iteration to simulate a full run
             let mut time_prover = TimeProver::<F128, BenchStream<F128>>::new(<TimeProver<
@@ -30,7 +30,7 @@ pub fn bench_sumcheck_time(c: &mut Criterion) {
             > as Prover<F128>>::ProverConfig::new(
                 claim,
                 NUM_VARIABLES,
-                evaluation_stream.clone(),
+                evaluation_stream_f128.clone(),
                 ReduceMode::Pairwise,
             ));
 
@@ -45,9 +45,36 @@ pub fn bench_sumcheck_time(c: &mut Criterion) {
     });
 
     let len = 1 << NUM_VARIABLES;
+    let evaluation_stream_smallm31: BenchStream<SmallM31> = BenchStream::new(NUM_VARIABLES);
+    let claim_m31 = evaluation_stream_smallm31.claimed_sum;
+
     let evals: Vec<SmallM31> = (0..len).map(|x| SmallM31::from(x as u32)).collect();
 
-    c.bench_function("sumcheck::fp4_smallm31_2^20", |b| {
+    c.bench_function("sumcheck::time_prover_SmallM31", |b| {
+        b.iter(|| {
+            // Fresh prover + RNG each iteration to simulate a full run
+            let mut time_prover =
+                TimeProver::<SmallM31, BenchStream<SmallM31>>::new(<TimeProver<
+                    SmallM31,
+                    BenchStream<SmallM31>,
+                > as Prover<SmallM31>>::ProverConfig::new(
+                    claim_m31,
+                    NUM_VARIABLES,
+                    evaluation_stream_smallm31.clone(),
+                    ReduceMode::Pairwise,
+                ));
+
+            let mut rng = test_rng();
+            let transcript = Sumcheck::<SmallM31>::prove::<
+                BenchStream<SmallM31>,
+                TimeProver<SmallM31, BenchStream<SmallM31>>,
+            >(&mut time_prover, &mut rng);
+
+            black_box(transcript);
+        });
+    });
+
+    c.bench_function("sumcheck::fp4_smallm31", |b| {
         b.iter(|| {
             let mut fs = BenchFiatShamir::<Fp4SmallM31, _>::new(test_rng());
             let transcript = sumcheck::prove(&evals, &mut fs);
@@ -444,8 +471,8 @@ fn bench_evaluate_ef(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_sumcheck_time,
     bench_reduce_ef,
+    bench_sumcheck_time,
     bench_reduce_bf,
     bench_evaluate_ef,
     bench_evaluate_bf,

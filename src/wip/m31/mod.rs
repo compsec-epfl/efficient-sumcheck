@@ -4,3 +4,5 @@ pub mod reduce_bf;
 pub mod reduce_ef;
 
 pub mod sumcheck;
+
+pub mod arithmetic;

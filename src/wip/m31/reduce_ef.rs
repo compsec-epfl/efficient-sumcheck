@@ -5,7 +5,9 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
     tests::Fp4SmallM31,
-    wip::m31::evaluate_bf::{add_mod_val, mul_mod_val},
+    wip::m31::{
+        arithmetic::{add::add_v, mul::mul_v},
+    },
 };
 
 #[inline(always)]
@@ -13,47 +15,93 @@ fn mul_fp4_smallm31(a: [u32; 4], b: [u32; 4]) -> [u32; 4] {
     let [a0, a1, a2, a3] = a;
     let [b0, b1, b2, b3] = b;
 
-    // base field ops: plug your own
-    let add = |x, y| add_mod_val::<2_147_483_647>(x, y);
-    let mul = |x, y| mul_mod_val::<2_147_483_647>(x, y);
-
     // A0*B0
-    let t0 = mul(a0, b0);
-    let t1 = mul(a1, b1);
-    let a0b0_0 = add(t0, mul(t1, 3));
-    let a0b0_1 = add(mul(a0, b1), mul(a1, b0));
+    let t = mul_v(
+        &Simd::from_array([a0, a1]),
+        &Simd::from_array([b0, b1]),
+        &Simd::splat(2_147_483_647),
+    );
+    let t_prime = mul_v(
+        &Simd::from_array([a0, a1]),
+        &Simd::from_array([b1, b0]),
+        &Simd::splat(2_147_483_647),
+    );
+    let a0b0 = add_v(
+        &Simd::from_array([t[0], t_prime[0]]),
+        &Simd::from_array([t[1], t_prime[1]]),
+        &Simd::splat(2_147_483_647),
+    );
 
     // A1*B1
-    let u0 = mul(a2, b2);
-    let u1 = mul(a3, b3);
-    let a1b1_0 = add(u0, mul(u1, 3));
-    let a1b1_1 = add(mul(a2, b3), mul(a3, b2));
+    let u = mul_v(
+        &Simd::from_array([a2, a3]),
+        &Simd::from_array([b2, b3]),
+        &Simd::splat(2_147_483_647),
+    );
+    let u_prime = mul_v(
+        &Simd::from_array([a2, a3]),
+        &Simd::from_array([b3, b2]),
+        &Simd::splat(2_147_483_647),
+    );
+    let a1b1 = add_v(
+        &Simd::from_array([u[0], u_prime[0]]),
+        &Simd::from_array([u[1], u_prime[1]]),
+        &Simd::splat(2_147_483_647),
+    );
 
     // β * A1*B1, β = (3, 0)
-    let beta_a1b1_0 = mul(a1b1_0, 3);
-    let beta_a1b1_1 = mul(a1b1_1, 3);
+    // let beta_a1b1_0 = mul(a1b1[0], 3);
+    // let beta_a1b1_1 = mul(a1b1[1], 3);
 
     // C0
-    let c0_0 = add(a0b0_0, beta_a1b1_0);
-    let c0_1 = add(a0b0_1, beta_a1b1_1);
+    let c0 = add_v(
+        &Simd::from_array([a0b0[0], a0b0[1]]),
+        &Simd::from_array([a1b1[0], a1b1[1]]),
+        &Simd::splat(2_147_483_647),
+    );
 
     // A0*B1
-    let v0 = mul(a0, b2);
-    let v1 = mul(a1, b3);
-    let a0b1_0 = add(v0, mul(v1, 3));
-    let a0b1_1 = add(mul(a0, b3), mul(a1, b2));
+    let v = mul_v(
+        &Simd::from_array([a0, a1]),
+        &Simd::from_array([b2, b3]),
+        &Simd::splat(2_147_483_647),
+    );
+    let v_prime = mul_v(
+        &Simd::from_array([a0, a1]),
+        &Simd::from_array([b3, b2]),
+        &Simd::splat(2_147_483_647),
+    );
+    let a0b1 = add_v(
+        &Simd::from_array([v[0], v_prime[0]]),
+        &Simd::from_array([v[1], v_prime[1]]),
+        &Simd::splat(2_147_483_647),
+    );
 
     // A1*B0
-    let w0 = mul(a2, b0);
-    let w1 = mul(a3, b1);
-    let a1b0_0 = add(w0, mul(w1, 3));
-    let a1b0_1 = add(mul(a2, b1), mul(a3, b0));
+    let w = mul_v(
+        &Simd::from_array([a2, a3]),
+        &Simd::from_array([b0, b1]),
+        &Simd::splat(2_147_483_647),
+    );
+    let w_prime = mul_v(
+        &Simd::from_array([a2, a3]),
+        &Simd::from_array([b1, b0]),
+        &Simd::splat(2_147_483_647),
+    );
+    let a1b0 = add_v(
+        &Simd::from_array([w[0], w_prime[0]]),
+        &Simd::from_array([w[1], w_prime[1]]),
+        &Simd::splat(2_147_483_647),
+    );
 
     // C1
-    let c1_0 = add(a0b1_0, a1b0_0);
-    let c1_1 = add(a0b1_1, a1b0_1);
+    let c1 = add_v(
+        &Simd::from_array([a0b1[0], a0b1[1]]),
+        &Simd::from_array([a1b0[0], a1b0[1]]),
+        &Simd::splat(2_147_483_647),
+    );
 
-    [c0_0, c0_1, c1_0, c1_1]
+    [c0[0], c0[1], c1[0], c1[1]]
 }
 
 pub fn reduce_ef(src: &mut Vec<Fp4SmallM31>, verifier_message: Fp4SmallM31) {
