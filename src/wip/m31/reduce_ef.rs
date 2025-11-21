@@ -5,11 +5,14 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
     tests::Fp4SmallM31,
-    wip::m31::arithmetic::{add::add_v, mul::mul_v},
+    wip::m31::{
+        arithmetic::{add::add_v, mul::mul_v},
+        experiment::mul_fp4_smallm31_2,
+    },
 };
 
 #[inline(always)]
-fn mul_fp4_smallm31(scalar: [u32; 4], b: [u32; 4]) -> [u32; 4] {
+pub fn mul_fp4_smallm31(scalar: [u32; 4], b: [u32; 4]) -> [u32; 4] {
     let [a0, a1, a2, a3] = scalar;
     let [b0, b1, b2, b3] = b;
 
@@ -101,7 +104,7 @@ fn mul_fp4_smallm31(scalar: [u32; 4], b: [u32; 4]) -> [u32; 4] {
 pub fn reduce_ef(src: &mut Vec<Fp4SmallM31>, verifier_message: Fp4SmallM31) {
     // will use these in the loop
     let verifier_message_raw = unsafe { mem::transmute::<Fp4SmallM31, [u32; 4]>(verifier_message) };
-    let verifier_message_vector: Simd<u32, 4> = Simd::from_array(verifier_message_raw);
+    // let verifier_message_vector: Simd<u32, 4> = Simd::from_array(verifier_message_raw);
 
     // generate out
     let out: Vec<Fp4SmallM31> = cfg_into_iter!(0..src.len() / 2)
@@ -123,6 +126,7 @@ pub fn reduce_ef(src: &mut Vec<Fp4SmallM31>, verifier_message: Fp4SmallM31) {
             tmp1
         })
         .collect();
+
     // write back into src
     src[..out.len()].copy_from_slice(&out);
     src.truncate(out.len());
