@@ -471,10 +471,10 @@ fn bench_evaluate_ef(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_reduce_ef,
-    bench_sumcheck_time,
-    bench_reduce_bf,
-    bench_evaluate_ef,
     bench_evaluate_bf,
+    bench_evaluate_ef,
+    bench_reduce_ef,
+    bench_reduce_bf,
+    bench_sumcheck_time,
 );
 criterion_main!(benches);

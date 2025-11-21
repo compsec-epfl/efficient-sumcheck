@@ -1,13 +1,11 @@
-use ark_std::{
-    mem,
-    simd::{cmp::SimdPartialOrd, LaneCount, Simd, SupportedLaneCount},
-    slice,
-    slice::from_raw_parts,
-};
+use ark_std::{mem, simd::Simd, slice, slice::from_raw_parts};
 #[cfg(feature = "parallel")]
 use rayon::{iter::ParallelIterator, prelude::ParallelSlice};
 
-use crate::{tests::Fp4SmallM31, wip::m31::evaluate_bf::add_mod_val};
+use crate::{
+    tests::Fp4SmallM31,
+    wip::m31::{arithmetic::add::add_v, evaluate_bf::add_mod_val},
+};
 
 pub fn is_serial_better(len: usize, break_even_len: usize) -> bool {
     len < break_even_len
@@ -21,18 +19,6 @@ pub fn add_fp4_raw<const MODULUS: u32>(a: [u32; 4], b: [u32; 4]) -> [u32; 4] {
         add_mod_val::<MODULUS>(a[2], b[2]),
         add_mod_val::<MODULUS>(a[3], b[3]),
     ]
-}
-
-#[inline(always)]
-pub fn sum_assign<const LANES: usize, const MODULUS: u32>(
-    a: &mut Simd<u32, LANES>,
-    b: &Simd<u32, LANES>,
-    modulus: &Simd<u32, LANES>,
-) where
-    LaneCount<LANES>: SupportedLaneCount,
-{
-    *a += b;
-    *a = a.simd_ge(*modulus).select(*a - modulus, *a);
 }
 
 fn reduce_sum_packed_ef<const MODULUS: u32>(src: &[u32]) -> ([u32; 4], [u32; 4]) {
@@ -49,31 +35,27 @@ fn reduce_sum_packed_ef<const MODULUS: u32>(src: &[u32]) -> ([u32; 4], [u32; 4])
     let len = src.len();
     let chunk_size = 4 * 4;
     for i in (0..len).step_by(chunk_size) {
-        sum_assign::<4, MODULUS>(
-            &mut acc0,
-            &Simd::<u32, 4>::from_slice(&src[i..i + 4]),
-            &modulus,
-        );
-        sum_assign::<4, MODULUS>(
-            &mut acc1,
+        acc0 = add_v(&acc0, &Simd::<u32, 4>::from_slice(&src[i..i + 4]), &modulus);
+        acc1 = add_v(
+            &acc1,
             &Simd::<u32, 4>::from_slice(&src[i + 4..i + 2 * 4]),
             &modulus,
         );
-        sum_assign::<4, MODULUS>(
-            &mut acc2,
+        acc2 = add_v(
+            &acc2,
             &Simd::<u32, 4>::from_slice(&src[i + 2 * 4..i + 3 * 4]),
             &modulus,
         );
-        sum_assign::<4, MODULUS>(
-            &mut acc3,
+        acc3 = add_v(
+            &acc3,
             &Simd::<u32, 4>::from_slice(&src[i + 3 * 4..i + 4 * 4]),
             &modulus,
         );
     }
 
     // one more reduction
-    sum_assign::<4, MODULUS>(&mut acc0, &acc2, &modulus);
-    sum_assign::<4, MODULUS>(&mut acc1, &acc3, &modulus);
+    acc0 = add_v(&acc0, &acc2, &modulus);
+    acc1 = add_v(&acc1, &acc3, &modulus);
 
     let sums = (*acc0.as_array(), *acc1.as_array());
     sums

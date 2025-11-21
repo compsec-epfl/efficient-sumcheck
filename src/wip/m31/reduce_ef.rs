@@ -5,14 +5,12 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
     tests::Fp4SmallM31,
-    wip::m31::{
-        arithmetic::{add::add_v, mul::mul_v},
-    },
+    wip::m31::arithmetic::{add::add_v, mul::mul_v},
 };
 
 #[inline(always)]
-fn mul_fp4_smallm31(a: [u32; 4], b: [u32; 4]) -> [u32; 4] {
-    let [a0, a1, a2, a3] = a;
+fn mul_fp4_smallm31(scalar: [u32; 4], b: [u32; 4]) -> [u32; 4] {
+    let [a0, a1, a2, a3] = scalar;
     let [b0, b1, b2, b3] = b;
 
     // A0*B0
@@ -48,10 +46,6 @@ fn mul_fp4_smallm31(a: [u32; 4], b: [u32; 4]) -> [u32; 4] {
         &Simd::from_array([u[1], u_prime[1]]),
         &Simd::splat(2_147_483_647),
     );
-
-    // β * A1*B1, β = (3, 0)
-    // let beta_a1b1_0 = mul(a1b1[0], 3);
-    // let beta_a1b1_1 = mul(a1b1[1], 3);
 
     // C0
     let c0 = add_v(

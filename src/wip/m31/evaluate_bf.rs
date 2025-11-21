@@ -5,7 +5,7 @@ use rayon::{iter::ParallelIterator, prelude::ParallelSlice};
 
 use crate::{
     tests::SmallM31,
-    wip::m31::evaluate_ef::{is_serial_better, sum_assign},
+    wip::m31::{arithmetic::add::add_v, evaluate_ef::is_serial_better},
 };
 
 #[inline(always)]
@@ -64,23 +64,19 @@ fn reduce_sum_packed_bf<const MODULUS: u32>(src: &[u32]) -> (u32, u32) {
     let len = src.len();
     let chunk_size = 4 * 4;
     for i in (0..len).step_by(chunk_size) {
-        sum_assign::<4, MODULUS>(
-            &mut acc0,
-            &Simd::<u32, 4>::from_slice(&src[i..i + 4]),
-            &modulus,
-        );
-        sum_assign::<4, MODULUS>(
-            &mut acc1,
+        acc0 = add_v(&acc0, &Simd::<u32, 4>::from_slice(&src[i..i + 4]), &modulus);
+        acc1 = add_v(
+            &acc1,
             &Simd::<u32, 4>::from_slice(&src[i + 4..i + 2 * 4]),
             &modulus,
         );
-        sum_assign::<4, MODULUS>(
-            &mut acc2,
+        acc2 = add_v(
+            &acc2,
             &Simd::<u32, 4>::from_slice(&src[i + 2 * 4..i + 3 * 4]),
             &modulus,
         );
-        sum_assign::<4, MODULUS>(
-            &mut acc3,
+        acc3 = add_v(
+            &acc3,
             &Simd::<u32, 4>::from_slice(&src[i + 3 * 4..i + 4 * 4]),
             &modulus,
         );

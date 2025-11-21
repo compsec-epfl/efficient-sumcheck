@@ -51,7 +51,7 @@ pub fn prove(evals: &[SmallM31], fs: &mut impl FiatShamir<Fp4SmallM31>) -> Sumch
                 let verifier_message = fs.squeeze();
                 verifier_messages.push(verifier_message);
                 // reduce
-                pairwise::reduce_evaluations(&mut new_evals, verifier_message);
+                reduce_ef(&mut new_evals, verifier_message);
             }
         }
     }

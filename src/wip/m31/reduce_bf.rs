@@ -26,7 +26,7 @@ pub fn reduce_bf(src: &[SmallM31], verifier_message: Fp4SmallM31) -> Vec<Fp4Smal
 
             // verifier_message * (b - a)
             let mut tmp = Simd::splat(b_minus_a_raw);
-            tmp = mul_v(&mut tmp, &verifier_challenge_vector, &modulus);
+            tmp = mul_v(&tmp, &verifier_challenge_vector, &modulus);
             let mut raw = *tmp.as_array();
 
             // a + verifier_message * (b - a)
