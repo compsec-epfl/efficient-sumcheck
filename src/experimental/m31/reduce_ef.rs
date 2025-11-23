@@ -5,7 +5,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
     tests::Fp4SmallM31,
-    wip::m31::arithmetic::{add::add_v, mul::mul_v},
+    experimental::m31::arithmetic::{add::add_v, mul::mul_v},
 };
 
 #[inline(always)]
@@ -97,7 +97,7 @@ mod tests {
 
     use crate::multilinear::pairwise;
     use crate::tests::Fp4SmallM31;
-    use crate::wip::m31::reduce_ef::reduce_ef;
+    use crate::experimental::m31::reduce_ef::reduce_ef;
 
     #[test]
     fn sanity() {

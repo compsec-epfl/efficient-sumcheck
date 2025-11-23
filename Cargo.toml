@@ -40,6 +40,6 @@ path = "benches/extension_benches.rs"
 harness = false
 
 [[bench]]
-name = "small_fields_benches"
-path = "benches/small_fields_benches.rs"
+name = "experimental_benches"
+path = "benches/experimental_benches.rs"
 harness = false

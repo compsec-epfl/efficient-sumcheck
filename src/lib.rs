@@ -11,7 +11,7 @@ pub mod multilinear_product;
 pub mod order_strategy;
 pub mod prover;
 pub mod streams;
-pub mod wip;
+pub mod experimental;
 
 pub use crate::multilinear::Sumcheck;
 pub use crate::multilinear_product::ProductSumcheck;

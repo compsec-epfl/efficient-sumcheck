@@ -2,7 +2,7 @@ use ark_ff::{Field, UniformRand};
 use ark_std::rand::Rng;
 use core::marker::PhantomData;
 
-use crate::wip::fiat_shamir::fiat_shamir::FiatShamir;
+use crate::experimental::fiat_shamir::fiat_shamir::FiatShamir;
 
 pub struct BenchFiatShamir<F: Field, R: Rng> {
     rng: R,
@@ -37,7 +37,7 @@ where
 mod tests {
     use crate::{
         tests::SmallM31,
-        wip::fiat_shamir::{bench::BenchFiatShamir, FiatShamir},
+        experimental::fiat_shamir::{bench::BenchFiatShamir, FiatShamir},
     };
 
     #[test]

@@ -44,7 +44,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::wip::m31::arithmetic::mul::mul_v;
+    use crate::experimental::m31::arithmetic::mul::mul_v;
     use ark_std::{rand::RngCore, simd::Simd, test_rng};
 
     #[test]

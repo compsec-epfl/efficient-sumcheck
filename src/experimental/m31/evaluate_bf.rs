@@ -7,7 +7,7 @@ use rayon::{iter::ParallelIterator, prelude::ParallelSlice};
 
 use crate::{
     tests::SmallM31,
-    wip::m31::arithmetic::add::{add, add_v},
+    experimental::m31::arithmetic::add::{add, add_v},
 };
 
 #[inline(always)]
@@ -70,7 +70,7 @@ pub fn evaluate_bf<const MODULUS: u32>(src: &[SmallM31]) -> (SmallM31, SmallM31)
         .reduce(
             || (0, 0),
             |(e1, o1), (e2, o2)| {
-                use crate::wip::m31::arithmetic::add::add;
+                use crate::experimental::m31::arithmetic::add::add;
 
                 (add(e1, e2), add(o1, o2))
             },
@@ -88,7 +88,7 @@ mod tests {
 
     use crate::multilinear::pairwise;
     use crate::tests::SmallM31;
-    use crate::wip::m31::evaluate_bf::evaluate_bf;
+    use crate::experimental::m31::evaluate_bf::evaluate_bf;
 
     #[test]
     fn sanity() {

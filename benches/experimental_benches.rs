@@ -5,7 +5,7 @@ use efficient_sumcheck::{
     multilinear::{pairwise, ReduceMode, TimeProver},
     prover::Prover,
     tests::{BenchStream, Fp4SmallM31, SmallM31, F128},
-    wip::{
+    experimental::{
         fiat_shamir::BenchFiatShamir,
         m31::{
             evaluate_bf::evaluate_bf, evaluate_ef::evaluate_ef, reduce_bf::reduce_bf,
@@ -471,10 +471,10 @@ fn bench_evaluate_ef(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    bench_reduce_bf,
     bench_sumcheck_time,
     bench_evaluate_bf,
     bench_evaluate_ef,
     bench_reduce_ef,
-    bench_reduce_bf,
 );
 criterion_main!(benches);
