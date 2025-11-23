@@ -7,10 +7,7 @@ use rayon::{iter::ParallelIterator, prelude::ParallelSlice};
 
 use crate::{
     tests::SmallM31,
-    wip::m31::{
-        arithmetic::add::{add, add_v},
-        evaluate_ef::is_serial_better,
-    },
+    wip::m31::arithmetic::add::{add, add_v},
 };
 
 #[inline(always)]
@@ -62,41 +59,26 @@ where
 }
 
 pub fn evaluate_bf<const MODULUS: u32>(src: &[SmallM31]) -> (SmallM31, SmallM31) {
-    // TODO (z-tech): break even is machine dependent
-    const BREAKOVER: usize = 1 << 16;
-    if is_serial_better(src.len(), BREAKOVER) || !cfg!(feature = "parallel") {
-        let src_raw: &[u32] =
-            unsafe { core::slice::from_raw_parts(src.as_ptr() as *const u32, src.len()) };
-        let (sum0_raw, sum1_raw) = sum_v::<16>(src_raw);
-        return (
-            unsafe { mem::transmute::<u32, SmallM31>(sum0_raw) },
-            unsafe { mem::transmute::<u32, SmallM31>(sum1_raw) },
+    const CHUNK_SIZE: usize = 32_768;
+    let sums = src
+        .par_chunks(CHUNK_SIZE)
+        .map(|chunk| {
+            let chunk_raw: &[u32] =
+                unsafe { core::slice::from_raw_parts(chunk.as_ptr() as *const u32, chunk.len()) };
+            sum_v::<32>(chunk_raw)
+        })
+        .reduce(
+            || (0, 0),
+            |(e1, o1), (e2, o2)| {
+                use crate::wip::m31::arithmetic::add::add;
+
+                (add(e1, e2), add(o1, o2))
+            },
         );
-    }
-
-    #[cfg(feature = "parallel")]
-    {
-        let sums = src
-            .par_chunks(BREAKOVER)
-            .map(|chunk| {
-                let chunk_raw: &[u32] = unsafe {
-                    core::slice::from_raw_parts(chunk.as_ptr() as *const u32, chunk.len())
-                };
-                sum_v::<16>(chunk_raw)
-            })
-            .reduce(
-                || (0, 0),
-                |(e1, o1), (e2, o2)| {
-                    use crate::wip::m31::arithmetic::add::add;
-
-                    (add(e1, e2), add(o1, o2))
-                },
-            );
-        let (sum_0_u32, sum_1_u32) = sums;
-        let sum_0: SmallM31 = unsafe { mem::transmute::<u32, SmallM31>(sum_0_u32) };
-        let sum_1: SmallM31 = unsafe { mem::transmute::<u32, SmallM31>(sum_1_u32) };
-        (sum_0, sum_1)
-    }
+    let (sum_0_u32, sum_1_u32) = sums;
+    let sum_0: SmallM31 = unsafe { mem::transmute::<u32, SmallM31>(sum_0_u32) };
+    let sum_1: SmallM31 = unsafe { mem::transmute::<u32, SmallM31>(sum_1_u32) };
+    (sum_0, sum_1)
 }
 
 #[cfg(test)]

@@ -1,14 +1,10 @@
 use std::simd::{LaneCount, SupportedLaneCount};
 
-use ark_std::{mem, simd::Simd, slice, slice::from_raw_parts};
+use ark_std::{mem, simd::Simd, slice};
 #[cfg(feature = "parallel")]
 use rayon::{iter::ParallelIterator, prelude::ParallelSlice};
 
 use crate::{tests::Fp4SmallM31, wip::m31::arithmetic::add::add_v};
-
-pub fn is_serial_better(len: usize, break_even_len: usize) -> bool {
-    len < break_even_len
-}
 
 #[inline(always)]
 fn sum_v<const LANES: usize>(src: &[u32]) -> ([u32; 4], [u32; 4])
@@ -21,7 +17,8 @@ where
     let mut acc3 = Simd::<u32, LANES>::splat(0);
 
     let chunk_size = 4 * LANES; // NOTE: unroll by 4 bc why not
-    for i in (0..src.len()).step_by(chunk_size) {
+    let fast_path_end = src.len() - (src.len() % chunk_size);
+    for i in (0..fast_path_end).step_by(chunk_size) {
         acc0 = add_v(&acc0, &Simd::<u32, LANES>::from_slice(&src[i..i + LANES]));
         acc1 = add_v(
             &acc1,
@@ -38,63 +35,55 @@ where
     }
 
     #[inline(always)]
-    fn sum_fp4wise<const LANES: usize>(accs: &[[u32; LANES]]) -> ([u32; 4], [u32; 4]) {
+    fn sum_fp4wise(accs: &[&[u32]]) -> ([u32; 4], [u32; 4]) {
         let mut even_sum = Simd::<u32, 4>::splat(0);
         let mut odd_sum = Simd::<u32, 4>::splat(0);
-        for i in (0..accs.len()).step_by(2) {
-            for j in (0..accs[i].len()).step_by(4) {
-                even_sum = add_v(&even_sum, &Simd::from_slice(&accs[i][j..j + 4]));
-                odd_sum = add_v(&odd_sum, &Simd::from_slice(&accs[i + 1][j..j + 4]));
+        let mut is_even = true;
+        for acc in accs {
+            for j in (0..acc.len()).step_by(4) {
+                if is_even {
+                    even_sum = add_v(&even_sum, &Simd::from_slice(&acc[j..j + 4]));
+                } else {
+                    odd_sum = add_v(&odd_sum, &Simd::from_slice(&acc[j..j + 4]));
+                }
+                is_even = !is_even;
             }
         }
         (even_sum.to_array(), odd_sum.to_array())
     }
 
     sum_fp4wise(&[
-        acc0.to_array(),
-        acc1.to_array(),
-        acc2.to_array(),
-        acc3.to_array(),
+        &acc0.to_array(),
+        &acc1.to_array(),
+        &acc2.to_array(),
+        &acc3.to_array(),
+        &src[fast_path_end..],
     ])
 }
 
 pub fn evaluate_ef<const MODULUS: u32>(src: &[Fp4SmallM31]) -> (Fp4SmallM31, Fp4SmallM31) {
-    // TODO (z-tech): break even is machine dependent
-    if is_serial_better(src.len(), 1 << 16) || !cfg!(feature = "parallel") {
-        let src_raw: &[u32] = unsafe { from_raw_parts(src.as_ptr() as *const u32, src.len() * 4) };
-        let (sum0_raw, sum1_raw) = sum_v::<4>(src_raw);
-        return (
-            unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(sum0_raw) },
-            unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(sum1_raw) },
+    const CHUNK_SIZE: usize = 32_768;
+    let sums = src
+        .par_chunks(CHUNK_SIZE)
+        .map(|chunk| {
+            let chunk_raw: &[u32] =
+                unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u32, chunk.len() * 4) };
+            sum_v::<32>(chunk_raw)
+        })
+        .reduce(
+            || ([0u32; 4], [0u32; 4]),
+            |(e1, o1), (e2, o2)| {
+                (
+                    add_v(&Simd::from_array(e1), &Simd::from_array(e2)).to_array(),
+                    add_v(&Simd::from_array(o1), &Simd::from_array(o2)).to_array(),
+                )
+            },
         );
-    }
 
-    // --- parallel path ---
-    #[cfg(feature = "parallel")]
-    {
-        let chunk_size = 1 << 16;
-        let sums = src
-            .par_chunks(chunk_size)
-            .map(|chunk| {
-                let chunk_raw: &[u32] =
-                    unsafe { slice::from_raw_parts(chunk.as_ptr() as *const u32, chunk.len() * 4) };
-                sum_v::<4>(chunk_raw)
-            })
-            .reduce(
-                || ([0u32; 4], [0u32; 4]),
-                |(e1, o1), (e2, o2)| {
-                    (
-                        add_v(&Simd::from_array(e1), &Simd::from_array(e2)).to_array(),
-                        add_v(&Simd::from_array(o1), &Simd::from_array(o2)).to_array(),
-                    )
-                },
-            );
-
-        let (sum0_raw, sum1_raw) = sums;
-        let sum0: Fp4SmallM31 = unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(sum0_raw) };
-        let sum1: Fp4SmallM31 = unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(sum1_raw) };
-        (sum0, sum1)
-    }
+    let (sum0_raw, sum1_raw) = sums;
+    let sum0: Fp4SmallM31 = unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(sum0_raw) };
+    let sum1: Fp4SmallM31 = unsafe { mem::transmute::<[u32; 4], Fp4SmallM31>(sum1_raw) };
+    (sum0, sum1)
 }
 
 #[cfg(test)]
