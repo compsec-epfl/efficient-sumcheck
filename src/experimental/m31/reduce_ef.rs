@@ -4,8 +4,8 @@ use ark_std::{cfg_into_iter, mem, simd::Simd};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
-    tests::Fp4SmallM31,
     experimental::m31::arithmetic::{add::add_v, mul::mul_v},
+    tests::Fp4SmallM31,
 };
 
 #[inline(always)]
@@ -95,9 +95,9 @@ mod tests {
     use ark_ff::UniformRand;
     use ark_std::test_rng;
 
+    use crate::experimental::m31::reduce_ef::reduce_ef;
     use crate::multilinear::pairwise;
     use crate::tests::Fp4SmallM31;
-    use crate::experimental::m31::reduce_ef::reduce_ef;
 
     #[test]
     fn sanity() {

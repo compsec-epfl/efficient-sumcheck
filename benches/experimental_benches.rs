@@ -2,9 +2,6 @@ use ark_std::{hint::black_box, test_rng, UniformRand};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use efficient_sumcheck::{
-    multilinear::{pairwise, ReduceMode, TimeProver},
-    prover::Prover,
-    tests::{BenchStream, Fp4SmallM31, SmallM31, F128},
     experimental::{
         fiat_shamir::BenchFiatShamir,
         m31::{
@@ -12,11 +9,14 @@ use efficient_sumcheck::{
             reduce_ef::reduce_ef, sumcheck,
         },
     },
+    multilinear::{pairwise, ReduceMode, TimeProver},
+    prover::Prover,
+    tests::{BenchStream, Fp4SmallM31, SmallM31, F128},
     Sumcheck,
 };
 
 pub fn bench_sumcheck_time(c: &mut Criterion) {
-    const NUM_VARIABLES: usize = 20;
+    const NUM_VARIABLES: usize = 26;
 
     let len = 1 << NUM_VARIABLES;
     let evaluation_stream_smallm31: BenchStream<SmallM31> = BenchStream::new(NUM_VARIABLES);

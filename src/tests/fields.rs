@@ -72,7 +72,7 @@ impl Fp4Config for Fp4SmallM31Config {
     type Fp2Config = Fp2SmallM31Config;
 
     const NONRESIDUE: Fp2<Fp2SmallM31Config> =
-        Fp2::<Fp2SmallM31Config>::new(SmallM31::new(3), SmallM31::new(0));
+        Fp2::<Fp2SmallM31Config>::new(SmallM31::new(3), SmallM31::new(7));
 
     // 👇 now a slice of base‐field elements, not Fp2 elements
     const FROBENIUS_COEFF_FP4_C1: &'static [SmallM31] = &[

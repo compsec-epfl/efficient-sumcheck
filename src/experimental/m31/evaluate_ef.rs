@@ -4,7 +4,7 @@ use ark_std::{mem, simd::Simd, slice};
 #[cfg(feature = "parallel")]
 use rayon::{iter::ParallelIterator, prelude::ParallelSlice};
 
-use crate::{tests::Fp4SmallM31, experimental::m31::arithmetic::add::add_v};
+use crate::{experimental::m31::arithmetic::add::add_v, tests::Fp4SmallM31};
 
 #[inline(always)]
 fn sum_v<const LANES: usize>(src: &[u32]) -> ([u32; 4], [u32; 4])
@@ -91,9 +91,9 @@ mod tests {
     use ark_ff::{Field, UniformRand};
     use ark_std::test_rng;
 
+    use crate::experimental::m31::evaluate_ef::evaluate_ef;
     use crate::multilinear::pairwise;
     use crate::tests::{Fp4SmallM31, SmallM31};
-    use crate::experimental::m31::evaluate_ef::evaluate_ef;
 
     #[test]
     fn sanity() {

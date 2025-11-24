@@ -6,8 +6,8 @@ use ark_std::{mem, simd::Simd};
 use rayon::{iter::ParallelIterator, prelude::ParallelSlice};
 
 use crate::{
-    tests::SmallM31,
     experimental::m31::arithmetic::add::{add, add_v},
+    tests::SmallM31,
 };
 
 #[inline(always)]
@@ -86,9 +86,9 @@ mod tests {
     use ark_ff::UniformRand;
     use ark_std::test_rng;
 
+    use crate::experimental::m31::evaluate_bf::evaluate_bf;
     use crate::multilinear::pairwise;
     use crate::tests::SmallM31;
-    use crate::experimental::m31::evaluate_bf::evaluate_bf;
 
     #[test]
     fn sanity() {

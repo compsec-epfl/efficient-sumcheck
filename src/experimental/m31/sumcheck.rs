@@ -1,17 +1,12 @@
 use ark_ff::Field;
 
-use crate::Sumcheck;
-use crate::multilinear::pairwise;
-use crate::tests::{Fp4SmallM31, SmallM31};
+use crate::experimental::fiat_shamir::FiatShamir;
 use crate::experimental::m31::{
     evaluate_bf::evaluate_bf, evaluate_ef::evaluate_ef, reduce_bf::reduce_bf, reduce_ef::reduce_ef,
 };
-use crate::{experimental::fiat_shamir::FiatShamir};
-
-// pub struct Sumcheck<F: Field> {
-//     prover_messages: Vec<(F, F)>,
-//     verifier_messages: Vec<F>,
-// }
+use crate::multilinear::pairwise;
+use crate::tests::{Fp4SmallM31, SmallM31};
+use crate::Sumcheck;
 
 pub fn prove(evals: &[SmallM31], fs: &mut impl FiatShamir<Fp4SmallM31>) -> Sumcheck<Fp4SmallM31> {
     let len = evals.len();
@@ -64,7 +59,7 @@ pub fn prove(evals: &[SmallM31], fs: &mut impl FiatShamir<Fp4SmallM31>) -> Sumch
     Sumcheck::<Fp4SmallM31> {
         prover_messages,
         verifier_messages,
-        is_accepted: true,
+        is_accepted: true, // TODO: rm this
     }
 }
 
@@ -72,10 +67,10 @@ pub fn prove(evals: &[SmallM31], fs: &mut impl FiatShamir<Fp4SmallM31>) -> Sumch
 mod tests {
     use super::Sumcheck;
     use crate::{
+        experimental::{fiat_shamir::BenchFiatShamir, m31::sumcheck::prove},
         multilinear::{ReduceMode, TimeProver},
         prover::Prover,
         tests::{BenchStream, Fp4SmallM31, SmallM31},
-        experimental::{fiat_shamir::BenchFiatShamir, m31::sumcheck::prove},
     };
     use ark_ff::Field;
 

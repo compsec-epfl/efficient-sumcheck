@@ -36,8 +36,8 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        tests::SmallM31,
         experimental::fiat_shamir::{bench::BenchFiatShamir, FiatShamir},
+        tests::SmallM31,
     };
 
     #[test]
