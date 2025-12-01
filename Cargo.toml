@@ -16,7 +16,7 @@ memmap2 = "0.9.5"
 rayon = { version = "1.10", optional = true }
 
 [dev-dependencies]
-criterion = "0.7"
+criterion = "0.8"
 
 [features]
 default = ["parallel"]
