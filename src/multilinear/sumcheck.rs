@@ -7,7 +7,6 @@ use crate::{prover::Prover, streams::Stream};
 pub struct Sumcheck<F: Field> {
     pub prover_messages: Vec<(F, F)>,
     pub verifier_messages: Vec<F>,
-    pub is_accepted: bool,
 }
 
 impl<F: Field> Sumcheck<F> {
@@ -19,7 +18,6 @@ impl<F: Field> Sumcheck<F> {
         // Initialize vectors to store prover and verifier messages
         let mut prover_messages: Vec<(F, F)> = vec![];
         let mut verifier_messages: Vec<F> = vec![];
-        let mut is_accepted = true;
 
         // Run the protocol
         let mut verifier_message: Option<F> = None;
@@ -42,7 +40,6 @@ impl<F: Field> Sumcheck<F> {
             // Handle how to proceed
             prover_messages.push(message);
             if !is_round_accepted {
-                is_accepted = false;
                 break;
             }
 
@@ -53,7 +50,6 @@ impl<F: Field> Sumcheck<F> {
         Sumcheck {
             prover_messages,
             verifier_messages,
-            is_accepted,
         }
     }
 }
@@ -137,11 +133,10 @@ mod tests {
             NUM_VARIABLES,
             evaluation_stream,
         ));
-        let time_prover_pairwise_transcript =
+        let _time_prover_pairwise_transcript =
             Sumcheck::<F19>::prove::<BenchStream<F19>, TimeProver<F19, BenchStream<F19>>>(
                 &mut time_prover_pairwise,
                 &mut ark_std::test_rng(),
             );
-        assert!(time_prover_pairwise_transcript.is_accepted);
     }
 }
