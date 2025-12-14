@@ -2,14 +2,12 @@ use ark_ff::Field;
 use ark_std::collections::HashMap;
 use nohash_hasher::BuildNoHashHasher;
 
-use crate::{ProductSumcheck, multilinear_product::reductions::pairwise::pairwise_product_evaluate};
+use crate::{
+    experimental::transcript::Transcript, multilinear::reductions::variablewise,
+    multilinear_product::reductions::variablewise::variablewise_product_evaluate, ProductSumcheck,
+};
 
 pub type FastMap<V> = HashMap<usize, V, BuildNoHashHasher<usize>>;
-
-pub trait FiatShamir<T> {
-    fn absorb(&mut self, value: T);
-    fn squeeze(&mut self) -> T;
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Op {
@@ -23,6 +21,19 @@ pub enum Op {
 pub struct MLEGroup<F: Field> {
     pub dense_polys: Vec<(Op, Vec<F>)>,
     pub sparse_polys: Vec<(Op, FastMap<F>)>,
+}
+
+pub fn reduce_sparse<F: Field>(src: &mut FastMap<F>, challenge: F) {
+    let mut map = FastMap::default();
+    for (&i, &eval) in src.iter() {
+        *map.entry(i >> 1).or_insert(F::zero()) += eval
+            * if i & 1 == 1 {
+                challenge
+            } else {
+                F::one() - challenge
+            };
+    }
+    *src = map;
 }
 
 fn collapse<F: Field>(group: &MLEGroup<F>) -> Vec<F> {
@@ -57,6 +68,16 @@ fn collapse<F: Field>(group: &MLEGroup<F>) -> Vec<F> {
     res
 }
 
+fn reduce_group<F: Field>(group: &mut MLEGroup<F>, challenge: F) {
+    for (_op, dense) in &mut group.dense_polys {
+        variablewise::reduce_evaluations(dense, challenge, F::from(1) - challenge);
+    }
+
+    for (_op, sparse) in &mut group.sparse_polys {
+        reduce_sparse(sparse, challenge);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SumcheckInput<F: Field> {
     pub mle_groups: Vec<MLEGroup<F>>,
@@ -64,7 +85,10 @@ pub struct SumcheckInput<F: Field> {
     pub num_vars: usize,
 }
 
-pub fn prove<F: Field>(input: SumcheckInput<F>, prover_state: &mut impl FiatShamir<F>) -> ProductSumcheck<F> {
+pub fn prove<F: Field>(
+    input: &mut SumcheckInput<F>,
+    prover_state: &mut impl Transcript<F>,
+) -> ProductSumcheck<F> {
     let num_vars = input.num_vars;
     let mut prover_messages = vec![];
     let mut verifier_messages = vec![];
@@ -78,22 +102,25 @@ pub fn prove<F: Field>(input: SumcheckInput<F>, prover_state: &mut impl FiatSham
         }
 
         // evaluate
-        let sums = pairwise_product_evaluate(&eval_mles);
+        let sums = variablewise_product_evaluate(&eval_mles, F::from(4).inverse().unwrap());
         prover_messages.push(sums);
 
         // absorb
-        prover_state.absorb(sums.0);
-        prover_state.absorb(sums.1);
-        prover_state.absorb(sums.2);
+        prover_state.write(sums.0);
+        prover_state.write(sums.1);
+        prover_state.write(sums.2);
 
-        // // reduce
-        // if i != input.num_vars - 1 {
-        //     // squeeze
-        //     let verifier_message = prover_state.squeeze();
-        //     verifier_messages.push(verifier_message);
-        //     // reduce
-        //     reduce_ef(&mut new_evals, verifier_message);
-        // }
+        // reduce
+        if i != input.num_vars - 1 {
+            // squeeze
+            let verifier_message = prover_state.read();
+            verifier_messages.push(verifier_message);
+
+            // for each of the polys in all of the poly groups reduce
+            for mle_group in &mut input.mle_groups {
+                reduce_group(mle_group, verifier_message);
+            }
+        }
     }
 
     ProductSumcheck::<F> {
@@ -101,5 +128,61 @@ pub fn prove<F: Field>(input: SumcheckInput<F>, prover_state: &mut impl FiatSham
         verifier_messages,
         is_accepted: true, // TODO: rm this
     }
-    
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::experimental::product::{prove, MLEGroup, Op, SumcheckInput};
+    use crate::experimental::transcript::SanityTranscript;
+    use crate::multilinear::ReduceMode;
+    use crate::multilinear_product::{TimeProductProver, TimeProductProverConfig};
+    use crate::prover::Prover;
+    use crate::streams::Stream;
+    use crate::tests::{BenchStream, M31};
+    use crate::ProductSumcheck;
+
+    #[test]
+    fn sanity() {
+        // check against this
+        const NUM_VARIABLES: usize = 16;
+        let evaluation_stream: BenchStream<M31> = BenchStream::new(NUM_VARIABLES);
+        let time_prover_pairwise_transcript = ProductSumcheck::<M31>::prove::<
+            BenchStream<M31>,
+            TimeProductProver<M31, BenchStream<M31>>,
+        >(
+            &mut TimeProductProver::<M31, BenchStream<M31>>::new(TimeProductProverConfig::new(
+                NUM_VARIABLES,
+                vec![evaluation_stream.clone(), evaluation_stream.clone()],
+                ReduceMode::Variablewise,
+            )),
+            &mut ark_std::test_rng(),
+        );
+
+        // sanity
+        let s_evaluations: Vec<M31> = (0..1 << NUM_VARIABLES)
+            .map(|i| evaluation_stream.evaluation(i))
+            .collect();
+
+        let f_mle_group = MLEGroup {
+            dense_polys: vec![(Op::Mul, s_evaluations.clone())],
+            sparse_polys: vec![],
+        };
+
+        let g_mle_group = MLEGroup {
+            dense_polys: vec![(Op::Mul, s_evaluations.clone())],
+            sparse_polys: vec![],
+        };
+
+        let mut sumcheck_input: SumcheckInput<M31> = SumcheckInput {
+            mle_groups: vec![f_mle_group, g_mle_group],
+            dense_mle_len: s_evaluations.len(),
+            num_vars: s_evaluations.len().trailing_zeros() as usize,
+        };
+
+        let mut randomness = ark_std::test_rng();
+        let mut transcript = SanityTranscript::new(&mut randomness);
+        let transcript = prove(&mut sumcheck_input, &mut transcript);
+
+        assert_eq!(time_prover_pairwise_transcript, transcript);
+    }
 }

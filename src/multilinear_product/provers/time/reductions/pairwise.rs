@@ -11,22 +11,18 @@ pub fn pairwise_product_evaluate<F: Field>(src: &[Vec<F>]) -> (F, F, F) {
     let sum00: F = cfg_into_iter!(0..half_len)
         .map(|k| {
             let i = 2 * k;
-            let mut res = F::from(1);
-            for p in src {
-                res *= p[i];
-            }
-            res
+            let p0 = src[0][i];
+            let q0 = src[1][i];
+            p0 * q0
         })
         .sum();
 
     let sum11: F = cfg_into_iter!(0..half_len)
         .map(|k| {
             let i = 2 * k;
-            let mut res = F::from(1);
-            for p in src {
-                res *= p[i + 1];
-            }
-            res
+            let p1 = src[0][i + 1];
+            let q1 = src[1][i + 1];
+            p1 * q1
         })
         .sum();
 

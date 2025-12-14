@@ -112,11 +112,19 @@ mod tests {
     use crate::{
         multilinear::TimeProver,
         streams::MemoryStream,
-        tests::{multilinear::pairwise_sanity_test, F19},
+        tests::{
+            multilinear::{pairwise_sanity_test, sanity_test},
+            F19,
+        },
     };
 
     #[test]
-    fn sumcheck() {
+    fn sanity_pairwise() {
         pairwise_sanity_test::<F19, MemoryStream<F19>, TimeProver<F19, MemoryStream<F19>>>();
+    }
+
+    #[test]
+    fn sanity() {
+        sanity_test::<F19, MemoryStream<F19>, TimeProver<F19, MemoryStream<F19>>>();
     }
 }

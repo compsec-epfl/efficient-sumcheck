@@ -48,6 +48,7 @@ impl<F: Field> ProductSumcheck<F> {
                 is_accepted = false;
                 break;
             }
+            println!("accepted round");
 
             verifier_message = Some(F::rand(rng));
         }

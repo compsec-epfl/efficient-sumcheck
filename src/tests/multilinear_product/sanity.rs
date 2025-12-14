@@ -1,6 +1,8 @@
 use ark_ff::Field;
 
 use crate::{
+    multilinear::ReduceMode,
+    multilinear_product::TimeProductProverConfig,
     prover::{ProductProverConfig, Prover},
     streams::{MemoryStream, Stream},
     tests::polynomials::four_variable_polynomial_evaluations,
@@ -140,6 +142,21 @@ where
 {
     let s_p: S = MemoryStream::new(four_variable_polynomial_evaluations()).into();
     let s_q: S = MemoryStream::new(four_variable_polynomial_evaluations()).into();
+    // let c = P::ProverConfig::new(4, vec![s_p, s_q], ReduceMode::Variablewise);
     let mut p = P::new(ProductProverConfig::default(4, vec![s_p, s_q]));
     sanity_test_driver(&mut p);
 }
+
+// pub fn pairwise_sanity_test<F, S, P>()
+// where
+//     F: Field,
+//     S: Stream<F> + From<MemoryStream<F>>,
+//     P: Prover<F, VerifierMessage = Option<F>, ProverMessage = Option<(F, F, F)>>,
+//     P::ProverConfig: ProductProverConfig<F, S>,
+// {
+//     let s_p: S = MemoryStream::new(four_variable_polynomial_evaluations()).into();
+//     let s_q: S = MemoryStream::new(four_variable_polynomial_evaluations()).into();
+//     let config = TimeProductProverConfig::new(4, vec![s_p, s_q], ReduceMode::Pairwise);
+//     let mut p = P::new(TimeProductProverConfig::new(4, vec![s_p, s_q], ReduceMode::Pairwise));
+//     sanity_test_driver(&mut p);
+// }

@@ -53,11 +53,17 @@ impl<F: Field, S: Stream<F>> Prover<F> for TimeProductProver<F, S> {
 mod tests {
     use crate::{
         multilinear_product::TimeProductProver,
-        tests::{multilinear_product::consistency_test, BenchStream, F64},
+        streams::MemoryStream,
+        tests::{multilinear_product::consistency_test, BenchStream, F19, F64},
     };
 
     #[test]
     fn parity_with_basic_prover() {
         consistency_test::<F64, BenchStream<F64>, TimeProductProver<F64, BenchStream<F64>>>();
     }
+
+    // #[test]
+    // fn sumcheck() {
+    //     pairwise_sanity_test::<F19, MemoryStream<F19>, TimeProductProver<F19, MemoryStream<F19>>>();
+    // }
 }
