@@ -7,6 +7,8 @@ use super::super::MODULUS;
 
 // Goldilocks (2^64 - 2^32 + 1): You are using a u64. The Goldilocks modulus is very close to the maximum value of a u64. If a and b are large field elements, their sum (a + b) will almost certainly exceed 2^64-1, causing the CPU to trigger an overflow panic before you even reach the if tmp >= MODULUS check.
 
+
+// https://github.com/zhenfeizhang/Goldilocks/blob/872114997b82d0157e29a702992a3bd2023aa7ba/src/primefield/fp.rs#L377
 #[inline(always)]
 pub fn add(a: u64, b: u64) -> u64 {
     // We use wrapping_add to prevent the overflow panic.

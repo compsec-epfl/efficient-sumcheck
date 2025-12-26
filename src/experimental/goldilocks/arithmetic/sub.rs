@@ -1,6 +1,6 @@
 use ark_std::simd::{cmp::SimdPartialOrd, LaneCount, Simd, SupportedLaneCount};
-use super::super::MODULUS;
 
+// https://github.com/zhenfeizhang/Goldilocks/blob/872114997b82d0157e29a702992a3bd2023aa7ba/src/primefield/fp.rs#L424
 #[inline(always)]
 pub fn sub(a: u64, b: u64) -> u64 {
     let (diff, underflow) = a.overflowing_sub(b);
@@ -12,6 +12,7 @@ pub fn sub(a: u64, b: u64) -> u64 {
         diff
     }
 }
+
 #[inline(always)]
 pub fn sub_v<const LANES: usize>(a: &Simd<u64, LANES>, b: &Simd<u64, LANES>) -> Simd<u64, LANES>
 where
