@@ -1,7 +1,7 @@
 use ark_ff::{
     ark_ff_macros::SmallFpConfig,
     fields::{Fp128, Fp64, MontBackend, MontConfig},
-    BigInt, SmallFp, SmallFpConfig,
+    BigInt, SmallFp,
 };
 use ark_ff::{Fp2, Fp2Config, Fp4, Fp4Config, SqrtPrecomputation};
 #[derive(MontConfig)]
