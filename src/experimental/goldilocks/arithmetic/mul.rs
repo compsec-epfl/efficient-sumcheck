@@ -23,6 +23,7 @@ pub fn mul_v<const LANES: usize>(
 where
     LaneCount<LANES>: SupportedLaneCount,
 {
+    // For goldilocks Simd<u128, LANES> dont exist, look for other ways
     // widen
     let mut widend_a: Simd<u64, LANES> = a.cast();
     let widend_b: Simd<u64, LANES> = b.cast();
@@ -61,10 +62,10 @@ mod tests {
 
         // random elements
         let multipliers: Vec<u64> = (0..LEN).map(|_| rng.next_u64() % MODULUS).collect();
-        println!("{:?}", multipliers);
+        // println!("{:?}", multipliers);
 
         let mut expected_ef: Vec<u64> = (0..LEN).map(|_| rng.next_u64()).collect();
-        println!("{:?}", expected_ef);
+        // println!("{:?}", expected_ef);
 
         let mut received_ef = expected_ef.clone();
 

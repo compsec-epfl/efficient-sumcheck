@@ -7,11 +7,11 @@ use efficient_sumcheck::{
         m31::{
             evaluate_bf::evaluate_bf, evaluate_ef::evaluate_ef, reduce_bf::reduce_bf,
             reduce_ef::reduce_ef, sumcheck,
-        },
+        }
     },
     multilinear::{pairwise, ReduceMode, TimeProver},
     prover::Prover,
-    tests::{BenchStream, Fp4SmallM31, SmallM31, F128},
+    tests::{BenchStream, Fp4SmallM31, SmallM31, F128, SmallGoldilocks, Fp2SmallGoldilocks},
     Sumcheck,
 };
 
@@ -139,6 +139,107 @@ fn bench_reduce_ef(c: &mut Criterion) {
     });
 
     c.bench_function("reduce_ef::reduce_1M", |b| {
+        b.iter(|| {
+            let mut v = src_xlarge.clone();
+            reduce_ef(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("ef_pairwise::reduce_1K", |b| {
+        b.iter(|| {
+            let mut v = src_xsmall.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("ef_pairwise::reduce_16K", |b| {
+        b.iter(|| {
+            let mut v = src_small.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("ef_pairwise::reduce_64K", |b| {
+        b.iter(|| {
+            let mut v = src_med.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("ef_pairwise::reduce_256K", |b| {
+        b.iter(|| {
+            let mut v = src_large.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("ef_pairwise::reduce_1M", |b| {
+        b.iter(|| {
+            let mut v = src_xlarge.clone();
+            pairwise::reduce_evaluations(black_box(&mut v), challenge_ef);
+        });
+    });
+}
+
+
+fn bench_reduce_ef_goldilocks(c: &mut Criterion) {
+
+    use efficient_sumcheck::experimental::goldilocks::reduce_ef::reduce_ef;
+    const LEN_XSMALL: usize = 1 << 10; // 1K
+    const LEN_SMALL: usize = 1 << 14; // 16K
+    const LEN_MED: usize = 1 << 16; // 64K
+    const LEN_LARGE: usize = 1 << 18; // 256K
+    const LEN_XLARGE: usize = 1 << 20; // 1M
+
+    let mut rng = test_rng();
+
+    // Shared input vector in the base field
+    let src_xsmall: Vec<Fp2SmallGoldilocks> = (0..LEN_XSMALL)
+        .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
+        .collect();
+    let src_small: Vec<Fp2SmallGoldilocks> = (0..LEN_SMALL)
+        .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
+        .collect();
+    let src_med: Vec<Fp2SmallGoldilocks> = (0..LEN_MED).map(|_| Fp2SmallGoldilocks::rand(&mut rng)).collect();
+    let src_large: Vec<Fp2SmallGoldilocks> = (0..LEN_LARGE)
+        .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
+        .collect();
+    let src_xlarge: Vec<Fp2SmallGoldilocks> = (0..LEN_XLARGE)
+        .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
+        .collect();
+
+    let challenge_ef = Fp2SmallGoldilocks::from(7);
+
+    // This should be faster
+    c.bench_function("reduce_ef::goldilocks::reduce_1K", |b| {
+        b.iter(|| {
+            let mut v = src_xsmall.clone();
+            reduce_ef(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("reduce_ef::goldilocks::reduce_16K", |b| {
+        b.iter(|| {
+            let mut v = src_small.clone();
+            reduce_ef(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("reduce_ef::goldilocks::reduce_64K", |b| {
+        b.iter(|| {
+            let mut v = src_med.clone();
+            reduce_ef(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("reduce_ef::goldilocks::reduce_256K", |b| {
+        b.iter(|| {
+            let mut v = src_large.clone();
+            reduce_ef(black_box(&mut v), challenge_ef);
+        });
+    });
+
+    c.bench_function("reduce_ef::goldilocks::reduce_1M", |b| {
         b.iter(|| {
             let mut v = src_xlarge.clone();
             reduce_ef(black_box(&mut v), challenge_ef);
@@ -476,5 +577,6 @@ criterion_group!(
     bench_evaluate_bf,
     bench_evaluate_ef,
     bench_reduce_ef,
+    bench_reduce_ef_goldilocks
 );
 criterion_main!(benches);

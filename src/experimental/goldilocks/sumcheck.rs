@@ -10,6 +10,7 @@ use crate::multilinear::pairwise;
 // Swap types to Goldilocks
 use crate::tests::{Fp2SmallGoldilocks, SmallGoldilocks};
 use crate::Sumcheck;
+use super::MODULUS;
 
 pub fn prove(
     evals: &[SmallGoldilocks], 
@@ -26,8 +27,7 @@ pub fn prove(
         if i == 0 {
             // 1. Evaluate Base Field (Goldilocks 2^64 - 2^32 + 1)
             // Use the Goldilocks modulus constant
-            let sums: (SmallGoldilocks, SmallGoldilocks) = 
-                evaluate_bf::<18446744069414584321>(evals);
+            let sums: (SmallGoldilocks, SmallGoldilocks) = evaluate_bf::<MODULUS>(evals);
             
             // 2. Promote to Extension Field (Fp2)
             let (sum_0, sum_1) = (
@@ -48,7 +48,7 @@ pub fn prove(
         } else {
             // Evaluate Extension Field
             let sums = if i < num_vars - 1 {
-                evaluate_ef::<18446744069414584321>(&new_evals)
+                evaluate_ef::<MODULUS>(&new_evals)
             } else {
                 // Last step uses standard pairwise evaluation
                 pairwise::evaluate(&new_evals)
