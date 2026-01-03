@@ -5,5 +5,6 @@ pub mod evaluate_ef;
 pub mod reduce_bf;
 pub mod reduce_ef;
 pub mod sumcheck;
+pub mod utils;
 
-pub use constants::{MODULUS};
+pub use constants::{MODULUS, EPSILON};

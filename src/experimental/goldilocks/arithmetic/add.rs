@@ -1,35 +1,22 @@
 use ark_std::simd::{cmp::SimdPartialOrd, LaneCount, Simd, SupportedLaneCount};
-use super::super::MODULUS;
-
-
-// Why did not overflow in m31?
-// M31 : You are using a u32. The maximum value of a + b is roughly 2^31 + 2^31 = 2^32. A u32 can hold up to 2^{32}-1. You barely fit, so it usually doesn't overflow in a way that triggers the panic (unless a or b are slightly above the modulus).
-
-// Goldilocks (2^64 - 2^32 + 1): You are using a u64. The Goldilocks modulus is very close to the maximum value of a u64. If a and b are large field elements, their sum (a + b) will almost certainly exceed 2^64-1, causing the CPU to trigger an overflow panic before you even reach the if tmp >= MODULUS check.
-
+use super::super::{MODULUS, EPSILON};
+use crate::experimental::goldilocks::utils::{assume, branch_hint};
 
 // https://github.com/zhenfeizhang/Goldilocks/blob/872114997b82d0157e29a702992a3bd2023aa7ba/src/primefield/fp.rs#L377
 #[inline(always)]
 pub fn add(a: u64, b: u64) -> u64 {
-    // We use wrapping_add to prevent the overflow panic.
-    // sum = (a + b) mod 2^64
-    let (sum, did_overflow) = a.overflowing_add(b);
-    
-    // If it overflowed 2^64, we need to add the "Goldilocks Epsilon" 
-    // (which is 2^32 - 1) to account for the difference between 2^64 and the modulus.
-    let epsilon = 0xFFFFFFFFu64;
-    
-    let mut res = if did_overflow {
-        sum.wrapping_add(epsilon)
-    } else {
-        sum
-    };
-
-    // Final check to ensure the result is in [0, MODULUS)
-    if res >= MODULUS {
-        res -= MODULUS;
+    let (sum, over) = a.overflowing_add(b);
+    let (mut sum, over) = sum.overflowing_add((over as u64) * EPSILON);
+    if over {
+        // NB: a > Self::ORDER && b > Self::ORDER is necessary but not sufficient for double-overflow.
+        // This assume does two things:
+        //  1. If compiler knows that either a or b <= ORDER, then it can skip this check.
+        //  2. Hints to the compiler how rare this double-overflow is (thus handled better with a branch).
+        assume(a > MODULUS && b > MODULUS);
+        branch_hint();
+        sum += EPSILON; // Cannot overflow.
     }
-    res
+    sum   
 }
 
 #[inline(always)]
