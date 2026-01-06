@@ -24,11 +24,9 @@ pub fn add_v<const LANES: usize>(a: &Simd<u64, LANES>, b: &Simd<u64, LANES>) -> 
 where
     LaneCount<LANES>: SupportedLaneCount,
 {
-    let modulus = Simd::<u64, LANES>::splat(0xFFFFFFFF00000001);
-    let epsilon = Simd::<u64, LANES>::splat(0xFFFFFFFF);
-
-    // 1. Wrapping addition
-    let sum = *a + *b;
+    let modulus = Simd::<u64, LANES>::splat(MODULUS);
+    let epsilon = Simd::<u64, LANES>::splat(EPSILON);
+    let sum = a + b;
 
     // 2. Detect where overflow occurred (a + b >= 2^64)
     // In SIMD, if the sum is less than one of the inputs, an overflow happened.

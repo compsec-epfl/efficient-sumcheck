@@ -21,7 +21,7 @@ where
     let epsilon = Simd::<u64, LANES>::splat(0xFFFFFFFF);
     
     // 1. Standard wrapping subtraction
-    let diff = *a - *b;
+    let diff = a - b;
     
     // 2. Detect underflow (a < b)
     let underflow_mask = a.simd_lt(*b);
