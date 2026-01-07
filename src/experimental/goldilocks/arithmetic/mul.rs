@@ -25,40 +25,58 @@ where
 {
     let mask32 = Simd::splat(0xFFFFFFFFu64);
 
+    // 32-bit Limb Split
     let a_lo = *a & mask32;
     let a_hi = *a >> 32;
+
     let b_lo = *b & mask32;
     let b_hi = *b >> 32;
 
+    // lo_lo, alo ​× blo​,   0 through 63
+    // lo_hi, alo​ × bhi​,   32 through 95
+    // hi_lo, ahi​ × blo​,   32 through 95
+    // hi_hi, ahi​ × bhi​,   64 through 127
     let lo_lo = a_lo * b_lo;
     let lo_hi = a_lo * b_hi;
     let hi_lo = a_hi * b_lo;
     let hi_hi = a_hi * b_hi;
 
+    // Reconstruct 128-bit product (x_hi, x_lo)
     let mid = lo_hi + hi_lo;
-    let mid_carry = mid.simd_lt(lo_hi).select(Simd::splat(1 << 32), Simd::splat(0));
-    
     let mid_lo = mid & mask32;
     let mid_hi = mid >> 32;
 
-    let x_lo = lo_lo + (mid_lo << 32);
-    let x_lo_carry = x_lo.simd_lt(lo_lo).select(Simd::splat(1), Simd::splat(0));
-    let x_hi = hi_hi + mid_hi + mid_carry + x_lo_carry;
+    // if overflow cause sum is less than its arguemnts
+    let mid_carry = mid.simd_lt(lo_hi).select(Simd::splat(1 << 32), Simd::splat(0));
 
+    // take the absolute bottom product (lo_lo) and add the lower half of your middle sum. Since the middle sum starts at bit 32, you shift mid_lo left by 32 to align it.
+    let x_lo = lo_lo + (mid_lo << 32);
+
+    // if overflow cause sum is less than its arguemnts
+    let x_lo_carry = x_lo.simd_lt(lo_lo).select(Simd::splat(1), Simd::splat(0));
+    
+    // Goldilocks Reduction (Matching your reduce128 logic)
+    // x_hi_hi is the top 32 bits of the 128-bit product
+    // x_hi_lo is the bits 64..96
+    
+    let x_hi = hi_hi + mid_hi + mid_carry + x_lo_carry;
     let x_hi_hi = x_hi >> 32;
     let x_hi_lo = x_hi & mask32;
 
-
+    // Step A: t0 = x_lo - x_hi_hi
     let mut t0 = x_lo - x_hi_hi;
     let borrow_mask = x_lo.simd_lt(x_hi_hi);
+    // If borrow, subtract EPSILON (which is equivalent to adding 2^64 - EPSILON)
     t0 = borrow_mask.select(t0 - Simd::splat(EPSILON), t0);
 
-
+    // Step B: t1 = x_hi_lo * EPSILON
     let t1 = x_hi_lo * Simd::splat(EPSILON);
 
+    // Step C: t2 = t0 + t1 (mod 2^64)
     let (t2_wrapped, carry) = overflowing_add_simd(t0, t1);
     let mut r = t2_wrapped + (carry.select(Simd::splat(EPSILON), Simd::splat(0)));
 
+    // Final Canonicalization
     let p = Simd::splat(MODULUS);
     r = r.simd_ge(p).select(r - p, r);
 
