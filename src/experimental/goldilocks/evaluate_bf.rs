@@ -75,7 +75,6 @@ pub fn evaluate_bf<const MODULUS: u64>(src: &[SmallGoldilocks]) -> (SmallGoldilo
         .reduce(
             || (0, 0),
             |(e1, o1), (e2, o2)| {
-                use crate::experimental::goldilocks::arithmetic::add::add;
                 (add(e1, e2), add(o1, o2))
             },
         );
@@ -90,6 +89,7 @@ pub fn evaluate_bf<const MODULUS: u64>(src: &[SmallGoldilocks]) -> (SmallGoldilo
 mod tests {
     use ark_ff::UniformRand;
     use ark_std::test_rng;
+    use super::super::MODULUS;
 
     use super::evaluate_bf;
     use crate::multilinear::pairwise;
@@ -107,7 +107,7 @@ mod tests {
         // run function
         let expected = pairwise::evaluate(&src);
 
-        let received = evaluate_bf::<18446744069414584321>(&src);
+        let received = evaluate_bf::<MODULUS>(&src);
 
         assert_eq!(expected, received);
     }
