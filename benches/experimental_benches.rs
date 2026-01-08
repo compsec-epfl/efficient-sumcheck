@@ -474,6 +474,65 @@ fn bench_evaluate_bf(c: &mut Criterion) {
     });
 }
 
+
+fn bench_evaluate_bf_goldilocks(c: &mut Criterion) {
+    use efficient_sumcheck::experimental::goldilocks::evaluate_bf::evaluate_bf;
+    use efficient_sumcheck::experimental::goldilocks::MODULUS;
+
+    const LEN_XSMALL: usize = 1 << 10; // 1K
+    const LEN_SMALL: usize = 1 << 14; // 16K
+    const LEN_MED: usize = 1 << 16; // 64K
+    const LEN_LARGE: usize = 1 << 18; // 256K
+    const LEN_XLARGE: usize = 1 << 20; // 1M
+
+    let mut rng = test_rng();
+
+    // Shared input vector in the base field
+    let src_xsmall: Vec<SmallGoldilocks> = (0..LEN_XSMALL).map(|_| SmallGoldilocks::rand(&mut rng)).collect();
+    let src_small: Vec<SmallGoldilocks> = (0..LEN_SMALL).map(|_| SmallGoldilocks::rand(&mut rng)).collect();
+    let src_med: Vec<SmallGoldilocks> = (0..LEN_MED).map(|_| SmallGoldilocks::rand(&mut rng)).collect();
+    let src_large: Vec<SmallGoldilocks> = (0..LEN_LARGE).map(|_| SmallGoldilocks::rand(&mut rng)).collect();
+    let src_xlarge: Vec<SmallGoldilocks> = (0..LEN_XLARGE).map(|_| SmallGoldilocks::rand(&mut rng)).collect();
+
+    // This should be faster
+    c.bench_function("evaluate_bf::goldilocks::evaluate_1K", |b| {
+        b.iter(|| {
+            let v = src_xsmall.clone();
+            evaluate_bf::<MODULUS>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_bf::goldilocks::evaluate_16K", |b| {
+        b.iter(|| {
+            let v = src_small.clone();
+            evaluate_bf::<MODULUS>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_bf::goldilocks::evaluate_64K", |b| {
+        b.iter(|| {
+            let v = src_med.clone();
+            evaluate_bf::<MODULUS>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_bf::goldilocks::evaluate_256K", |b| {
+        b.iter(|| {
+            let v = src_large.clone();
+            evaluate_bf::<MODULUS>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_bf::goldilocks::evaluate_1M", |b| {
+        b.iter(|| {
+            let v = src_xlarge.clone();
+            evaluate_bf::<MODULUS>(black_box(&v));
+        });
+    });
+
+}
+
+
 fn bench_evaluate_ef(c: &mut Criterion) {
     const LEN_XSMALL: usize = 1 << 10; // 1K
     const LEN_SMALL: usize = 1 << 14; // 16K
@@ -570,12 +629,113 @@ fn bench_evaluate_ef(c: &mut Criterion) {
     });
 }
 
+fn bench_evaluate_ef_goldilocks(c: &mut Criterion) {
+    use efficient_sumcheck::experimental::goldilocks::evaluate_ef::evaluate_ef;
+    use efficient_sumcheck::experimental::goldilocks::MODULUS;
+    
+    const LEN_XSMALL: usize = 1 << 10; // 1K
+    const LEN_SMALL: usize = 1 << 14; // 16K
+    const LEN_MED: usize = 1 << 16; // 64K
+    const LEN_LARGE: usize = 1 << 18; // 256K
+    const LEN_XLARGE: usize = 1 << 20; // 1M
+
+    let mut rng = test_rng();
+
+    // Shared input vector in the base field
+    let src_xsmall: Vec<Fp2SmallGoldilocks> = (0..LEN_XSMALL)
+        .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
+        .collect();
+    let src_small: Vec<Fp2SmallGoldilocks> = (0..LEN_SMALL)
+        .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
+        .collect();
+    let src_med: Vec<Fp2SmallGoldilocks> = (0..LEN_MED).map(|_| Fp2SmallGoldilocks::rand(&mut rng)).collect();
+    let src_large: Vec<Fp2SmallGoldilocks> = (0..LEN_LARGE)
+        .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
+        .collect();
+    let src_xlarge: Vec<Fp2SmallGoldilocks> = (0..LEN_XLARGE)
+        .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
+        .collect();
+
+    // This should be faster
+    c.bench_function("evaluate_ef::goldilocks::evaluate_1K", |b| {
+        b.iter(|| {
+            let v = src_xsmall.clone();
+            evaluate_ef::<MODULUS>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_ef::goldilocks::evaluate_16K", |b| {
+        b.iter(|| {
+            let v = src_small.clone();
+            evaluate_ef::<MODULUS>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_ef::goldilocks::evaluate_64K", |b| {
+        b.iter(|| {
+            let v = src_med.clone();
+            evaluate_ef::<MODULUS>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_ef::goldilocks::evaluate_256K", |b| {
+        b.iter(|| {
+            let v = src_large.clone();
+            evaluate_ef::<MODULUS>(black_box(&v));
+        });
+    });
+
+    c.bench_function("evaluate_ef::goldilocks::evaluate_1M", |b| {
+        b.iter(|| {
+            let v = src_xlarge.clone();
+            evaluate_ef::<MODULUS>(black_box(&v));
+        });
+    });
+
+    c.bench_function("pairwise::goldilocks::evaluate_1K", |b| {
+        b.iter(|| {
+            let v = src_xsmall.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+
+    c.bench_function("pairwise::goldilocks::evaluate_16K", |b| {
+        b.iter(|| {
+            let v = src_small.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+
+    c.bench_function("pairwise::goldilocks::evaluate_64K", |b| {
+        b.iter(|| {
+            let v = src_med.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+
+    c.bench_function("pairwise::goldilocks::evaluate_256K", |b| {
+        b.iter(|| {
+            let v = src_large.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+
+    c.bench_function("pairwise::goldilocks::evaluate_1M", |b| {
+        b.iter(|| {
+            let v = src_xlarge.clone();
+            pairwise::evaluate(black_box(&v));
+        });
+    });
+}
+
 criterion_group!(
     benches,
     bench_reduce_bf,
     bench_sumcheck_time,
     bench_evaluate_bf,
+    bench_evaluate_bf_goldilocks,
     bench_evaluate_ef,
+    bench_evaluate_ef_goldilocks,
     bench_reduce_ef,
     bench_reduce_ef_goldilocks
 );
