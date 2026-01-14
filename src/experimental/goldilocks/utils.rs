@@ -1,5 +1,5 @@
-use std::hint::unreachable_unchecked;
 use std::arch::asm;
+use std::hint::unreachable_unchecked;
 
 #[inline(always)]
 pub fn assume(p: bool) {

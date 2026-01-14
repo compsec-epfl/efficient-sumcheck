@@ -1,12 +1,12 @@
-use std::simd::{Mask};
+use std::simd::Mask;
 
 use ark_std::{
     mem,
     simd::{cmp::SimdPartialOrd, LaneCount, Simd, SupportedLaneCount},
 };
 
+use super::super::{EPSILON, MODULUS};
 use crate::tests::SmallGoldilocks;
-use super::super::{MODULUS, EPSILON};
 
 pub fn mul(a: u64, b: u64) -> u64 {
     let prod = unsafe { mem::transmute::<u64, SmallGoldilocks>(a) }
@@ -14,12 +14,8 @@ pub fn mul(a: u64, b: u64) -> u64 {
     unsafe { mem::transmute::<SmallGoldilocks, u64>(prod) }
 }
 
-
 #[inline(always)]
-pub fn mul_v<const LANES: usize>(
-    a: &Simd<u64, LANES>,
-    b: &Simd<u64, LANES>,
-) -> Simd<u64, LANES>
+pub fn mul_v<const LANES: usize>(a: &Simd<u64, LANES>, b: &Simd<u64, LANES>) -> Simd<u64, LANES>
 where
     LaneCount<LANES>: SupportedLaneCount,
 {
@@ -47,18 +43,20 @@ where
     let mid_hi = mid >> 32;
 
     // if overflow cause sum is less than its arguemnts
-    let mid_carry = mid.simd_lt(lo_hi).select(Simd::splat(1 << 32), Simd::splat(0));
+    let mid_carry = mid
+        .simd_lt(lo_hi)
+        .select(Simd::splat(1 << 32), Simd::splat(0));
 
     // take the absolute bottom product (lo_lo) and add the lower half of your middle sum. Since the middle sum starts at bit 32, you shift mid_lo left by 32 to align it.
     let x_lo = lo_lo + (mid_lo << 32);
 
     // if overflow cause sum is less than its arguemnts
     let x_lo_carry = x_lo.simd_lt(lo_lo).select(Simd::splat(1), Simd::splat(0));
-    
+
     // Goldilocks Reduction (Matching your reduce128 logic)
     // x_hi_hi is the top 32 bits of the 128-bit product
     // x_hi_lo is the bits 64..96
-    
+
     let x_hi = hi_hi + mid_hi + mid_carry + x_lo_carry;
     let x_hi_hi = x_hi >> 32;
     let x_hi_lo = x_hi & mask32;
@@ -86,15 +84,15 @@ where
 /// Helper for overflowing add in SIMD
 #[inline(always)]
 fn overflowing_add_simd<const LANES: usize>(
-    a: Simd<u64, LANES>, 
-    b: Simd<u64, LANES>
-) -> (Simd<u64, LANES>, Mask<i64, LANES>) 
-where LaneCount<LANES>: SupportedLaneCount 
+    a: Simd<u64, LANES>,
+    b: Simd<u64, LANES>,
+) -> (Simd<u64, LANES>, Mask<i64, LANES>)
+where
+    LaneCount<LANES>: SupportedLaneCount,
 {
     let res = a + b;
     (res, res.simd_lt(a))
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -103,8 +101,8 @@ mod tests {
     use super::mul_v;
     use ark_std::{rand::RngCore, simd::Simd, test_rng};
 
-     #[test]
-    fn single() {        
+    #[test]
+    fn single() {
         // https://asecuritysite.com/zk/go_plonk4
 
         let a_input: [u64; 1] = [10719222850664546238];
@@ -144,7 +142,6 @@ mod tests {
                 *a = (prod % MODULUS as u128) as u64;
             });
 
-        
         const LANES: usize = 16;
         for (a_chunk, b_chunk) in received_ef.chunks_mut(LANES).zip(multipliers.chunks(LANES)) {
             let a_simd = Simd::<u64, LANES>::from_slice(a_chunk);

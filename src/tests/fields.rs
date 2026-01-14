@@ -85,7 +85,6 @@ impl Fp4Config for Fp4SmallM31Config {
 
 pub type Fp4SmallM31 = Fp4<Fp4SmallM31Config>;
 
-
 // SmallGoldilocks extensions
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Fp2SmallGoldilocksConfig;
@@ -93,7 +92,7 @@ pub struct Fp2SmallGoldilocksConfig;
 impl Fp2Config for Fp2SmallGoldilocksConfig {
     type Fp = SmallGoldilocks;
 
-    /// For Goldilocks, 7 is a quadratic non-residue. 
+    /// For Goldilocks, 7 is a quadratic non-residue.
     /// The extension is formed by SmallGoldilocks[u] / (u^2 - 7)
     /// Reference: https://github.com/zhenfeizhang/Goldilocks
     const NONRESIDUE: SmallGoldilocks = SmallGoldilocks::new(7);
@@ -103,7 +102,7 @@ impl Fp2Config for Fp2SmallGoldilocksConfig {
     const FROBENIUS_COEFF_FP2_C1: &'static [SmallGoldilocks] = &[
         SmallGoldilocks::new(1),
         // This is typically -1 in the field, or the precomputed Frobenius constant.
-        SmallGoldilocks::new(18446744069414584320), 
+        SmallGoldilocks::new(18446744069414584320),
     ];
 }
 

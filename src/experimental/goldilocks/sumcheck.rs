@@ -3,18 +3,17 @@ use ark_ff::Field;
 use crate::experimental::fiat_shamir::FiatShamir;
 // Import the Goldilocks versions of your SIMD functions
 use crate::experimental::goldilocks::{
-    evaluate_bf::evaluate_bf, evaluate_ef::evaluate_ef, 
-    reduce_bf::reduce_bf, reduce_ef::reduce_ef,
+    evaluate_bf::evaluate_bf, evaluate_ef::evaluate_ef, reduce_bf::reduce_bf, reduce_ef::reduce_ef,
 };
 use crate::multilinear::pairwise;
 // Swap types to Goldilocks
+use super::MODULUS;
 use crate::tests::{Fp2SmallGoldilocks, SmallGoldilocks};
 use crate::Sumcheck;
-use super::MODULUS;
 
 pub fn prove(
-    evals: &[SmallGoldilocks], 
-    fs: &mut impl FiatShamir<Fp2SmallGoldilocks>
+    evals: &[SmallGoldilocks],
+    fs: &mut impl FiatShamir<Fp2SmallGoldilocks>,
 ) -> Sumcheck<Fp2SmallGoldilocks> {
     let len = evals.len();
     assert!(len.count_ones() == 1, "evals len must be power of 2");
@@ -28,20 +27,20 @@ pub fn prove(
             // 1. Evaluate Base Field (Goldilocks 2^64 - 2^32 + 1)
             // Use the Goldilocks modulus constant
             let sums: (SmallGoldilocks, SmallGoldilocks) = evaluate_bf::<MODULUS>(evals);
-            
+
             // 2. Promote to Extension Field (Fp2)
             let (sum_0, sum_1) = (
                 Fp2SmallGoldilocks::from_base_prime_field(sums.0),
                 Fp2SmallGoldilocks::from_base_prime_field(sums.1),
             );
             prover_messages.push((sum_0, sum_1));
-            
+
             // 3. Fiat-Shamir
             fs.absorb(sum_0);
             fs.absorb(sum_1);
             let verifier_message = fs.squeeze();
             verifier_messages.push(verifier_message);
-            
+
             // 4. Reduce Base Field to Extension Field
             // This reduction takes base field elements and a challenge in Fp2
             new_evals = reduce_bf(evals, verifier_message);
@@ -58,7 +57,7 @@ pub fn prove(
 
             fs.absorb(sums.0);
             fs.absorb(sums.1);
-            
+
             if i != num_vars - 1 {
                 let verifier_message = fs.squeeze();
                 verifier_messages.push(verifier_message);
@@ -67,14 +66,13 @@ pub fn prove(
             }
         }
     }
-    
+
     Sumcheck::<Fp2SmallGoldilocks> {
         prover_messages,
         verifier_messages,
         is_accepted: true,
     }
 }
-
 
 // has error
 #[cfg(test)]
@@ -101,7 +99,9 @@ mod tests {
             TimeProver::<SmallGoldilocks, BenchStream<SmallGoldilocks>>::new(<TimeProver<
                 SmallGoldilocks,
                 BenchStream<SmallGoldilocks>,
-            > as Prover<SmallGoldilocks>>::ProverConfig::new(
+            > as Prover<
+                SmallGoldilocks,
+            >>::ProverConfig::new(
                 claim,
                 NUM_VARIABLES,
                 evaluation_stream.clone(),
@@ -114,7 +114,8 @@ mod tests {
 
         // take the same evaluation stream
         let len = 1 << NUM_VARIABLES;
-        let evals: Vec<SmallGoldilocks> = (0..len).map(|x| SmallGoldilocks::from(x as u32)).collect();
+        let evals: Vec<SmallGoldilocks> =
+            (0..len).map(|x| SmallGoldilocks::from(x as u32)).collect();
         let mut fs = BenchFiatShamir::<Fp2SmallGoldilocks, _>::new(ark_std::test_rng());
         let transcript = prove(&evals, &mut fs);
 
@@ -129,16 +130,17 @@ mod tests {
             "challenges not same"
         );
 
-        let prover_messages_fp4: Vec<(Fp2SmallGoldilocks, Fp2SmallGoldilocks)> = time_prover_transcript
-            .prover_messages
-            .iter()
-            .map(|&(a, b)| {
-                (
-                    Fp2SmallGoldilocks::from_base_prime_field(a),
-                    Fp2SmallGoldilocks::from_base_prime_field(b),
-                )
-            })
-            .collect();
+        let prover_messages_fp4: Vec<(Fp2SmallGoldilocks, Fp2SmallGoldilocks)> =
+            time_prover_transcript
+                .prover_messages
+                .iter()
+                .map(|&(a, b)| {
+                    (
+                        Fp2SmallGoldilocks::from_base_prime_field(a),
+                        Fp2SmallGoldilocks::from_base_prime_field(b),
+                    )
+                })
+                .collect();
         assert_eq!(
             prover_messages_fp4, transcript.prover_messages,
             "prover messages not same"

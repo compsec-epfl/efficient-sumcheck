@@ -22,10 +22,7 @@ where
 
     let chunk_size = 4 * LANES;
     for i in (0..src.len()).step_by(chunk_size) {
-
-        acc0 = add_v(
-            &acc0, 
-            &Simd::<u64, LANES>::from_slice(&src[i..i + LANES]));
+        acc0 = add_v(&acc0, &Simd::<u64, LANES>::from_slice(&src[i..i + LANES]));
 
         acc1 = add_v(
             &acc1,
@@ -36,7 +33,7 @@ where
             &acc2,
             &Simd::<u64, LANES>::from_slice(&src[i + 2 * LANES..i + 3 * LANES]),
         );
-        
+
         acc3 = add_v(
             &acc3,
             &Simd::<u64, LANES>::from_slice(&src[i + 3 * LANES..i + 4 * LANES]),
@@ -64,20 +61,18 @@ where
     ])
 }
 
-pub fn evaluate_bf<const MODULUS: u64>(src: &[SmallGoldilocks]) -> (SmallGoldilocks, SmallGoldilocks) {
+pub fn evaluate_bf<const MODULUS: u64>(
+    src: &[SmallGoldilocks],
+) -> (SmallGoldilocks, SmallGoldilocks) {
     const CHUNK_SIZE: usize = 32_768;
     let sums = src
         .par_chunks(CHUNK_SIZE)
         .map(|chunk| {
-            let chunk_raw: &[u64] = unsafe { core::slice::from_raw_parts(chunk.as_ptr() as *const u64, chunk.len()) };
+            let chunk_raw: &[u64] =
+                unsafe { core::slice::from_raw_parts(chunk.as_ptr() as *const u64, chunk.len()) };
             sum_v::<16>(chunk_raw)
         })
-        .reduce(
-            || (0, 0),
-            |(e1, o1), (e2, o2)| {
-                (add(e1, e2), add(o1, o2))
-            },
-        );
+        .reduce(|| (0, 0), |(e1, o1), (e2, o2)| (add(e1, e2), add(o1, o2)));
 
     let (sum_0_u64, sum_1_u64) = sums;
     let sum_0: SmallGoldilocks = unsafe { mem::transmute::<u64, SmallGoldilocks>(sum_0_u64) };
@@ -87,9 +82,9 @@ pub fn evaluate_bf<const MODULUS: u64>(src: &[SmallGoldilocks]) -> (SmallGoldilo
 
 #[cfg(test)]
 mod tests {
+    use super::super::MODULUS;
     use ark_ff::UniformRand;
     use ark_std::test_rng;
-    use super::super::MODULUS;
 
     use super::evaluate_bf;
     use crate::multilinear::pairwise;

@@ -19,13 +19,13 @@ where
     LaneCount<LANES>: SupportedLaneCount,
 {
     let epsilon = Simd::<u64, LANES>::splat(0xFFFFFFFF);
-    
+
     // 1. Standard wrapping subtraction
     let diff = a - b;
-    
+
     // 2. Detect underflow (a < b)
     let underflow_mask = a.simd_lt(*b);
-    
+
     // 3. If underflowed, we have diff = (a - b) + 2^64.
     // To get (a - b) mod p, we need (a - b) + (2^64 - 2^32 + 1).
     // So we subtract (2^32 - 1).

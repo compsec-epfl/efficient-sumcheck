@@ -1,6 +1,6 @@
-use ark_std::simd::{cmp::SimdPartialOrd, LaneCount, Simd, SupportedLaneCount};
-use super::super::{MODULUS, EPSILON};
+use super::super::{EPSILON, MODULUS};
 use crate::experimental::goldilocks::utils::{assume, branch_hint};
+use ark_std::simd::{cmp::SimdPartialOrd, LaneCount, Simd, SupportedLaneCount};
 
 // https://github.com/zhenfeizhang/Goldilocks/blob/872114997b82d0157e29a702992a3bd2023aa7ba/src/primefield/fp.rs#L377
 #[inline(always)]
@@ -16,7 +16,7 @@ pub fn add(a: u64, b: u64) -> u64 {
         branch_hint();
         sum += EPSILON; // Cannot overflow.
     }
-    sum   
+    sum
 }
 
 #[inline(always)]
@@ -40,7 +40,6 @@ where
 
     res
 }
-
 
 #[cfg(test)]
 mod tests {

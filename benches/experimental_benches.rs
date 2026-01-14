@@ -7,11 +7,11 @@ use efficient_sumcheck::{
         m31::{
             evaluate_bf::evaluate_bf, evaluate_ef::evaluate_ef, reduce_bf::reduce_bf,
             reduce_ef::reduce_ef, sumcheck,
-        }
+        },
     },
     multilinear::{pairwise, ReduceMode, TimeProver},
     prover::Prover,
-    tests::{BenchStream, Fp4SmallM31, SmallM31, F128, SmallGoldilocks, Fp2SmallGoldilocks},
+    tests::{BenchStream, Fp2SmallGoldilocks, Fp4SmallM31, SmallGoldilocks, SmallM31, F128},
     Sumcheck,
 };
 
@@ -181,9 +181,7 @@ fn bench_reduce_ef(c: &mut Criterion) {
     });
 }
 
-
 fn bench_reduce_ef_goldilocks(c: &mut Criterion) {
-
     use efficient_sumcheck::experimental::goldilocks::reduce_ef::reduce_ef;
     const LEN_XSMALL: usize = 1 << 10; // 1K
     const LEN_SMALL: usize = 1 << 14; // 16K
@@ -200,7 +198,9 @@ fn bench_reduce_ef_goldilocks(c: &mut Criterion) {
     let src_small: Vec<Fp2SmallGoldilocks> = (0..LEN_SMALL)
         .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
         .collect();
-    let src_med: Vec<Fp2SmallGoldilocks> = (0..LEN_MED).map(|_| Fp2SmallGoldilocks::rand(&mut rng)).collect();
+    let src_med: Vec<Fp2SmallGoldilocks> = (0..LEN_MED)
+        .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
+        .collect();
     let src_large: Vec<Fp2SmallGoldilocks> = (0..LEN_LARGE)
         .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
         .collect();
@@ -474,7 +474,6 @@ fn bench_evaluate_bf(c: &mut Criterion) {
     });
 }
 
-
 fn bench_evaluate_bf_goldilocks(c: &mut Criterion) {
     use efficient_sumcheck::experimental::goldilocks::evaluate_bf::evaluate_bf;
     use efficient_sumcheck::experimental::goldilocks::MODULUS;
@@ -488,11 +487,21 @@ fn bench_evaluate_bf_goldilocks(c: &mut Criterion) {
     let mut rng = test_rng();
 
     // Shared input vector in the base field
-    let src_xsmall: Vec<SmallGoldilocks> = (0..LEN_XSMALL).map(|_| SmallGoldilocks::rand(&mut rng)).collect();
-    let src_small: Vec<SmallGoldilocks> = (0..LEN_SMALL).map(|_| SmallGoldilocks::rand(&mut rng)).collect();
-    let src_med: Vec<SmallGoldilocks> = (0..LEN_MED).map(|_| SmallGoldilocks::rand(&mut rng)).collect();
-    let src_large: Vec<SmallGoldilocks> = (0..LEN_LARGE).map(|_| SmallGoldilocks::rand(&mut rng)).collect();
-    let src_xlarge: Vec<SmallGoldilocks> = (0..LEN_XLARGE).map(|_| SmallGoldilocks::rand(&mut rng)).collect();
+    let src_xsmall: Vec<SmallGoldilocks> = (0..LEN_XSMALL)
+        .map(|_| SmallGoldilocks::rand(&mut rng))
+        .collect();
+    let src_small: Vec<SmallGoldilocks> = (0..LEN_SMALL)
+        .map(|_| SmallGoldilocks::rand(&mut rng))
+        .collect();
+    let src_med: Vec<SmallGoldilocks> = (0..LEN_MED)
+        .map(|_| SmallGoldilocks::rand(&mut rng))
+        .collect();
+    let src_large: Vec<SmallGoldilocks> = (0..LEN_LARGE)
+        .map(|_| SmallGoldilocks::rand(&mut rng))
+        .collect();
+    let src_xlarge: Vec<SmallGoldilocks> = (0..LEN_XLARGE)
+        .map(|_| SmallGoldilocks::rand(&mut rng))
+        .collect();
 
     // This should be faster
     c.bench_function("evaluate_bf::goldilocks::evaluate_1K", |b| {
@@ -529,9 +538,7 @@ fn bench_evaluate_bf_goldilocks(c: &mut Criterion) {
             evaluate_bf::<MODULUS>(black_box(&v));
         });
     });
-
 }
-
 
 fn bench_evaluate_ef(c: &mut Criterion) {
     const LEN_XSMALL: usize = 1 << 10; // 1K
@@ -632,7 +639,7 @@ fn bench_evaluate_ef(c: &mut Criterion) {
 fn bench_evaluate_ef_goldilocks(c: &mut Criterion) {
     use efficient_sumcheck::experimental::goldilocks::evaluate_ef::evaluate_ef;
     use efficient_sumcheck::experimental::goldilocks::MODULUS;
-    
+
     const LEN_XSMALL: usize = 1 << 10; // 1K
     const LEN_SMALL: usize = 1 << 14; // 16K
     const LEN_MED: usize = 1 << 16; // 64K
@@ -648,7 +655,9 @@ fn bench_evaluate_ef_goldilocks(c: &mut Criterion) {
     let src_small: Vec<Fp2SmallGoldilocks> = (0..LEN_SMALL)
         .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
         .collect();
-    let src_med: Vec<Fp2SmallGoldilocks> = (0..LEN_MED).map(|_| Fp2SmallGoldilocks::rand(&mut rng)).collect();
+    let src_med: Vec<Fp2SmallGoldilocks> = (0..LEN_MED)
+        .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
+        .collect();
     let src_large: Vec<Fp2SmallGoldilocks> = (0..LEN_LARGE)
         .map(|_| Fp2SmallGoldilocks::rand(&mut rng))
         .collect();
