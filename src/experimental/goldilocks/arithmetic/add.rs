@@ -1,6 +1,6 @@
-use super::super::{EPSILON, MODULUS};
-use crate::experimental::goldilocks::utils::{assume, branch_hint};
+use super::utils::{assume, branch_hint};
 use ark_std::simd::{cmp::SimdPartialOrd, LaneCount, Simd, SupportedLaneCount};
+use crate::experimental::goldilocks::{EPSILON, MODULUS};
 
 // https://github.com/zhenfeizhang/Goldilocks/blob/872114997b82d0157e29a702992a3bd2023aa7ba/src/primefield/fp.rs#L377
 #[inline(always)]

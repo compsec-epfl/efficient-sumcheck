@@ -4,7 +4,7 @@ use ark_std::{cfg_into_iter, mem, simd::Simd};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::{
-    experimental::goldilocks::arithmetic::{add::add_v, mul::mul_v, sub::sub_v},
+    experimental::goldilocks::arithmetic::{add::add_v, mul::mul_v},
     tests::Fp2SmallGoldilocks,
 };
 
@@ -85,7 +85,6 @@ mod tests {
 
     #[test]
     fn static_goldilocks_fp2_reduction2() {
-        use ark_ff::Field;
         // Use the proper constructor to handle Montgomery encoding
         let a = Fp2SmallGoldilocks::new(10u64.into(), 2u64.into());
         let b = Fp2SmallGoldilocks::new(15u64.into(), 5u64.into());

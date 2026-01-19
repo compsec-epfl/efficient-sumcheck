@@ -53,7 +53,7 @@ where
     // if overflow cause sum is less than its arguemnts
     let x_lo_carry = x_lo.simd_lt(lo_lo).select(Simd::splat(1), Simd::splat(0));
 
-    // Goldilocks Reduction (Matching your reduce128 logic)
+    // Goldilocks Reduction
     // x_hi_hi is the top 32 bits of the 128-bit product
     // x_hi_lo is the bits 64..96
 
@@ -130,7 +130,6 @@ mod tests {
         // random elements
         let multipliers: Vec<u64> = (0..LEN).map(|_| rng.next_u64() % MODULUS).collect();
         let mut expected_ef: Vec<u64> = (0..LEN).map(|_| rng.next_u64()).collect();
-
         let mut received_ef = expected_ef.clone();
 
         // control

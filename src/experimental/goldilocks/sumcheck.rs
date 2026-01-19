@@ -1,12 +1,9 @@
 use ark_ff::Field;
-
 use crate::experimental::fiat_shamir::FiatShamir;
-// Import the Goldilocks versions of your SIMD functions
 use crate::experimental::goldilocks::{
     evaluate_bf::evaluate_bf, evaluate_ef::evaluate_ef, reduce_bf::reduce_bf, reduce_ef::reduce_ef,
 };
 use crate::multilinear::pairwise;
-// Swap types to Goldilocks
 use super::MODULUS;
 use crate::tests::{Fp2SmallGoldilocks, SmallGoldilocks};
 use crate::Sumcheck;
