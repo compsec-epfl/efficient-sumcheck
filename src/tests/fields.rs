@@ -1,7 +1,7 @@
 use ark_ff::{
     ark_ff_macros::SmallFpConfig,
     fields::{Fp128, Fp64, MontBackend, MontConfig},
-    BigInt, SmallFp, SmallFpConfig,
+    BigInt, SmallFp,
 };
 use ark_ff::{Fp2, Fp2Config, Fp4, Fp4Config, SqrtPrecomputation};
 #[derive(MontConfig)]
@@ -84,3 +84,39 @@ impl Fp4Config for Fp4SmallM31Config {
 }
 
 pub type Fp4SmallM31 = Fp4<Fp4SmallM31Config>;
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn as_bytes<T>(v: &T) -> Vec<u8> {
+        unsafe {
+            std::slice::from_raw_parts(
+                (v as *const T) as *const u8,
+                core::mem::size_of::<T>(),
+            )
+            .to_vec()
+        }
+    }
+
+    #[test]
+    fn smallgoldilocks_vs_goldilocks_raw_and_fmt_should_be_the_same() {
+        // SmallFp has `new`, Fp64 commonly supports From<u64>.
+        let small = SmallGoldilocks::new(7);
+        let normal = F64::from(7u64);
+
+        // Display formatting: should be canonical "7" for both.
+        let small_fmt = format!("{}", small); // <-- bug that this IS mont form
+        let normal_fmt = format!("{}", normal); // <-- this is 7 (as expected)
+        assert_eq!(small_fmt, normal_fmt);
+
+        // whatever is in memory is the same 
+        let small_bytes = as_bytes(&small); // <-- TODO: bug that this is NOT mont form? (it's 7)
+        let normal_bytes = as_bytes(&normal); // <-- this is mont form (as expected)
+        assert_eq!(
+            small_bytes, normal_bytes,
+            "Raw in-memory bytes differ between SmallGoldilocks and Goldilocks for 7."
+        );
+    }
+}
