@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ark-ff = { path = "../../../ben/algebra/ff"}
-ark-poly = { path = "../../../ben/algebra/poly"}
-ark-serialize = { path = "../../../ben/algebra/serialize"}
+ark-ff = { git = "https://github.com/benbencik/algebra", branch = "small_fp", package = "ark-ff" }
+ark-poly = { git = "https://github.com/benbencik/algebra", branch = "small_fp", package = "ark-poly" }
+ark-serialize = { git = "https://github.com/benbencik/algebra", branch = "small_fp", package = "ark-serialize" }
 ark-std ="0.5.0"
 ark-bn254 = "0.5.0"
 efficient-sumcheck = { path = "../../.", default-features = false }
