@@ -43,9 +43,13 @@ let sumcheck_transcript: ProductSumcheck<F> = inner_product_sumcheck(
 );
 ```
 
-## Showcase: WARP Multilinear Constraint Batching
+## Examples
 
-[WARP](https://github.com/compsec-epfl/warp) is an IVC scheme that batches multilinear evaluation claims into a single inner product sumcheck. Before this library, WARP maintained its own 100+ line `MultilinearConstraintBatchingSumcheck` — a hand-rolled sumcheck loop with manual spongefish calls, pairwise reductions, and sparse-map folding ([PR #14](https://github.com/compsec-epfl/warp/pull/14)). All of that reduces to:
+### 1) WARP - Multilinear Constraint Batching
+
+Before integration, [WARP](https://github.com/compsec-epfl/warp) used 200+ lines of sumcheck related code including calls to SpongeFish, pair- and table-wise reductions, as well as sparse-map foldings ([PR #14](https://github.com/compsec-epfl/warp/pull/14), [PR #12](https://github.com/compsec-epfl/warp/pull/12/changes#diff-904f410986c619441fb8554f4840cb36613f2de354b41ca991d381dec78959b0L34)). 
+
+Using Efficient Sumcheck this reduces to six lines of code and with zero user effort benefits from parallelization (and soon vectorization):
 
 ```rust
 use efficient_sumcheck::{inner_product_sumcheck, batched_constraint_poly};
@@ -57,7 +61,7 @@ let alpha = inner_product_sumcheck(
 ).verifier_messages;
 ```
 
-`batched_constraint_poly` merges **dense** evaluation vectors (e.g. out-of-domain sample queries) with **sparse** index-keyed corrections (e.g. in-domain shift queries optimized via [[CBBZ23](#references)]) into a single constraint polynomial, ready for the inner product sumcheck.
+Here, `batched_constraint_poly` merges dense evaluation vectors (out-of-domain samples) with sparse map-represented polynomials (in-domain queries) into a single constraint polynomial, ready for the inner product sumcheck.
 
 ## Advanced Usage
 
