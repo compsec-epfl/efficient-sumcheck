@@ -10,7 +10,6 @@ use crate::{
 pub struct ProductSumcheck<F: Field> {
     pub prover_messages: Vec<(F, F, F)>,
     pub verifier_messages: Vec<F>,
-    pub is_accepted: bool,
 }
 
 impl<F: Field> ProductSumcheck<F> {
@@ -22,7 +21,6 @@ impl<F: Field> ProductSumcheck<F> {
         // Initialize vectors to store prover and verifier messages
         let mut prover_messages: Vec<(F, F, F)> = vec![];
         let mut verifier_messages: Vec<F> = vec![];
-        let mut is_accepted = true;
 
         // Run the protocol
         let mut verifier_message: Option<F> = None;
@@ -45,7 +43,6 @@ impl<F: Field> ProductSumcheck<F> {
             // Handle how to proceed
             prover_messages.push(message);
             if !is_round_accepted {
-                is_accepted = false;
                 break;
             }
 
@@ -56,7 +53,6 @@ impl<F: Field> ProductSumcheck<F> {
         ProductSumcheck {
             prover_messages,
             verifier_messages,
-            is_accepted,
         }
     }
 }

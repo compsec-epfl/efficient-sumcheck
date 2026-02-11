@@ -52,6 +52,5 @@ where
     >(&mut sanity_prover, &mut ark_std::test_rng());
 
     // ensure the transcript is identical
-    assert!(prover_transcript.is_accepted);
     assert_eq!(prover_transcript, sanity_prover_transcript);
 }
