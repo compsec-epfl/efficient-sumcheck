@@ -1,44 +1,48 @@
-use ark_std::rand::{self, CryptoRng, RngCore};
-use spongefish::{Decoding, DuplexSpongeInterface, Encoding, NargSerialize, ProverState};
+use ark_ff::Field;
+use ark_std::rand::{CryptoRng, RngCore};
+use spongefish::codecs::arkworks_algebra::{FieldToUnitSerialize, UnitToField};
+use spongefish::{DefaultHash, ProverState};
 
 use crate::experimental::transcript::Transcript;
 
-/// Local “newtype” wrapper so we can implement a foreign trait.
-pub struct SpongefishTranscript<
-    H: DuplexSpongeInterface = spongefish::StdHash,
-    R: RngCore + CryptoRng = rand::rngs::StdRng,
->(
-    pub ProverState<H, R>,
+/// Newtype wrapper around spongefish's [`ProverState`] so we can implement [`Transcript`].
+///
+/// Uses the codec-level API (`add_scalars` / `challenge_scalars`) which is compatible
+/// with [`DomainSeparator`]'s `FieldDomainSeparator` builder methods.
+pub struct SpongefishTranscript<R: RngCore + CryptoRng = ark_std::rand::rngs::StdRng>(
+    pub ProverState<DefaultHash, u8, R>,
 );
 
-impl<H, R, F> Transcript<F> for SpongefishTranscript<H, R>
+impl<F, R> Transcript<F> for SpongefishTranscript<R>
 where
-    H: DuplexSpongeInterface,
+    F: Field,
     R: RngCore + CryptoRng,
-    F: Encoding<[H::U]> + NargSerialize + Decoding<[H::U]>,
 {
     fn read(&mut self) -> F {
-        self.0.verifier_message::<F>()
+        let [v] = self.0.challenge_scalars::<1>().unwrap();
+        v
     }
 
     fn write(&mut self, value: F) {
-        self.0.prover_message(&value);
+        self.0.add_scalars(&[value]).unwrap();
     }
 }
 
-// Optional helpers so it’s easy to get the prover state back out.
-impl<H, R> SpongefishTranscript<H, R>
+// Optional helpers so it's easy to get the prover state back out.
+impl<R> SpongefishTranscript<R>
 where
-    H: DuplexSpongeInterface,
     R: RngCore + CryptoRng,
 {
-    pub fn into_inner(self) -> ProverState<H, R> {
+    pub fn new(prover_state: ProverState<DefaultHash, u8, R>) -> Self {
+        Self(prover_state)
+    }
+    pub fn into_inner(self) -> ProverState<DefaultHash, u8, R> {
         self.0
     }
-    pub fn as_inner(&self) -> &ProverState<H, R> {
+    pub fn as_inner(&self) -> &ProverState<DefaultHash, u8, R> {
         &self.0
     }
-    pub fn as_inner_mut(&mut self) -> &mut ProverState<H, R> {
+    pub fn as_inner_mut(&mut self) -> &mut ProverState<DefaultHash, u8, R> {
         &mut self.0
     }
 }
