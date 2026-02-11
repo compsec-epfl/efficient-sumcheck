@@ -103,7 +103,7 @@ mod tests {
     #[test]
     fn smallgoldilocks_vs_goldilocks_raw_and_fmt_should_be_the_same() {
         // SmallFp has `new`, Fp64 commonly supports From<u64>.
-        let small = SmallGoldilocks::new(7);
+        let small = SmallGoldilocks::from(7u64);
         let normal = F64::from(7u64);
 
         // Display formatting: should be canonical "7" for both.
