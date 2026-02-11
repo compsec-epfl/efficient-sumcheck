@@ -19,7 +19,7 @@ spongefish = { git = "https://github.com/arkworks-rs/spongefish", rev="fce4bfed2
 spongefish-poseidon = { git = "https://github.com/arkworks-rs/spongefish", package = "spongefish-poseidon", features = ["bls12-381"], rev = "fce4bfed23b2deb9a9f174178b6c9f59f580cc81" }
 
 [dev-dependencies]
-criterion = "0.7"
+criterion = "0.8"
 
 [features]
 default = ["parallel"]
