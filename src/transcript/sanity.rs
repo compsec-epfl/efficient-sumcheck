@@ -1,7 +1,7 @@
 use ark_ff::Field;
 use ark_std::rand::Rng;
 
-use crate::experimental::transcript::Transcript;
+use crate::transcript::Transcript;
 
 #[derive(Debug)]
 pub struct SanityTranscript<'a, R> {

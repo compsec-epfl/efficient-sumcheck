@@ -3,7 +3,7 @@ use ark_std::rand::{CryptoRng, RngCore};
 use spongefish::codecs::arkworks_algebra::{FieldToUnitSerialize, UnitToField};
 use spongefish::{DefaultHash, ProverState};
 
-use crate::experimental::transcript::Transcript;
+use crate::transcript::Transcript;
 
 /// Newtype wrapper around spongefish's [`ProverState`] so we can implement [`Transcript`].
 ///
