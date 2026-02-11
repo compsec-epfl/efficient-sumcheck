@@ -29,11 +29,13 @@
 /// Transcript trait and backends (Spongefish, Sanity).
 pub mod transcript;
 
-mod multilinear_sumcheck;
 mod inner_product_sumcheck;
+mod multilinear_sumcheck;
 
+pub use inner_product_sumcheck::{
+    batched_constraint_poly, inner_product_sumcheck, ProductSumcheck,
+};
 pub use multilinear_sumcheck::{multilinear_sumcheck, Sumcheck};
-pub use inner_product_sumcheck::{inner_product_sumcheck, batched_constraint_poly, ProductSumcheck};
 
 // ─── Internal / Advanced ─────────────────────────────────────────────────────
 

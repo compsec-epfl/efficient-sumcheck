@@ -1,5 +1,5 @@
-mod spongefish;
 mod sanity;
+mod spongefish;
 #[allow(clippy::module_inception)]
 mod transcript;
 
