@@ -47,6 +47,10 @@ let sumcheck_transcript: ProductSumcheck<F> = inner_product_sumcheck(
 
 ### 1) WARP - Multilinear Constraint Batching
 
+WARP batches $r$ multilinear evaluation claims into a single inner product sumcheck:
+
+$$\sigma = \sum_{x \in \{0,1\}^n} \hat{f}(x) \cdot \underbrace{\sum_{i=1}^{r} \xi_i \cdot \widetilde{eq}(\zeta_i,\, x)}_{g(x)}$$
+
 Before integration, [WARP](https://github.com/compsec-epfl/warp) used 200+ lines of sumcheck related code including calls to SpongeFish, pair- and table-wise reductions, as well as sparse-map foldings ([PR #14](https://github.com/compsec-epfl/warp/pull/14), [PR #12](https://github.com/compsec-epfl/warp/pull/12/changes#diff-904f410986c619441fb8554f4840cb36613f2de354b41ca991d381dec78959b0L34)). 
 
 Using Efficient Sumcheck this reduces to six lines of code and with zero user effort benefits from parallelization (and soon vectorization):
@@ -61,23 +65,23 @@ let alpha = inner_product_sumcheck(
 ).verifier_messages;
 ```
 
-Here, `batched_constraint_poly` merges dense evaluation vectors (out-of-domain samples) with sparse map-represented polynomials (in-domain queries) into a single constraint polynomial, ready for the inner product sumcheck.
+Here, `batched_constraint_poly` builds $g(x)$ by merging **dense** evaluation vectors (out-of-domain points $\zeta_i \notin \{0,1\}^n$, where $\widetilde{eq}(\zeta_i, \cdot)$ is nonzero everywhere) with **sparse** index-keyed corrections (in-domain shift queries $\zeta_j \in \{0,1\}^n$, where $\widetilde{eq}(\zeta_j, \cdot)$ has a single nonzero entry, optimized via [[CBBZ23](#references)]).
 
 ## Advanced Usage
 
 Supporting the high-level interfaces are raw implementations of sumcheck [[LFKN92](#references)] using three proving algorithms:
 
 - The quasi-linear time and logarithmic space algorithm of [[CTY11](#references)] 
-  - [SpaceProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear/provers/space/space.rs#L8)
-  - [SpaceProductProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_product/provers/space/space.rs#L11)
+  - [SpaceProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear/provers/space/core.rs#L8)
+  - [SpaceProductProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_product/provers/space/core.rs#L11)
 
 - The linear time and linear space algorithm of [[VSBW13](#references)] 
-  - [TimeProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear/provers/time/time.rs#L13)
-  - [TimeProductProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_product/provers/time/time.rs#L10)
+  - [TimeProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear/provers/time/core.rs#L7)
+  - [TimeProductProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_product/provers/time/core.rs#L16)
 
 - The linear time and sublinear space algorithms of [[CFFZ24](#references)] and [[BCFFMMZ25](#references)] respectively
-  - [BlendyProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear/provers/blendy/blendy.rs#L9)
-  - [BlendyProductProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_product/provers/blendy/blendy.rs#L13)
+  - [BlendyProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear/provers/blendy/core.rs#L14)
+  - [BlendyProductProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_product/provers/blendy/core.rs#L13)
 
 ## References
 [[LFNK92](https://dl.acm.org/doi/pdf/10.1145/146585.146605)]: Carsten Lund, Lance Fortnow, Howard J. Karloff, and Noam Nisan. “Algebraic Methods for Interactive Proof Systems”. In: Journal of the ACM 39.4 (1992).
