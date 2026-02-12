@@ -7,8 +7,8 @@ Efficient, streaming capable, sumcheck with **Fiat–Shamir** support via [Spong
 ## General Use
 
 This library exposes two high-level functions:
-1) [`multilinear_sumcheck`](multilinear_sumcheck) and
-2) [`inner_product_sumcheck`](inner_product_sumcheck).
+1) [`multilinear_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_sumcheck.rs#L123) and
+2) [`inner_product_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/inner_product_sumcheck.rs#L166).
 
 Using [SpongeFish](https://github.com/arkworks-rs/spongefish) (or similar Fiat-Shamir interface) simply call the functions with the prover state:
 
