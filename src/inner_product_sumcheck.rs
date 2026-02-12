@@ -79,8 +79,8 @@ pub fn batched_constraint_poly<F: Field>(
 /// 3. Reads the verifier's challenge from the transcript (1 field element).
 /// 4. Reduces both evaluation vectors by folding with the challenge.
 pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
-    f: &mut Vec<BF>,
-    g: &mut Vec<BF>,
+    f: &mut [BF],
+    g: &mut [BF],
     transcript: &mut impl Transcript<EF>,
 ) -> ProductSumcheck<EF> {
     // checks
@@ -118,7 +118,10 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
         for _ in 1..num_rounds {
             let mut prover = TimeProductProver::new(TimeProductProverConfig::new(
                 ef_f.len().trailing_zeros() as usize,
-                vec![MemoryStream::new(ef_f.to_vec()), MemoryStream::new(ef_g.to_vec())],
+                vec![
+                    MemoryStream::new(ef_f.to_vec()),
+                    MemoryStream::new(ef_g.to_vec()),
+                ],
                 ReduceMode::Pairwise,
             ));
 

@@ -43,7 +43,7 @@ pub use crate::multilinear::Sumcheck;
 /// 3. Reads the verifier's challenge from the transcript (1 field element).
 /// 4. Reduces the evaluation vector by folding with the challenge.
 pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
-    evaluations: &mut Vec<BF>,
+    evaluations: &mut [BF],
     transcript: &mut impl Transcript<EF>,
 ) -> Sumcheck<EF> {
     // checks
