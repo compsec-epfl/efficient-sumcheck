@@ -6,7 +6,7 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```text
 //! use efficient_sumcheck::{multilinear_sumcheck, Sumcheck};
 //! use efficient_sumcheck::transcript::SanityTranscript;
 //!

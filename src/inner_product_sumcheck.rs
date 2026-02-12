@@ -7,7 +7,7 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```text
 //! use efficient_sumcheck::{inner_product_sumcheck, ProductSumcheck};
 //! use efficient_sumcheck::transcript::SanityTranscript;
 //!
