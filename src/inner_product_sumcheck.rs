@@ -5,12 +5,19 @@
 //! `n` rounds of the product sumcheck protocol computing `∑_x f(x)·g(x)`, and returns
 //! the resulting [`ProductSumcheck`] transcript.
 //!
+//! The function is parameterized by two field types:
+//! - `BF` (base field): the field the evaluations live in
+//! - `EF` (extension field): the field challenges are sampled from
+//!
+//! When no extension field is needed, set `EF = BF`.
+//!
 //! # Example
 //!
-//! ```ignore
+//! ```text
 //! use efficient_sumcheck::{inner_product_sumcheck, ProductSumcheck};
 //! use efficient_sumcheck::transcript::SanityTranscript;
 //!
+//! // No extension field (BF = EF):
 //! let mut f = vec![F::from(1), F::from(2), F::from(3), F::from(4)];
 //! let mut g = vec![F::from(5), F::from(6), F::from(7), F::from(8)];
 //! let mut transcript = SanityTranscript::new(&mut rng);
@@ -61,49 +68,76 @@ pub fn batched_constraint_poly<F: Field>(
 /// Run the inner product sumcheck protocol over two evaluation vectors,
 /// using a generic [`Transcript`] for Fiat-Shamir (or sanity/random challenges).
 ///
+/// `BF` is the base field of the evaluations, `EF` is the extension field for challenges.
+/// When `BF = EF`, this is the standard single-field inner product sumcheck.
+/// When `BF ≠ EF`, round 0 evaluates in `BF` and lifts to `EF`, then subsequent
+/// rounds work entirely in `EF`.
+///
 /// Each round:
 /// 1. Computes the round polynomial evaluations `(s(0), s(1), s(2))` via the product prover.
 /// 2. Writes them to the transcript (3 field elements).
 /// 3. Reads the verifier's challenge from the transcript (1 field element).
 /// 4. Reduces both evaluation vectors by folding with the challenge.
-pub fn inner_product_sumcheck<F: Field>(
-    f: &mut Vec<F>,
-    g: &mut Vec<F>,
-    transcript: &mut impl Transcript<F>,
-) -> ProductSumcheck<F> {
+pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
+    f: &mut [BF],
+    g: &mut [BF],
+    transcript: &mut impl Transcript<EF>,
+) -> ProductSumcheck<EF> {
     // checks
     assert_eq!(f.len(), g.len());
     assert!(f.len().count_ones() == 1);
 
-    // initialize
     let num_rounds = f.len().trailing_zeros() as usize;
-    let mut prover_messages: Vec<(F, F, F)> = vec![];
-    let mut verifier_messages: Vec<F> = vec![];
+    let mut prover_messages: Vec<(EF, EF, EF)> = vec![];
+    let mut verifier_messages: Vec<EF> = vec![];
 
-    // all rounds
-    for _ in 0..num_rounds {
+    // ── Round 0: evaluate in BF, lift to EF, cross-field reduce ──
+    if num_rounds > 0 {
         let mut prover = TimeProductProver::new(TimeProductProverConfig::new(
             f.len().trailing_zeros() as usize,
             vec![MemoryStream::new(f.to_vec()), MemoryStream::new(g.to_vec())],
             ReduceMode::Pairwise,
         ));
 
-        // call the prover
-        let msg = prover.next_message(None).unwrap();
+        let msg_bf = prover.next_message(None).unwrap();
+        let msg = (EF::from(msg_bf.0), EF::from(msg_bf.1), EF::from(msg_bf.2));
 
-        // write transcript
         prover_messages.push(msg);
         transcript.write(msg.0);
         transcript.write(msg.1);
         transcript.write(msg.2);
 
-        // read the transcript
         let chg = transcript.read();
         verifier_messages.push(chg);
 
-        // reduce
-        pairwise::reduce_evaluations(f, chg);
-        pairwise::reduce_evaluations(g, chg);
+        // Cross-field reduce: BF evaluations + EF challenge → Vec<EF>
+        let mut ef_f = pairwise::cross_field_reduce(f, chg);
+        let mut ef_g = pairwise::cross_field_reduce(g, chg);
+
+        // Remaining rounds work in EF
+        for _ in 1..num_rounds {
+            let mut prover = TimeProductProver::new(TimeProductProverConfig::new(
+                ef_f.len().trailing_zeros() as usize,
+                vec![
+                    MemoryStream::new(ef_f.to_vec()),
+                    MemoryStream::new(ef_g.to_vec()),
+                ],
+                ReduceMode::Pairwise,
+            ));
+
+            let msg = prover.next_message(None).unwrap();
+
+            prover_messages.push(msg);
+            transcript.write(msg.0);
+            transcript.write(msg.1);
+            transcript.write(msg.2);
+
+            let chg = transcript.read();
+            verifier_messages.push(chg);
+
+            pairwise::reduce_evaluations(&mut ef_f, chg);
+            pairwise::reduce_evaluations(&mut ef_g, chg);
+        }
     }
 
     ProductSumcheck {
@@ -133,7 +167,7 @@ mod tests {
         let mut g: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
 
         let mut transcript = SanityTranscript::new(&mut rng);
-        let result = inner_product_sumcheck(&mut f, &mut g, &mut transcript);
+        let result = inner_product_sumcheck::<F64, F64>(&mut f, &mut g, &mut transcript);
 
         assert_eq!(result.prover_messages.len(), NUM_VARS);
         assert_eq!(result.verifier_messages.len(), NUM_VARS);
@@ -163,7 +197,7 @@ mod tests {
 
         let prover_state = domsep.to_prover_state();
         let mut transcript = SpongefishTranscript::new(prover_state);
-        let result = inner_product_sumcheck(&mut f, &mut g, &mut transcript);
+        let result = inner_product_sumcheck::<F64, F64>(&mut f, &mut g, &mut transcript);
 
         assert_eq!(result.prover_messages.len(), NUM_VARS);
         assert_eq!(result.verifier_messages.len(), NUM_VARS);

@@ -6,7 +6,7 @@
 //!
 //! For most use cases, you need just two functions and a transcript:
 //!
-//! ```ignore
+//! ```text
 //! use efficient_sumcheck::{multilinear_sumcheck, inner_product_sumcheck};
 //! use efficient_sumcheck::transcript::{Transcript, SpongefishTranscript, SanityTranscript};
 //! ```
