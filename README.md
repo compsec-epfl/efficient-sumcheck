@@ -10,6 +10,8 @@ This library exposes two high-level functions:
 1) [`multilinear_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_sumcheck.rs#L123) and
 2) [`inner_product_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/inner_product_sumcheck.rs#L166).
 
+Both are parameterized by two field types: `BF` (base field, of the evaluations) and `EF` (extension field, of the challenges). When no extension field is needed, set `EF = BF`.
+
 Using [SpongeFish](https://github.com/arkworks-rs/spongefish) (or similar Fiat-Shamir interface) simply call the functions with the prover state:
 
 ### Multilinear Sumcheck
@@ -18,9 +20,9 @@ $claim = \sum_{x \in \{0,1\}^n} p(x)$
 use efficient_sumcheck::{multilinear_sumcheck, Sumcheck};
 use efficient_sumcheck::transcript::SanityTranscript;
 
-let mut evals_p_01n: Vec<F> = /* ... */;
+let mut evals_p_01n: Vec<BF> = /* ... */;
 let mut prover_state = SanityTranscript::new(&mut rng);
-let sumcheck_transcript: Sumcheck<F> = multilinear_sumcheck(
+let sumcheck_transcript: Sumcheck<EF> = multilinear_sumcheck::<BF, EF>(
   &mut evals_p_01n,
   &mut prover_state
 );
@@ -33,10 +35,10 @@ $claim = \sum_{x \in \{0,1\}^n} f(x) \cdot g(x)$
 use efficient_sumcheck::{inner_product_sumcheck, ProductSumcheck};
 use efficient_sumcheck::transcript::SanityTranscript;
 
-let mut evals_f_01n: Vec<F> = /* ... */;
-let mut evals_g_01n: Vec<F> = /* ... */;
+let mut evals_f_01n: Vec<BF> = /* ... */;
+let mut evals_g_01n: Vec<BF> = /* ... */;
 let mut prover_state = SanityTranscript::new(&mut rng);
-let sumcheck_transcript: ProductSumcheck<F> = inner_product_sumcheck(
+let sumcheck_transcript: ProductSumcheck<EF> = inner_product_sumcheck::<BF, EF>(
   &mut evals_f_01n,
   &mut evals_g_01n,
   &mut prover_state
@@ -54,7 +56,7 @@ Using Efficient Sumcheck this reduces to six lines of code and brings paralleliz
 ```rust
 use efficient_sumcheck::{inner_product_sumcheck, batched_constraint_poly};
 
-let alpha = inner_product_sumcheck(
+let alpha = inner_product_sumcheck::<BF, EF>(
     &mut f,
     &mut batched_constraint_poly(&dense_evals, &sparse_evals),
     &mut transcript,
