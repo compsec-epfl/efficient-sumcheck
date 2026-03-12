@@ -65,6 +65,27 @@ pub fn batched_constraint_poly<F: Field>(
     res
 }
 
+// [CBBZ23] hyperplonk optimization
+/// Accumulate eq polynomial evaluations at binary query points into a sparse map.
+/// Skips indices `0..=s`.
+pub fn accumulate_sparse_evaluations<F: Field>(
+    zetas: Vec<&[F]>,
+    eq_evals: Vec<F>,
+    s: usize,
+    r: usize,
+) -> FastMap<F> {
+    let mut result = FastMap::default();
+    for i in 1 + s..r {
+        let index = zetas[i]
+            .iter()
+            .enumerate()
+            .filter_map(|(j, bit)| bit.is_one().then_some(1 << j))
+            .sum::<usize>();
+        *result.entry(index).or_insert(F::zero()) += &eq_evals[i];
+    }
+    result
+}
+
 /// Run the inner product sumcheck protocol over two evaluation vectors,
 /// using a generic [`Transcript`] for Fiat-Shamir (or sanity/random challenges).
 ///
