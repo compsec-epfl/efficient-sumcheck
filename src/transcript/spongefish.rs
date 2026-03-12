@@ -28,6 +28,24 @@ where
     }
 }
 
+/// Blanket impl so raw `ProverState` can be used as a `Transcript` directly.
+impl<F, H, U, R> Transcript<F> for spongefish::ProverState<H, U, R>
+where
+    F: Field,
+    H: spongefish::duplex_sponge::DuplexSpongeInterface<U>,
+    U: spongefish::duplex_sponge::Unit,
+    R: RngCore + CryptoRng,
+    spongefish::ProverState<H, U, R>: FieldToUnitSerialize<F> + UnitToField<F>,
+{
+    fn read(&mut self) -> F {
+        let [v] = self.challenge_scalars::<1>().unwrap();
+        v
+    }
+    fn write(&mut self, value: F) {
+        self.add_scalars(&[value]).unwrap();
+    }
+}
+
 // Optional helpers so it's easy to get the prover state back out.
 impl<R> SpongefishTranscript<R>
 where
