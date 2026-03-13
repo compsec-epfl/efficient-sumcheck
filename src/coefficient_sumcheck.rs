@@ -1,7 +1,5 @@
 use ark_ff::Field;
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
-use spongefish::codecs::arkworks_algebra::{FieldToUnitDeserialize, UnitToField};
-use spongefish::ProofError;
 
 use crate::multilinear::reductions::{pairwise, tablewise};
 use crate::transcript::Transcript;
@@ -54,26 +52,25 @@ pub fn coefficient_sumcheck<F: Field>(
 
 /// Sumcheck verifier for arbitrary-degree round polynomials in coefficient form.
 ///
-/// Each round: read `degree + 1` coefficients → check `h(0) + h(1) == target`
-/// → update `target = h(challenge)`.
+/// Each round: absorb coefficients → check `h(0) + h(1) == target`
+/// → squeeze challenge → update `target = h(challenge)`.
 pub fn sumcheck_verify<F: Field>(
-    degree: usize,
     target: &mut F,
-    n_rounds: usize,
-    verifier_state: &mut (impl FieldToUnitDeserialize<F> + UnitToField<F>),
-) -> Result<Vec<F>, ProofError> {
-    let mut challenges = Vec::with_capacity(n_rounds);
+    round_polys: &[DensePolynomial<F>],
+    transcript: &mut impl Transcript<F>,
+) -> Result<Vec<F>, ()> {
+    let mut challenges = Vec::with_capacity(round_polys.len());
 
-    for _ in 0..n_rounds {
-        let mut h_coeffs = vec![F::zero(); degree + 1];
-        verifier_state.fill_next_scalars(&mut h_coeffs)?;
-        let h = DensePolynomial::from_coefficients_vec(h_coeffs);
-
-        if h.evaluate(&F::zero()) + h.evaluate(&F::one()) != *target {
-            return Err(ProofError::InvalidProof);
+    for h in round_polys {
+        for coeff in &h.coeffs {
+            transcript.write(*coeff);
         }
 
-        let [c] = verifier_state.challenge_scalars::<1>()?;
+        if h.evaluate(&F::zero()) + h.evaluate(&F::one()) != *target {
+            return Err(());
+        }
+
+        let c = transcript.read();
         *target = h.evaluate(&c);
         challenges.push(c);
     }
