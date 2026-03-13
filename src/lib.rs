@@ -33,7 +33,7 @@ mod inner_product_sumcheck;
 mod multilinear_sumcheck;
 
 pub use inner_product_sumcheck::{
-    batched_constraint_poly, inner_product_sumcheck, ProductSumcheck,
+    accumulate_sparse_evaluations, batched_constraint_poly, inner_product_sumcheck, ProductSumcheck,
 };
 pub use multilinear_sumcheck::{multilinear_sumcheck, Sumcheck};
 
@@ -48,6 +48,9 @@ pub mod hypercube;
 pub mod interpolation;
 pub mod messages;
 pub mod order_strategy;
+
+pub mod coefficient_sumcheck;
+pub mod folding;
 
 #[doc(hidden)]
 pub mod tests;
