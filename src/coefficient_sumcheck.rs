@@ -1,5 +1,5 @@
 use ark_ff::Field;
-use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
+use ark_poly::{univariate::DensePolynomial, Polynomial};
 
 use crate::multilinear::reductions::{pairwise, tablewise};
 use crate::transcript::Transcript;
@@ -58,7 +58,7 @@ pub fn sumcheck_verify<F: Field>(
     claim: &mut F,
     prover_messages: &[DensePolynomial<F>],
     transcript: &mut impl Transcript<F>,
-) -> Result<Vec<F>, ()> {
+) -> Option<Vec<F>> {
     let mut challenges = Vec::with_capacity(prover_messages.len());
 
     for h in prover_messages {
@@ -67,7 +67,7 @@ pub fn sumcheck_verify<F: Field>(
         }
 
         if h.evaluate(&F::zero()) + h.evaluate(&F::one()) != *claim {
-            return Err(());
+            return None;
         }
 
         let c = transcript.read();
@@ -75,7 +75,7 @@ pub fn sumcheck_verify<F: Field>(
         challenges.push(c);
     }
 
-    Ok(challenges)
+    Some(challenges)
 }
 
 #[cfg(test)]
