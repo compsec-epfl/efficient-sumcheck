@@ -52,26 +52,26 @@ pub fn coefficient_sumcheck<F: Field>(
 
 /// Sumcheck verifier for arbitrary-degree round polynomials in coefficient form.
 ///
-/// Each round: absorb coefficients → check `h(0) + h(1) == target`
-/// → squeeze challenge → update `target = h(challenge)`.
+/// Each round: absorb coefficients → check `h(0) + h(1) == claim`
+/// → squeeze challenge → update `claim = h(challenge)`.
 pub fn sumcheck_verify<F: Field>(
-    target: &mut F,
-    round_polys: &[DensePolynomial<F>],
+    claim: &mut F,
+    prover_messages: &[DensePolynomial<F>],
     transcript: &mut impl Transcript<F>,
 ) -> Result<Vec<F>, ()> {
-    let mut challenges = Vec::with_capacity(round_polys.len());
+    let mut challenges = Vec::with_capacity(prover_messages.len());
 
-    for h in round_polys {
+    for h in prover_messages {
         for coeff in &h.coeffs {
             transcript.write(*coeff);
         }
 
-        if h.evaluate(&F::zero()) + h.evaluate(&F::one()) != *target {
+        if h.evaluate(&F::zero()) + h.evaluate(&F::one()) != *claim {
             return Err(());
         }
 
         let c = transcript.read();
-        *target = h.evaluate(&c);
+        *claim = h.evaluate(&c);
         challenges.push(c);
     }
 
