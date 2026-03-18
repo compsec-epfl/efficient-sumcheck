@@ -15,7 +15,7 @@ ark-std ="0.5.0"
 memmap2 = "0.9.5"
 nohash-hasher = "0.2.0"
 rayon = { version = "1.10", optional = true }
-spongefish = { version = "0.2.0-alpha", features = ["arkworks-algebra"] }
+spongefish = { git = "https://github.com/arkworks-rs/spongefish", branch = "main", features = ["ark-ff"] }
 
 [dev-dependencies]
 criterion = "0.8"
