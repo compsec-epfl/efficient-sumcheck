@@ -1,48 +1,43 @@
 use ark_ff::Field;
 use ark_std::rand::{CryptoRng, RngCore};
-use spongefish::codecs::arkworks_algebra::{FieldToUnitSerialize, UnitToField};
-use spongefish::{DefaultHash, ProverState};
+use spongefish::{Decoding, Encoding, ProverState, StdHash};
 
 use crate::transcript::Transcript;
 
 /// Newtype wrapper around spongefish's [`ProverState`] so we can implement [`Transcript`].
 ///
-/// Uses the codec-level API (`add_scalars` / `challenge_scalars`) which is compatible
-/// with [`DomainSeparator`]'s `FieldDomainSeparator` builder methods.
+/// Uses the codec-level API (`prover_message` / `verifier_message`) which is compatible
+/// with the new spongefish `domain_separator!` macro.
 pub struct SpongefishTranscript<R: RngCore + CryptoRng = ark_std::rand::rngs::StdRng>(
-    pub ProverState<DefaultHash, u8, R>,
+    pub ProverState<StdHash, R>,
 );
 
 impl<F, R> Transcript<F> for SpongefishTranscript<R>
 where
-    F: Field,
+    F: Field + Encoding<[u8]> + Decoding<[u8]>,
     R: RngCore + CryptoRng,
 {
     fn read(&mut self) -> F {
-        let [v] = self.0.challenge_scalars::<1>().unwrap();
-        v
+        self.0.verifier_message::<F>()
     }
 
     fn write(&mut self, value: F) {
-        self.0.add_scalars(&[value]).unwrap();
+        self.0.prover_message(&value);
     }
 }
 
 /// Blanket impl so raw `ProverState` can be used as a `Transcript` directly.
-impl<F, H, U, R> Transcript<F> for spongefish::ProverState<H, U, R>
+impl<F, H, R> Transcript<F> for spongefish::ProverState<H, R>
 where
-    F: Field,
-    H: spongefish::duplex_sponge::DuplexSpongeInterface<U>,
-    U: spongefish::duplex_sponge::Unit,
+    F: Field + Encoding<[H::U]> + Decoding<[H::U]> + spongefish::NargSerialize,
+    H: spongefish::DuplexSpongeInterface,
     R: RngCore + CryptoRng,
-    spongefish::ProverState<H, U, R>: FieldToUnitSerialize<F> + UnitToField<F>,
 {
     fn read(&mut self) -> F {
-        let [v] = self.challenge_scalars::<1>().unwrap();
-        v
+        self.verifier_message::<F>()
     }
     fn write(&mut self, value: F) {
-        self.add_scalars(&[value]).unwrap();
+        self.prover_message(&value);
     }
 }
 
@@ -51,16 +46,16 @@ impl<R> SpongefishTranscript<R>
 where
     R: RngCore + CryptoRng,
 {
-    pub fn new(prover_state: ProverState<DefaultHash, u8, R>) -> Self {
+    pub fn new(prover_state: ProverState<StdHash, R>) -> Self {
         Self(prover_state)
     }
-    pub fn into_inner(self) -> ProverState<DefaultHash, u8, R> {
+    pub fn into_inner(self) -> ProverState<StdHash, R> {
         self.0
     }
-    pub fn as_inner(&self) -> &ProverState<DefaultHash, u8, R> {
+    pub fn as_inner(&self) -> &ProverState<StdHash, R> {
         &self.0
     }
-    pub fn as_inner_mut(&mut self) -> &mut ProverState<DefaultHash, u8, R> {
+    pub fn as_inner_mut(&mut self) -> &mut ProverState<StdHash, R> {
         &mut self.0
     }
 }

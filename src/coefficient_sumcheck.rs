@@ -181,29 +181,16 @@ mod tests {
     #[test]
     fn test_spongefish_transcript() {
         use crate::transcript::SpongefishTranscript;
-        use spongefish::codecs::arkworks_algebra::FieldDomainSeparator;
-        use spongefish::DomainSeparator;
 
         let mut rng = test_rng();
         let n = 1 << 3;
         let num_rounds = 3;
-        let degree = 1; // 2 coefficients per round
         let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
 
-        // IO pattern: each round absorbs (degree+1) scalars, squeezes 1 challenge
-        let mut domsep = DomainSeparator::new("test-coefficient-sumcheck");
-        for _ in 0..num_rounds {
-            domsep = <DomainSeparator as FieldDomainSeparator<F64>>::add_scalars(
-                domsep,
-                degree + 1,
-                "prover",
-            );
-            domsep = <DomainSeparator as FieldDomainSeparator<F64>>::challenge_scalars(
-                domsep, 1, "verifier",
-            );
-        }
+        let domsep = spongefish::domain_separator!("test-coefficient-sumcheck"; module_path!())
+            .instance(b"test");
 
-        let prover_state = domsep.to_prover_state();
+        let prover_state = domsep.std_prover();
         let mut transcript = SpongefishTranscript::new(prover_state);
 
         let mut pairwise = vec![evals];
