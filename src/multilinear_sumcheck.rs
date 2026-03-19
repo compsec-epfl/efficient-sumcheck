@@ -122,25 +122,16 @@ mod tests {
     #[test]
     fn test_multilinear_sumcheck_spongefish() {
         use crate::transcript::SpongefishTranscript;
-        use spongefish::codecs::arkworks_algebra::FieldDomainSeparator;
-        use spongefish::DomainSeparator;
 
         let mut rng = test_rng();
 
         let n = 1 << NUM_VARS;
         let mut evaluations: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
 
-        // Build the IO pattern: each round absorbs 2 scalars and squeezes 1 challenge
-        let mut domsep = DomainSeparator::new("test-multilinear-sumcheck");
-        for _ in 0..NUM_VARS {
-            domsep =
-                <DomainSeparator as FieldDomainSeparator<F64>>::add_scalars(domsep, 2, "prover");
-            domsep = <DomainSeparator as FieldDomainSeparator<F64>>::challenge_scalars(
-                domsep, 1, "verifier",
-            );
-        }
+        let domsep = spongefish::domain_separator!("test-multilinear-sumcheck"; module_path!())
+            .instance(b"test");
 
-        let prover_state = domsep.to_prover_state();
+        let prover_state = domsep.std_prover();
         let mut transcript = SpongefishTranscript::new(prover_state);
         let result = multilinear_sumcheck::<F64, F64>(&mut evaluations, &mut transcript);
 
