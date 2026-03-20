@@ -6,11 +6,12 @@ Efficient, streaming capable, sumcheck with **Fiat–Shamir** support via [Spong
 
 ## General Use
 
-This library exposes two high-level functions:
-1) [`multilinear_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_sumcheck.rs#L123) and
-2) [`inner_product_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/inner_product_sumcheck.rs#L166).
+This library exposes three high-level functions:
+1) [`multilinear_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_sumcheck.rs#L123),
+2) [`inner_product_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/inner_product_sumcheck.rs#L166), and
+3) [`coefficient_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/coefficient_sumcheck.rs#L17).
 
-Both are parameterized by two field types: `BF` (base field, of the evaluations) and `EF` (extension field, of the challenges). When no extension field is needed, set `EF = BF`.
+The first two are parameterized by two field types: `BF` (base field, of the evaluations) and `EF` (extension field, of the challenges). When no extension field is needed, set `EF = BF`. The third, `coefficient_sumcheck`, operates over a single field `F`.
 
 Using [SpongeFish](https://github.com/arkworks-rs/spongefish) (or similar Fiat-Shamir interface) simply call the functions with the prover state:
 
@@ -45,6 +46,35 @@ let sumcheck_transcript: ProductSumcheck<EF> = inner_product_sumcheck::<BF, EF>(
 );
 ```
 
+### Coefficient Sumcheck
+$claim = h_0(0) + h_0(1)$, where $h_i(X)$ are arbitrary-degree round polynomials
+
+Unlike the multilinear and inner product variants which fix the round polynomial structure, `coefficient_sumcheck` delegates round polynomial computation to a user-supplied closure `compute_round_poly`. The library handles transcript interaction and table reductions (both pairwise and tablewise) automatically each round.
+
+```rust
+use efficient_sumcheck::coefficient_sumcheck::{coefficient_sumcheck, CoefficientSumcheck};
+use efficient_sumcheck::transcript::SanityTranscript;
+use ark_poly::univariate::DensePolynomial;
+
+let mut tablewise: Vec<Vec<Vec<F>>> = /* multi-column tables */;
+let mut pairwise: Vec<Vec<F>> = /* flat evaluation vectors */;
+let mut transcript = SanityTranscript::new(&mut rng);
+
+let result: CoefficientSumcheck<F> = coefficient_sumcheck(
+  |tablewise, pairwise| {
+      // Compute h(X) as a DensePolynomial<F> from current table state.
+      // Return coefficients in ascending order: [c0, c1, ..., cd].
+      DensePolynomial::from_coefficients_vec(vec![/* ... */])
+  },
+  &mut tablewise,
+  &mut pairwise,
+  n_rounds,
+  &mut transcript,
+);
+```
+
+The closure receives immutable references to the current tables; after each round the library automatically reduces all pairwise and tablewise entries by folding with the verifier challenge.
+
 ## Examples
 
 ### 1) WARP - Multilinear Constraint Batching
@@ -64,6 +94,39 @@ let alpha = inner_product_sumcheck::<BF, EF>(
 ```
 
 Here, `batched_constraint_poly` merges dense evaluation vectors (out-of-domain samples) with sparse map-represented polynomials (in-domain queries) into a single constraint polynomial, ready for the inner product sumcheck.
+
+### 2) WARP - Twin Constraint Batching
+
+[WARP](https://github.com/compsec-epfl/warp) also uses `coefficient_sumcheck` with `folding::protogalaxy::fold` to batch a codeword check and an R1CS constraint check into a single sumcheck. The codewords, witness vectors, and folding coefficients are stored as tablewise tables and the equality polynomial evaluations as a pairwise vector:
+
+```rust
+use efficient_sumcheck::coefficient_sumcheck::coefficient_sumcheck;
+use efficient_sumcheck::folding::protogalaxy;
+
+let mut tablewise = [codewords, z_vecs, alpha_vecs, beta_vecs];
+let mut pairwise = [tau_eq_evals];
+
+let sc = coefficient_sumcheck(
+    |tw, pw| {
+        let (u, z, a, b) = (&tw[0], &tw[1], &tw[2], &tw[3]);
+        let tau = &pw[0];
+
+        let f = protogalaxy::fold(/* ... */, /* codeword polys */);
+        let p = protogalaxy::fold(/* ... */, /* constraint polys */);
+        let t = linear_poly(tau[0], tau[1]);
+
+        // h(X) = (f(X) + ω·p(X)) · t(X)
+        (f + p * omega).naive_mul(&t)
+    },
+    &mut tablewise,
+    &mut pairwise,
+    log_l,
+    &mut prover_state,
+);
+let gamma = sc.verifier_messages;
+```
+
+After each round `coefficient_sumcheck` reduces all four tablewise tables and the pairwise equality evaluations by folding with the verifier's challenge.
 
 ## Advanced Usage
 
