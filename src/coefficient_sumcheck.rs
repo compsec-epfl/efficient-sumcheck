@@ -12,10 +12,10 @@ pub struct CoefficientSumcheck<F: Field> {
 
 /// Sumcheck prover for arbitrary-degree round polynomials in coefficient form.
 ///
-/// Each round: `compute_h` produces `h(X)` → coefficients are sent to the
-/// transcript → challenge is received → all tables are reduced.
+/// Each round: `compute_round_poly` produces the round polynomial → coefficients
+/// are sent to the transcript → challenge is received → all tables are reduced.
 pub fn coefficient_sumcheck<F: Field>(
-    mut compute_h: impl FnMut(&[Vec<Vec<F>>], &[Vec<F>]) -> DensePolynomial<F>,
+    mut compute_round_poly: impl FnMut(&[Vec<Vec<F>>], &[Vec<F>]) -> DensePolynomial<F>,
     tablewise: &mut [Vec<Vec<F>>],
     pairwise: &mut [Vec<F>],
     n_rounds: usize,
@@ -25,13 +25,13 @@ pub fn coefficient_sumcheck<F: Field>(
     let mut verifier_messages = Vec::with_capacity(n_rounds);
 
     for _ in 0..n_rounds {
-        let h = compute_h(tablewise, pairwise);
+        let round_poly = compute_round_poly(tablewise, pairwise);
 
-        for coeff in &h.coeffs {
+        for coeff in &round_poly.coeffs {
             transcript.write(*coeff);
         }
 
-        prover_messages.push(h);
+        prover_messages.push(round_poly);
 
         let c = transcript.read();
         verifier_messages.push(c);
