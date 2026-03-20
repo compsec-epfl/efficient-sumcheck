@@ -11,9 +11,9 @@ This library exposes three high-level functions:
 2) [`inner_product_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/inner_product_sumcheck.rs#L166), and
 3) [`coefficient_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/coefficient_sumcheck.rs#L17).
 
-The first two are parameterized by two field types: `BF` (base field, of the evaluations) and `EF` (extension field, of the challenges). When no extension field is needed, set `EF = BF`. The third, `coefficient_sumcheck`, operates over a single field `F`.
+The first two are parameterized by two field types: `BF` (base field, of the evaluations) and `EF` (extension field, of the challenges). When no extension field is needed, set `EF = BF`.
 
-Using [SpongeFish](https://github.com/arkworks-rs/spongefish) (or similar Fiat-Shamir interface) simply call the functions with the prover state:
+Using [SpongeFish](https://github.com/arkworks-rs/spongefish) (or similar Fiat-Shamir interface) simply call the functions with the Spongefish transcript:
 
 ### Multilinear Sumcheck
 $claim = \sum_{x \in \{0,1\}^n} p(x)$
