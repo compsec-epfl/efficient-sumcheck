@@ -16,7 +16,9 @@ The first two are parameterized by two field types: `BF` (base field, of the eva
 Using [SpongeFish](https://github.com/arkworks-rs/spongefish) (or similar Fiat-Shamir interface) simply call the functions with the Spongefish transcript:
 
 ### Multilinear Sumcheck
-$claim = \sum_{x \in \{0,1\}^n} p(x)$
+```math
+claim = \sum_{x \in \{0,1\}^n} p(x)
+```
 ```rust
 use efficient_sumcheck::{multilinear_sumcheck, Sumcheck};
 use efficient_sumcheck::transcript::SanityTranscript;
@@ -30,7 +32,9 @@ let sumcheck_transcript: Sumcheck<EF> = multilinear_sumcheck::<BF, EF>(
 ```
 
 ### Inner Product Sumcheck
-$claim = \sum_{x \in \{0,1\}^n} f(x) \cdot g(x)$
+```math
+claim = \sum_{x \in \{0,1\}^n} f(x) \cdot g(x)
+```
 
 ```rust
 use efficient_sumcheck::{inner_product_sumcheck, ProductSumcheck};
@@ -47,9 +51,11 @@ let sumcheck_transcript: ProductSumcheck<EF> = inner_product_sumcheck::<BF, EF>(
 ```
 
 ### Coefficient Sumcheck
-$claim = h_0(0) + h_0(1)$, where $h_i(X)$ are arbitrary-degree round polynomials
+```math
+claim = \sum_{x \in \{0,1\}^n} p(x), \quad \deg_{x_i}(p) \leq d
+```
 
-Unlike the multilinear and inner product variants which fix the round polynomial structure, `coefficient_sumcheck` delegates round polynomial computation to a user-supplied closure `compute_round_poly`. The library handles transcript interaction and table reductions (both pairwise and tablewise) automatically each round.
+Unlike the multilinear and inner product variants where `p` is multilinear (degree 1 in each variable, yielding degree-1 round polynomials), `coefficient_sumcheck` handles polynomials with arbitrary per-variable degree `d`, producing degree-`d` round polynomials. The user supplies a closure `compute_round_poly` that computes each round polynomial; the library handles transcript interaction and table reductions (both pairwise and tablewise) automatically.
 
 ```rust
 use efficient_sumcheck::coefficient_sumcheck::{coefficient_sumcheck, CoefficientSumcheck};
