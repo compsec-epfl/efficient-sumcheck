@@ -1,0 +1,253 @@
+//! SIMD-vectorized pairwise reduce: folds evaluations with a challenge.
+//!
+//! For each adjacent pair `(a, b)`: `result = a + challenge * (b - a)`
+//!
+//! This is the base-field reduce used when base = extension (EXT_DEGREE = 1).
+
+use crate::simd_fields::SimdBaseField;
+
+/// SIMD-vectorized pairwise reduce (base = extension, in-place).
+///
+/// For each pair `(src[2i], src[2i+1])`, computes:
+///   `src[2i] + challenge * (src[2i+1] - src[2i])`
+///
+/// Results are written into the first `src.len() / 2` positions.
+/// Returns the number of output elements.
+///
+/// This is the kernel used when EXT_DEGREE = 1 (base field IS the extension field).
+pub fn reduce_in_place<F: SimdBaseField>(src: &mut [F::Scalar], challenge: F::Scalar) -> usize {
+    let n = src.len() / 2;
+    let lanes = F::LANES;
+    let challenge_v = F::splat(challenge);
+
+    // Process LANES-wide chunks: we need 2*LANES elements per iteration
+    // (LANES for 'a' values, LANES for 'b' values)
+
+    let aligned = (n / lanes) * lanes; // number of output elements we can do via SIMD
+
+    for i in (0..aligned).step_by(lanes) {
+        // a = src[2i..2i + 2*LANES : step 2] — but elements are contiguous pairs
+        // Layout: [a0, b0, a1, b1, a2, b2, a3, b3, ...]
+        // We need to deinterleave: load 2*LANES elements, take even/odd
+
+        // For LANES=2: load [a0, b0, a1, b1]
+        //  a_v = [a0, a1], b_v = [b0, b1]
+
+        // However, with raw loads this requires deinterleaving.
+        // NEON has vld2q_u64 for deinterleaving loads.
+        // For now, use scalar indexing to load/store since the bottleneck is mul, not load:
+
+        let src_idx = 2 * i;
+        let mut a_buf = vec![F::ZERO; lanes];
+        let mut b_buf = vec![F::ZERO; lanes];
+
+        for j in 0..lanes {
+            a_buf[j] = src[src_idx + 2 * j];
+            b_buf[j] = src[src_idx + 2 * j + 1];
+        }
+
+        unsafe {
+            let a_v = F::load(a_buf.as_ptr());
+            let b_v = F::load(b_buf.as_ptr());
+
+            // b - a
+            let diff = F::sub(b_v, a_v);
+            // challenge * (b - a)
+            let scaled = F::mul(challenge_v, diff);
+            // a + challenge * (b - a)
+            let result = F::add(a_v, scaled);
+
+            // Store result at position i..i+LANES
+            F::store(src[i..].as_mut_ptr(), result);
+        }
+    }
+
+    // Scalar tail
+    for i in aligned..n {
+        let a = src[2 * i];
+        let b = src[2 * i + 1];
+        let diff = F::scalar_sub(b, a);
+        let scaled = F::scalar_mul(challenge, diff);
+        src[i] = F::scalar_add(a, scaled);
+    }
+
+    n
+}
+
+/// SIMD-vectorized pairwise reduce, producing a new Vec.
+///
+/// Same semantics as `reduce_in_place`, but allocates and returns a new vector.
+pub fn reduce_to_vec<F: SimdBaseField>(src: &[F::Scalar], challenge: F::Scalar) -> Vec<F::Scalar> {
+    let n = src.len() / 2;
+    let mut out = vec![F::ZERO; n];
+
+    let lanes = F::LANES;
+    let challenge_v = F::splat(challenge);
+
+    let aligned = (n / lanes) * lanes;
+
+    for i in (0..aligned).step_by(lanes) {
+        let src_idx = 2 * i;
+        let mut a_buf = vec![F::ZERO; lanes];
+        let mut b_buf = vec![F::ZERO; lanes];
+
+        for j in 0..lanes {
+            a_buf[j] = src[src_idx + 2 * j];
+            b_buf[j] = src[src_idx + 2 * j + 1];
+        }
+
+        unsafe {
+            let a_v = F::load(a_buf.as_ptr());
+            let b_v = F::load(b_buf.as_ptr());
+
+            let diff = F::sub(b_v, a_v);
+            let scaled = F::mul(challenge_v, diff);
+            let result = F::add(a_v, scaled);
+
+            F::store(out[i..].as_mut_ptr(), result);
+        }
+    }
+
+    // Scalar tail
+    for i in aligned..n {
+        let a = src[2 * i];
+        let b = src[2 * i + 1];
+        let diff = F::scalar_sub(b, a);
+        let scaled = F::scalar_mul(challenge, diff);
+        out[i] = F::scalar_add(a, scaled);
+    }
+
+    out
+}
+
+/// Parallel SIMD reduce (producing a new Vec).
+#[cfg(feature = "parallel")]
+pub fn reduce_parallel<F: SimdBaseField>(
+    src: &[F::Scalar],
+    challenge: F::Scalar,
+) -> Vec<F::Scalar> {
+    use rayon::prelude::*;
+
+    let n = src.len() / 2;
+    let chunk_size = 32_768_usize; // pairs per chunk
+    let pair_chunk = chunk_size * 2; // scalars per chunk (each pair is 2 scalars)
+
+    if n <= chunk_size {
+        return reduce_to_vec::<F>(src, challenge);
+    }
+
+    // Process in parallel chunks, then concatenate
+    src.par_chunks(pair_chunk)
+        .flat_map(|chunk| reduce_to_vec::<F>(chunk, challenge))
+        .collect()
+}
+
+/// Non-parallel fallback.
+#[cfg(not(feature = "parallel"))]
+pub fn reduce_parallel<F: SimdBaseField>(
+    src: &[F::Scalar],
+    challenge: F::Scalar,
+) -> Vec<F::Scalar> {
+    reduce_to_vec::<F>(src, challenge)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    use crate::tests::F64;
+    use ark_ff::{PrimeField, UniformRand};
+    use ark_std::test_rng;
+
+    fn to_raw(f: F64) -> u64 {
+        f.into_bigint().0[0]
+    }
+
+    #[test]
+    fn test_reduce_matches_pairwise() {
+        use crate::multilinear::reductions::pairwise;
+
+        let mut rng = test_rng();
+        let n = 1 << 16;
+        let evals_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+        let evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_raw(*f)).collect();
+
+        let challenge_ff = F64::rand(&mut rng);
+        let challenge_raw = to_raw(challenge_ff);
+
+        // Reference: arkworks pairwise reduce
+        let mut expected_ff = evals_ff.clone();
+        pairwise::reduce_evaluations(&mut expected_ff, challenge_ff);
+
+        // SIMD reduce
+        let received_raw = reduce_to_vec::<GoldilocksNeon>(&evals_raw, challenge_raw);
+
+        assert_eq!(expected_ff.len(), received_raw.len());
+        for i in 0..expected_ff.len() {
+            assert_eq!(
+                to_raw(expected_ff[i]),
+                received_raw[i],
+                "mismatch at index {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_reduce_in_place_matches_pairwise() {
+        use crate::multilinear::reductions::pairwise;
+
+        let mut rng = test_rng();
+        let n = 1 << 16;
+        let evals_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+        let mut evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_raw(*f)).collect();
+
+        let challenge_ff = F64::rand(&mut rng);
+        let challenge_raw = to_raw(challenge_ff);
+
+        // Reference
+        let mut expected_ff = evals_ff;
+        pairwise::reduce_evaluations(&mut expected_ff, challenge_ff);
+
+        // SIMD in-place
+        let out_len = reduce_in_place::<GoldilocksNeon>(&mut evals_raw, challenge_raw);
+
+        assert_eq!(expected_ff.len(), out_len);
+        for i in 0..out_len {
+            assert_eq!(
+                to_raw(expected_ff[i]),
+                evals_raw[i],
+                "mismatch at index {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_reduce_parallel_matches() {
+        use crate::multilinear::reductions::pairwise;
+
+        let mut rng = test_rng();
+        let n = 1 << 20;
+        let evals_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+        let evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_raw(*f)).collect();
+
+        let challenge_ff = F64::rand(&mut rng);
+        let challenge_raw = to_raw(challenge_ff);
+
+        let mut expected_ff = evals_ff;
+        pairwise::reduce_evaluations(&mut expected_ff, challenge_ff);
+
+        let received_raw = reduce_parallel::<GoldilocksNeon>(&evals_raw, challenge_raw);
+
+        assert_eq!(expected_ff.len(), received_raw.len());
+        for i in 0..expected_ff.len() {
+            assert_eq!(
+                to_raw(expected_ff[i]),
+                received_raw[i],
+                "mismatch at index {}",
+                i
+            );
+        }
+    }
+}
