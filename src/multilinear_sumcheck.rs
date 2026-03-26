@@ -25,6 +25,7 @@
 use ark_ff::Field;
 
 use crate::multilinear::reductions::pairwise;
+use crate::simd_fields::SimdAccelerated;
 use crate::transcript::Transcript;
 
 pub use crate::multilinear::Sumcheck;
@@ -93,6 +94,75 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
     }
 }
 
+/// SIMD-accelerated multilinear sumcheck (base = extension).
+///
+/// Same semantics as [`multilinear_sumcheck`], but uses native SIMD intrinsics
+/// for the hot-path evaluate and reduce operations. The dispatch is **compile-time**:
+/// this function only exists for fields that implement [`SimdAccelerated`].
+///
+/// # How it works
+///
+/// 1. Converts evaluations from arkworks `Field` representation to raw scalars (O(n))
+/// 2. Runs the sumcheck entirely in the raw SIMD domain (O(n log n))
+/// 3. Wraps the round messages back in arkworks types
+///
+/// The O(n) conversion cost is amortized by the O(n log n) sumcheck.
+///
+/// # Usage
+///
+/// ```text
+/// // This compiles only if F64 implements SimdAccelerated:
+/// let result = simd_multilinear_sumcheck::<F64>(&evals, &mut transcript);
+/// ```
+pub fn simd_multilinear_sumcheck<BF>(
+    evaluations: &[BF],
+    transcript: &mut impl Transcript<BF>,
+) -> Sumcheck<BF>
+where
+    BF: Field + SimdAccelerated,
+{
+    use crate::simd_sumcheck::evaluate::evaluate_parallel;
+    use crate::simd_sumcheck::reduce::reduce_parallel;
+
+    assert!(
+        evaluations.len().count_ones() == 1,
+        "length must be a power of 2"
+    );
+    assert!(evaluations.len() >= 2, "need at least 1 variable");
+
+    let num_rounds = evaluations.len().trailing_zeros() as usize;
+    let mut prover_messages: Vec<(BF, BF)> = Vec::with_capacity(num_rounds);
+    let mut verifier_messages: Vec<BF> = Vec::with_capacity(num_rounds);
+
+    // Convert to raw scalars (one-time O(n) cost)
+    let mut current = BF::slice_to_raw(evaluations);
+
+    for round in 0..num_rounds {
+        // SIMD evaluate
+        let (s0_raw, s1_raw) = evaluate_parallel::<BF::Backend>(&current);
+        let s0 = BF::from_raw(s0_raw);
+        let s1 = BF::from_raw(s1_raw);
+
+        prover_messages.push((s0, s1));
+        transcript.write(s0);
+        transcript.write(s1);
+
+        let challenge = transcript.read();
+        verifier_messages.push(challenge);
+
+        if round < num_rounds - 1 {
+            // SIMD reduce
+            let challenge_raw = BF::to_raw(challenge);
+            current = reduce_parallel::<BF::Backend>(&current, challenge_raw);
+        }
+    }
+
+    Sumcheck {
+        verifier_messages,
+        prover_messages,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +207,48 @@ mod tests {
 
         assert_eq!(result.prover_messages.len(), NUM_VARS);
         assert_eq!(result.verifier_messages.len(), NUM_VARS);
+    }
+
+    #[test]
+    fn test_simd_parity_with_generic() {
+        use crate::transcript::SanityTranscript;
+
+        let num_vars = 16;
+        let n = 1 << num_vars;
+
+        let mut rng = test_rng();
+        let evaluations: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+
+        // Run generic sumcheck
+        let mut generic_evals = evaluations.clone();
+        let mut rng1 = test_rng();
+        let mut transcript1 = SanityTranscript::new(&mut rng1);
+        let generic_result = multilinear_sumcheck::<F64, F64>(&mut generic_evals, &mut transcript1);
+
+        // Run SIMD sumcheck with the same transcript seeding
+        let mut rng2 = test_rng();
+        let mut transcript2 = SanityTranscript::new(&mut rng2);
+        let simd_result = simd_multilinear_sumcheck::<F64>(&evaluations, &mut transcript2);
+
+        // Prover messages must match exactly
+        assert_eq!(
+            generic_result.prover_messages.len(),
+            simd_result.prover_messages.len()
+        );
+        for (i, (g, s)) in generic_result
+            .prover_messages
+            .iter()
+            .zip(simd_result.prover_messages.iter())
+            .enumerate()
+        {
+            assert_eq!(g.0, s.0, "s0 mismatch at round {}", i);
+            assert_eq!(g.1, s.1, "s1 mismatch at round {}", i);
+        }
+
+        // Verifier challenges must match exactly
+        assert_eq!(
+            generic_result.verifier_messages,
+            simd_result.verifier_messages
+        );
     }
 }
