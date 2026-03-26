@@ -54,6 +54,15 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
     );
     assert!(evaluations.len() >= 2, "need at least 1 variable");
 
+    // ── SIMD auto-dispatch ──
+    // When BF == EF and BF has a SIMD backend, transparently route to the
+    // fast SIMD path. The TypeId checks evaluate to compile-time constants
+    // in monomorphized code, so LLVM eliminates the dead branch — zero cost.
+    #[cfg(target_arch = "aarch64")]
+    if let Some(result) = try_simd_dispatch::<BF, EF>(evaluations, transcript) {
+        return result;
+    }
+
     let num_rounds = evaluations.len().trailing_zeros() as usize;
     let mut prover_messages: Vec<(EF, EF)> = vec![];
     let mut verifier_messages: Vec<EF> = vec![];
@@ -85,6 +94,99 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
             verifier_messages.push(chg);
 
             pairwise::reduce_evaluations(&mut ef_evals, chg);
+        }
+    }
+
+    Sumcheck {
+        verifier_messages,
+        prover_messages,
+    }
+}
+
+/// Try to dispatch to the SIMD backend when `BF == EF` and `BF` is a known
+/// SIMD-accelerated type (currently: Goldilocks F64).
+///
+/// Returns `Some(result)` if the SIMD path was taken, `None` otherwise.
+///
+/// In monomorphized code, the `TypeId` checks are compile-time constants.
+/// LLVM eliminates the entire function body for non-matching types — zero cost.
+#[cfg(target_arch = "aarch64")]
+fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
+    evaluations: &mut [BF],
+    transcript: &mut impl Transcript<EF>,
+) -> Option<Sumcheck<EF>> {
+    use crate::tests::F64;
+    use std::any::TypeId;
+
+    // Both checks are compile-time constants in monomorphized code.
+    if TypeId::of::<BF>() == TypeId::of::<EF>() && TypeId::of::<BF>() == TypeId::of::<F64>() {
+        // BF == EF == F64 (verified via TypeId).
+
+        // Cast &mut [BF] → &[F64] (same type, same layout).
+        let evals_f64: &[F64] = unsafe {
+            core::slice::from_raw_parts(evaluations.as_ptr() as *const F64, evaluations.len())
+        };
+
+        // Single closure for transcript round-step: write (s0, s1), return challenge.
+        // This avoids the double-mutable-borrow issue with separate write/read closures.
+        let result_f64 = simd_sumcheck_raw_f64(evals_f64, |s0, s1| {
+            // SAFETY: EF == F64, so the in-memory representation is identical.
+            let s0_ef: EF = unsafe { core::mem::transmute_copy(&s0) };
+            let s1_ef: EF = unsafe { core::mem::transmute_copy(&s1) };
+            transcript.write(s0_ef);
+            transcript.write(s1_ef);
+            let chg_ef: EF = transcript.read();
+            unsafe { core::mem::transmute_copy(&chg_ef) }
+        });
+
+        // Cast Sumcheck<F64> → Sumcheck<EF>.
+        // SAFETY: F64 == EF (verified above), so layout is identical.
+        let result: Sumcheck<EF> = Sumcheck {
+            verifier_messages: unsafe { core::mem::transmute(result_f64.verifier_messages) },
+            prover_messages: unsafe { core::mem::transmute(result_f64.prover_messages) },
+        };
+
+        return Some(result);
+    }
+
+    None
+}
+
+/// Raw SIMD sumcheck for F64, using a single closure for transcript interaction.
+///
+/// `round_step(s0, s1) -> challenge`: Writes the round messages to the transcript
+/// and returns the verifier's challenge. This single-closure design avoids borrowing
+/// issues with the outer transcript reference.
+#[cfg(target_arch = "aarch64")]
+fn simd_sumcheck_raw_f64(
+    evaluations: &[crate::tests::F64],
+    mut round_step: impl FnMut(crate::tests::F64, crate::tests::F64) -> crate::tests::F64,
+) -> Sumcheck<crate::tests::F64> {
+    use crate::simd_fields::SimdAccelerated;
+    use crate::tests::F64;
+
+    let num_rounds = evaluations.len().trailing_zeros() as usize;
+    let mut prover_messages: Vec<(F64, F64)> = Vec::with_capacity(num_rounds);
+    let mut verifier_messages: Vec<F64> = Vec::with_capacity(num_rounds);
+
+    let mut buf = F64::slice_to_raw(evaluations);
+    let mut active_len = buf.len();
+
+    for round in 0..num_rounds {
+        let half = active_len / 2;
+
+        let (s0, s1) = eval_raw::<<F64 as SimdAccelerated>::Backend>(&buf[..active_len]);
+
+        let msg_s0 = F64::from_raw(s0);
+        let msg_s1 = F64::from_raw(s1);
+
+        prover_messages.push((msg_s0, msg_s1));
+        let challenge = round_step(msg_s0, msg_s1);
+        verifier_messages.push(challenge);
+
+        if round < num_rounds - 1 {
+            reduce_raw::<<F64 as SimdAccelerated>::Backend>(&mut buf, half, F64::to_raw(challenge));
+            active_len = half;
         }
     }
 
