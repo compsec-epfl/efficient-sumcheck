@@ -121,9 +121,6 @@ pub fn simd_multilinear_sumcheck<BF>(
 where
     BF: Field + SimdAccelerated,
 {
-    use crate::simd_sumcheck::evaluate::evaluate_parallel;
-    use crate::simd_sumcheck::reduce::reduce_parallel;
-
     assert!(
         evaluations.len().count_ones() == 1,
         "length must be a power of 2"
@@ -134,26 +131,30 @@ where
     let mut prover_messages: Vec<(BF, BF)> = Vec::with_capacity(num_rounds);
     let mut verifier_messages: Vec<BF> = Vec::with_capacity(num_rounds);
 
-    // Convert to raw scalars (one-time O(n) cost)
-    let mut current = BF::slice_to_raw(evaluations);
+    // Copy to raw scalars — zero-cost memcpy for Montgomery-form types.
+    let mut buf = BF::slice_to_raw(evaluations);
+    let mut active_len = buf.len();
 
     for round in 0..num_rounds {
-        // SIMD evaluate
-        let (s0_raw, s1_raw) = evaluate_parallel::<BF::Backend>(&current);
-        let s0 = BF::from_raw(s0_raw);
-        let s1 = BF::from_raw(s1_raw);
+        let half = active_len / 2;
 
-        prover_messages.push((s0, s1));
-        transcript.write(s0);
-        transcript.write(s1);
+        // ── Evaluate: sum even-indexed and odd-indexed elements ──
+        let (s0, s1) = eval_raw::<BF::Backend>(&buf[..active_len]);
+
+        let msg_s0 = BF::from_raw(s0);
+        let msg_s1 = BF::from_raw(s1);
+
+        prover_messages.push((msg_s0, msg_s1));
+        transcript.write(msg_s0);
+        transcript.write(msg_s1);
 
         let challenge = transcript.read();
         verifier_messages.push(challenge);
 
+        // ── Reduce in-place ──
         if round < num_rounds - 1 {
-            // SIMD reduce
-            let challenge_raw = BF::to_raw(challenge);
-            current = reduce_parallel::<BF::Backend>(&current, challenge_raw);
+            reduce_raw::<BF::Backend>(&mut buf, half, BF::to_raw(challenge));
+            active_len = half;
         }
     }
 
@@ -161,6 +162,122 @@ where
         verifier_messages,
         prover_messages,
     }
+}
+
+/// Below this element count, stay single-threaded (rayon spawn overhead dominates).
+/// Above it, parallelize evaluate & reduce. 128K elements ≈ 2^17.
+const PAR_THRESHOLD: usize = 1 << 17;
+
+/// Sum even-indexed and odd-indexed elements of a raw scalar slice.
+#[inline(always)]
+fn eval_raw<F: crate::simd_fields::SimdBaseField>(evals: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
+    #[cfg(feature = "parallel")]
+    {
+        if evals.len() >= PAR_THRESHOLD {
+            return eval_raw_parallel::<F>(evals);
+        }
+    }
+    eval_raw_seq::<F>(evals)
+}
+
+/// Sequential evaluate.
+#[inline(always)]
+fn eval_raw_seq<F: crate::simd_fields::SimdBaseField>(
+    evals: &[F::Scalar],
+) -> (F::Scalar, F::Scalar) {
+    let mut s0 = F::ZERO;
+    let mut s1 = F::ZERO;
+    let mut i = 0;
+    while i + 1 < evals.len() {
+        s0 = F::scalar_add(s0, evals[i]);
+        s1 = F::scalar_add(s1, evals[i + 1]);
+        i += 2;
+    }
+    (s0, s1)
+}
+
+/// Parallel evaluate using rayon.
+#[cfg(feature = "parallel")]
+fn eval_raw_parallel<F: crate::simd_fields::SimdBaseField>(
+    evals: &[F::Scalar],
+) -> (F::Scalar, F::Scalar) {
+    use rayon::prelude::*;
+
+    // Split into chunks of pairs, compute partial sums in parallel, then merge.
+    let chunk_pairs = 16_384; // pairs per chunk
+    let chunk_scalars = chunk_pairs * 2;
+
+    let (s0, s1) = evals
+        .par_chunks(chunk_scalars)
+        .map(|chunk| eval_raw_seq::<F>(chunk))
+        .reduce(
+            || (F::ZERO, F::ZERO),
+            |(a0, a1), (b0, b1)| (F::scalar_add(a0, b0), F::scalar_add(a1, b1)),
+        );
+    (s0, s1)
+}
+
+/// In-place pairwise reduce: `buf[i] = buf[2i] + c * (buf[2i+1] - buf[2i])`.
+#[inline(always)]
+fn reduce_raw<F: crate::simd_fields::SimdBaseField>(
+    buf: &mut [F::Scalar],
+    half: usize,
+    c: F::Scalar,
+) {
+    #[cfg(feature = "parallel")]
+    {
+        if half >= PAR_THRESHOLD / 2 {
+            reduce_raw_parallel::<F>(buf, half, c);
+            return;
+        }
+    }
+    reduce_raw_seq::<F>(buf, half, c);
+}
+
+/// Sequential reduce.
+#[inline(always)]
+fn reduce_raw_seq<F: crate::simd_fields::SimdBaseField>(
+    buf: &mut [F::Scalar],
+    half: usize,
+    c: F::Scalar,
+) {
+    for i in 0..half {
+        let a = buf[2 * i];
+        let b = buf[2 * i + 1];
+        let diff = F::scalar_sub(b, a);
+        let scaled = F::scalar_mul(c, diff);
+        buf[i] = F::scalar_add(a, scaled);
+    }
+}
+
+/// Parallel reduce using rayon.
+///
+/// Strategy: we can't trivially do in-place parallel reduce because of
+/// aliasing (buf[i] reads from buf[2i]). Instead, we first compute
+/// the reduced values into a temporary buffer in parallel, then copy back.
+#[cfg(feature = "parallel")]
+fn reduce_raw_parallel<F: crate::simd_fields::SimdBaseField>(
+    buf: &mut [F::Scalar],
+    half: usize,
+    c: F::Scalar,
+) {
+    use rayon::prelude::*;
+
+    // Compute reduced values in parallel from the pairs region.
+    let pairs = &buf[..2 * half];
+    let reduced: Vec<F::Scalar> = pairs
+        .par_chunks(2)
+        .map(|pair| {
+            let a = pair[0];
+            let b = pair[1];
+            let diff = F::scalar_sub(b, a);
+            let scaled = F::scalar_mul(c, diff);
+            F::scalar_add(a, scaled)
+        })
+        .collect();
+
+    // Copy back into the first `half` positions.
+    buf[..half].copy_from_slice(&reduced);
 }
 
 #[cfg(test)]

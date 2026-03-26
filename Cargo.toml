@@ -33,3 +33,8 @@ parallel = [
 name = "provers"
 path = "benches/provers.rs"
 harness = false
+
+[[bench]]
+name = "simd_vs_generic"
+path = "benches/simd_vs_generic.rs"
+harness = false

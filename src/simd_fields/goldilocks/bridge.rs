@@ -1,32 +1,61 @@
 //! `SimdAccelerated` implementation for Goldilocks (`F64`).
 //!
-//! Bridges the arkworks `Fp64<MontBackend<F64Config, 1>>` type to the
-//! [`GoldilocksSIMD`] backend by converting between Montgomery and canonical form.
+//! Uses the Montgomery-form NEON backend (`MontGoldilocksNeon`) which operates
+//! directly on arkworks' internal representation — zero-cost access,
+//! no conversion needed.
 
-use ark_ff::PrimeField;
+use ark_ff::BigInt;
+use core::marker::PhantomData;
 
-use super::GoldilocksSIMD;
+use super::MontGoldilocksSIMD;
 use crate::simd_fields::SimdAccelerated;
 use crate::tests::F64;
 
 impl SimdAccelerated for F64 {
-    type Backend = GoldilocksSIMD;
+    type Backend = MontGoldilocksSIMD;
 
-    #[inline]
+    #[inline(always)]
     fn to_raw(val: F64) -> u64 {
-        // into_bigint() converts from Montgomery form to canonical
-        val.into_bigint().0[0]
+        // F64 = Fp(BigInt([val]), PhantomData)
+        // .0 is the BigInt<1>, .0.0 is [u64; 1]
+        (val.0).0[0]
     }
 
-    #[inline]
+    #[inline(always)]
     fn from_raw(val: u64) -> F64 {
-        F64::from_bigint(ark_ff::BigInt([val])).unwrap()
+        // Construct Fp directly from Montgomery-form value.
+        // new_unchecked skips the R2 multiplication (value is already in Montgomery form).
+        ark_ff::Fp(BigInt([val]), PhantomData)
+    }
+
+    #[inline(always)]
+    fn slice_to_raw(src: &[F64]) -> Vec<u64> {
+        // Zero-cost: F64 is repr-compatible with u64 (BigInt<1> + ZST PhantomData).
+        // We copy instead of transmute-in-place since the caller owns &[F64].
+        // SAFETY: F64 and u64 have the same size and alignment.
+        let mut out = Vec::with_capacity(src.len());
+        unsafe {
+            core::ptr::copy_nonoverlapping(src.as_ptr() as *const u64, out.as_mut_ptr(), src.len());
+            out.set_len(src.len());
+        }
+        out
+    }
+
+    #[inline(always)]
+    fn slice_from_raw(src: &[u64]) -> Vec<F64> {
+        let mut out = Vec::with_capacity(src.len());
+        unsafe {
+            core::ptr::copy_nonoverlapping(src.as_ptr() as *const F64, out.as_mut_ptr(), src.len());
+            out.set_len(src.len());
+        }
+        out
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::simd_fields::SimdBaseField;
     use ark_ff::UniformRand;
     use ark_std::test_rng;
 
@@ -52,36 +81,33 @@ mod tests {
     }
 
     #[test]
-    fn test_arithmetic_in_raw_domain() {
-        use crate::simd_fields::goldilocks::GoldilocksSIMD;
-        use crate::simd_fields::SimdBaseField;
-
+    fn test_arithmetic_in_mont_domain() {
         let mut rng = test_rng();
         for _ in 0..10_000 {
             let a = F64::rand(&mut rng);
             let b = F64::rand(&mut rng);
 
             // Add
-            let ff_sum = a + b;
-            let raw_sum = GoldilocksSIMD::scalar_add(
+            let expected_sum = a + b;
+            let raw_sum = MontGoldilocksSIMD::scalar_add(
                 <F64 as SimdAccelerated>::to_raw(a),
                 <F64 as SimdAccelerated>::to_raw(b),
             );
             assert_eq!(
-                <F64 as SimdAccelerated>::to_raw(ff_sum),
-                raw_sum,
+                <F64 as SimdAccelerated>::from_raw(raw_sum),
+                expected_sum,
                 "add mismatch"
             );
 
-            // Mul
-            let ff_prod = a * b;
-            let raw_prod = GoldilocksSIMD::scalar_mul(
+            // Mul (Montgomery mul in the raw domain should match arkworks mul)
+            let expected_prod = a * b;
+            let raw_prod = MontGoldilocksSIMD::scalar_mul(
                 <F64 as SimdAccelerated>::to_raw(a),
                 <F64 as SimdAccelerated>::to_raw(b),
             );
             assert_eq!(
-                <F64 as SimdAccelerated>::to_raw(ff_prod),
-                raw_prod,
+                <F64 as SimdAccelerated>::from_raw(raw_prod),
+                expected_prod,
                 "mul mismatch"
             );
         }
