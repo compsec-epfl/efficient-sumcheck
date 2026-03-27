@@ -167,19 +167,19 @@ fn mont_mul(a: u64, b: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::simd_fields::SimdAccelerated;
     use crate::tests::F64;
-    use ark_ff::{AdditiveGroup, BigInt, Field, UniformRand};
+    use ark_ff::{AdditiveGroup, Field, UniformRand};
     use ark_std::test_rng;
-    use core::marker::PhantomData;
 
     /// Get the Montgomery-form value (raw internal representation).
     fn to_mont(f: F64) -> u64 {
-        (f.0).0[0]
+        F64::to_raw(f)
     }
 
     /// Reconstruct F64 from Montgomery-form value.
     fn from_mont(val: u64) -> F64 {
-        ark_ff::Fp(BigInt([val]), PhantomData)
+        F64::from_raw(val)
     }
 
     #[test]

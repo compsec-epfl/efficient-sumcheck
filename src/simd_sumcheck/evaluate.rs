@@ -99,11 +99,11 @@ pub fn evaluate<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
 
     let mut even_sum = F::ZERO;
     let mut odd_sum = F::ZERO;
-    for j in 0..F::LANES {
+    for (j, &val) in lanes_buf.iter().enumerate().take(F::LANES) {
         if j % 2 == 0 {
-            even_sum = F::scalar_add(even_sum, lanes_buf[j]);
+            even_sum = F::scalar_add(even_sum, val);
         } else {
-            odd_sum = F::scalar_add(odd_sum, lanes_buf[j]);
+            odd_sum = F::scalar_add(odd_sum, val);
         }
     }
 
@@ -118,12 +118,12 @@ pub fn evaluate<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
 pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
     use rayon::prelude::*;
 
-    let chunk_size = 32_768; // number of scalars per chunk
+    let chunk_size: usize = 32_768; // number of scalars per chunk
     let lanes = F::LANES;
     let step = 4 * lanes;
 
     // Round chunk size up to multiple of step
-    let chunk_size = ((chunk_size + step - 1) / step) * step;
+    let chunk_size = chunk_size.div_ceil(step) * step;
 
     // For small inputs, use the aligned+tail scalar approach directly
     if src.len() <= chunk_size {
@@ -133,11 +133,11 @@ pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::
         } else {
             (F::ZERO, F::ZERO)
         };
-        for i in aligned_len..src.len() {
+        for (i, &val) in src.iter().enumerate().skip(aligned_len) {
             if i % 2 == 0 {
-                even = F::scalar_add(even, src[i]);
+                even = F::scalar_add(even, val);
             } else {
-                odd = F::scalar_add(odd, src[i]);
+                odd = F::scalar_add(odd, val);
             }
         }
         return (even, odd);
@@ -151,11 +151,11 @@ pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::
                 // Scalar fallback for tiny remainder
                 let mut even = F::ZERO;
                 let mut odd = F::ZERO;
-                for i in 0..chunk.len() {
+                for (i, &val) in chunk.iter().enumerate() {
                     if i % 2 == 0 {
-                        even = F::scalar_add(even, chunk[i]);
+                        even = F::scalar_add(even, val);
                     } else {
-                        odd = F::scalar_add(odd, chunk[i]);
+                        odd = F::scalar_add(odd, val);
                     }
                 }
                 (even, odd)
@@ -164,11 +164,11 @@ pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::
                 // Handle remainder scalarly
                 let mut even = e;
                 let mut odd = o;
-                for i in aligned_len..chunk.len() {
+                for (i, &val) in chunk.iter().enumerate().skip(aligned_len) {
                     if i % 2 == 0 {
-                        even = F::scalar_add(even, chunk[i]);
+                        even = F::scalar_add(even, val);
                     } else {
-                        odd = F::scalar_add(odd, chunk[i]);
+                        odd = F::scalar_add(odd, val);
                     }
                 }
                 (even, odd)
