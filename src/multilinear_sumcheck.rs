@@ -25,7 +25,6 @@
 use ark_ff::Field;
 
 use crate::multilinear::reductions::pairwise;
-use crate::simd_fields::SimdAccelerated;
 use crate::transcript::Transcript;
 
 pub use crate::multilinear::Sumcheck;
@@ -59,7 +58,9 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
     // fast SIMD path. The TypeId checks evaluate to compile-time constants
     // in monomorphized code, so LLVM eliminates the dead branch — zero cost.
     #[cfg(target_arch = "aarch64")]
-    if let Some(result) = try_simd_dispatch::<BF, EF>(evaluations, transcript) {
+    if let Some(result) =
+        crate::simd_sumcheck::dispatch::try_simd_dispatch::<BF, EF>(evaluations, transcript)
+    {
         return result;
     }
 
@@ -101,324 +102,6 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
         verifier_messages,
         prover_messages,
     }
-}
-
-/// Try to dispatch to the SIMD backend when `BF == EF` and `BF` is a known
-/// SIMD-accelerated type (currently: Goldilocks F64).
-///
-/// Returns `Some(result)` if the SIMD path was taken, `None` otherwise.
-///
-/// Only dispatches for inputs ≤ `SIMD_MAX_ELEMENTS` — above this size the
-/// generic arkworks path is competitive or faster due to its allocation-free
-/// parallel reduce. The TypeId checks are compile-time constants in
-/// monomorphized code, so LLVM eliminates the entire function body for
-/// non-matching types.
-///
-/// Currently only handles `BF == EF` (no extension field). Extension field
-/// cases always use the generic path.
-const SIMD_MAX_ELEMENTS: usize = 1 << 18; // 256K elements
-
-#[cfg(target_arch = "aarch64")]
-fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
-    evaluations: &mut [BF],
-    transcript: &mut impl Transcript<EF>,
-) -> Option<Sumcheck<EF>> {
-    use crate::tests::F64;
-    use std::any::TypeId;
-
-    // Both TypeId checks are compile-time constants in monomorphized code.
-    // The size check ensures we only take the SIMD path where it's actually faster.
-    if TypeId::of::<BF>() == TypeId::of::<EF>()
-        && TypeId::of::<BF>() == TypeId::of::<F64>()
-        && evaluations.len() <= SIMD_MAX_ELEMENTS
-    {
-        // BF == EF == F64 (verified via TypeId).
-
-        // Cast &mut [BF] → &[F64] (same type, same layout).
-        let evals_f64: &[F64] = unsafe {
-            core::slice::from_raw_parts(evaluations.as_ptr() as *const F64, evaluations.len())
-        };
-
-        // Single closure for transcript round-step: write (s0, s1), return challenge.
-        // This avoids the double-mutable-borrow issue with separate write/read closures.
-        let result_f64 = simd_sumcheck_raw_f64(evals_f64, |s0, s1| {
-            // SAFETY: EF == F64, so the in-memory representation is identical.
-            let s0_ef: EF = unsafe { core::mem::transmute_copy(&s0) };
-            let s1_ef: EF = unsafe { core::mem::transmute_copy(&s1) };
-            transcript.write(s0_ef);
-            transcript.write(s1_ef);
-            let chg_ef: EF = transcript.read();
-            unsafe { core::mem::transmute_copy(&chg_ef) }
-        });
-
-        // Cast Sumcheck<F64> → Sumcheck<EF>.
-        // SAFETY: F64 == EF (verified above), so layout is identical.
-        let result: Sumcheck<EF> = Sumcheck {
-            verifier_messages: unsafe { core::mem::transmute(result_f64.verifier_messages) },
-            prover_messages: unsafe { core::mem::transmute(result_f64.prover_messages) },
-        };
-
-        return Some(result);
-    }
-
-    None
-}
-
-/// Raw SIMD sumcheck for F64, using a single closure for transcript interaction.
-///
-/// `round_step(s0, s1) -> challenge`: Writes the round messages to the transcript
-/// and returns the verifier's challenge. This single-closure design avoids borrowing
-/// issues with the outer transcript reference.
-#[cfg(target_arch = "aarch64")]
-fn simd_sumcheck_raw_f64(
-    evaluations: &[crate::tests::F64],
-    mut round_step: impl FnMut(crate::tests::F64, crate::tests::F64) -> crate::tests::F64,
-) -> Sumcheck<crate::tests::F64> {
-    use crate::simd_fields::SimdAccelerated;
-    use crate::tests::F64;
-
-    let num_rounds = evaluations.len().trailing_zeros() as usize;
-    let mut prover_messages: Vec<(F64, F64)> = Vec::with_capacity(num_rounds);
-    let mut verifier_messages: Vec<F64> = Vec::with_capacity(num_rounds);
-
-    let mut buf = F64::slice_to_raw(evaluations);
-    let mut active_len = buf.len();
-
-    for round in 0..num_rounds {
-        let half = active_len / 2;
-
-        let (s0, s1) = eval_raw::<<F64 as SimdAccelerated>::Backend>(&buf[..active_len]);
-
-        let msg_s0 = F64::from_raw(s0);
-        let msg_s1 = F64::from_raw(s1);
-
-        prover_messages.push((msg_s0, msg_s1));
-        let challenge = round_step(msg_s0, msg_s1);
-        verifier_messages.push(challenge);
-
-        if round < num_rounds - 1 {
-            reduce_raw::<<F64 as SimdAccelerated>::Backend>(&mut buf, half, F64::to_raw(challenge));
-            active_len = half;
-        }
-    }
-
-    Sumcheck {
-        verifier_messages,
-        prover_messages,
-    }
-}
-
-/// SIMD-accelerated multilinear sumcheck (base = extension).
-///
-/// Same semantics as [`multilinear_sumcheck`], but uses native SIMD intrinsics
-/// for the hot-path evaluate and reduce operations. The dispatch is **compile-time**:
-/// this function only exists for fields that implement [`SimdAccelerated`].
-///
-/// # How it works
-///
-/// 1. Converts evaluations from arkworks `Field` representation to raw scalars (O(n))
-/// 2. Runs the sumcheck entirely in the raw SIMD domain (O(n log n))
-/// 3. Wraps the round messages back in arkworks types
-///
-/// The O(n) conversion cost is amortized by the O(n log n) sumcheck.
-///
-/// # Usage
-///
-/// ```text
-/// // This compiles only if F64 implements SimdAccelerated:
-/// let result = simd_multilinear_sumcheck::<F64>(&evals, &mut transcript);
-/// ```
-pub fn simd_multilinear_sumcheck<BF>(
-    evaluations: &[BF],
-    transcript: &mut impl Transcript<BF>,
-) -> Sumcheck<BF>
-where
-    BF: Field + SimdAccelerated,
-{
-    assert!(
-        evaluations.len().count_ones() == 1,
-        "length must be a power of 2"
-    );
-    assert!(evaluations.len() >= 2, "need at least 1 variable");
-
-    let num_rounds = evaluations.len().trailing_zeros() as usize;
-    let mut prover_messages: Vec<(BF, BF)> = Vec::with_capacity(num_rounds);
-    let mut verifier_messages: Vec<BF> = Vec::with_capacity(num_rounds);
-
-    // Copy to raw scalars — zero-cost memcpy for Montgomery-form types.
-    let mut buf = BF::slice_to_raw(evaluations);
-    let mut active_len = buf.len();
-
-    for round in 0..num_rounds {
-        let half = active_len / 2;
-
-        // ── Evaluate: sum even-indexed and odd-indexed elements ──
-        let (s0, s1) = eval_raw::<BF::Backend>(&buf[..active_len]);
-
-        let msg_s0 = BF::from_raw(s0);
-        let msg_s1 = BF::from_raw(s1);
-
-        prover_messages.push((msg_s0, msg_s1));
-        transcript.write(msg_s0);
-        transcript.write(msg_s1);
-
-        let challenge = transcript.read();
-        verifier_messages.push(challenge);
-
-        // ── Reduce in-place ──
-        if round < num_rounds - 1 {
-            reduce_raw::<BF::Backend>(&mut buf, half, BF::to_raw(challenge));
-            active_len = half;
-        }
-    }
-
-    Sumcheck {
-        verifier_messages,
-        prover_messages,
-    }
-}
-
-/// Below this element count, stay single-threaded (rayon spawn overhead dominates).
-/// Above it, parallelize evaluate & reduce. 128K elements ≈ 2^17.
-const PAR_THRESHOLD: usize = 1 << 17;
-
-/// Sum even-indexed and odd-indexed elements of a raw scalar slice.
-#[inline(always)]
-fn eval_raw<F: crate::simd_fields::SimdBaseField>(evals: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
-    #[cfg(feature = "parallel")]
-    {
-        if evals.len() >= PAR_THRESHOLD {
-            return eval_raw_parallel::<F>(evals);
-        }
-    }
-    eval_raw_seq::<F>(evals)
-}
-
-/// Sequential evaluate using SIMD vector ops.
-///
-/// Accumulates into `uint64x2_t` (2 lanes), processing 2 pairs (4 scalars)
-/// per iteration. Falls back to scalar for the tail.
-#[inline(always)]
-fn eval_raw_seq<F: crate::simd_fields::SimdBaseField>(
-    evals: &[F::Scalar],
-) -> (F::Scalar, F::Scalar) {
-    let lanes = F::LANES; // 2 for NEON uint64x2_t
-    let stride = lanes * 2; // Process 2 pairs = 4 scalars per vector iteration
-    let vec_end = evals.len() / stride * stride;
-
-    // Vector accumulation: each lane accumulates one "column" of pairs.
-    // After deinterleaving: acc_even holds sum of even-indexed, acc_odd holds odd-indexed.
-    let mut acc_even = F::splat(F::ZERO);
-    let mut acc_odd = F::splat(F::ZERO);
-
-    let mut i = 0;
-    while i < vec_end {
-        // Load [e0, o0, e1, o1] as two vectors [e0, o0] and [e1, o1]
-        let v0 = unsafe { F::load(evals.as_ptr().add(i)) }; // [e0, o0]
-        let v1 = unsafe { F::load(evals.as_ptr().add(i + lanes)) }; // [e1, o1]
-
-        // Accumulate: each vector has [even, odd]
-        // v0.lane0 = even, v0.lane1 = odd
-        // v1.lane0 = even, v1.lane1 = odd
-        // So we can just add them all to a single accumulator and extract later.
-        acc_even = F::add(acc_even, v0);
-        acc_odd = F::add(acc_odd, v1);
-        i += stride;
-    }
-
-    // Reduce the two 2-lane accumulators: merge even lanes, merge odd lanes.
-    // acc_even has [sum_of_slot0, sum_of_slot1], acc_odd has [sum_of_slot2, sum_of_slot3]
-    // slot0 and slot2 are even-indexed, slot1 and slot3 are odd-indexed.
-    let merged = F::add(acc_even, acc_odd);
-    let mut result = [F::ZERO; 2];
-    unsafe { F::store(result.as_mut_ptr(), merged) };
-    // result[0] has accumulated evens from slots 0,2; result[1] has odds from slots 1,3
-    let mut s0 = result[0];
-    let mut s1 = result[1];
-
-    // Scalar tail
-    while i + 1 < evals.len() {
-        s0 = F::scalar_add(s0, evals[i]);
-        s1 = F::scalar_add(s1, evals[i + 1]);
-        i += 2;
-    }
-    (s0, s1)
-}
-
-/// Parallel evaluate using rayon.
-#[cfg(feature = "parallel")]
-fn eval_raw_parallel<F: crate::simd_fields::SimdBaseField>(
-    evals: &[F::Scalar],
-) -> (F::Scalar, F::Scalar) {
-    use rayon::prelude::*;
-
-    let chunk_pairs = 16_384;
-    let chunk_scalars = chunk_pairs * 2;
-
-    evals
-        .par_chunks(chunk_scalars)
-        .map(|chunk| eval_raw_seq::<F>(chunk))
-        .reduce(
-            || (F::ZERO, F::ZERO),
-            |(a0, a1), (b0, b1)| (F::scalar_add(a0, b0), F::scalar_add(a1, b1)),
-        )
-}
-
-/// In-place pairwise reduce: `buf[i] = buf[2i] + c * (buf[2i+1] - buf[2i])`.
-#[inline(always)]
-fn reduce_raw<F: crate::simd_fields::SimdBaseField>(
-    buf: &mut [F::Scalar],
-    half: usize,
-    c: F::Scalar,
-) {
-    #[cfg(feature = "parallel")]
-    {
-        if half >= PAR_THRESHOLD / 2 {
-            reduce_raw_parallel::<F>(buf, half, c);
-            return;
-        }
-    }
-    reduce_raw_seq::<F>(buf, half, c);
-}
-
-/// Sequential reduce.
-#[inline(always)]
-fn reduce_raw_seq<F: crate::simd_fields::SimdBaseField>(
-    buf: &mut [F::Scalar],
-    half: usize,
-    c: F::Scalar,
-) {
-    for i in 0..half {
-        let a = buf[2 * i];
-        let b = buf[2 * i + 1];
-        let diff = F::scalar_sub(b, a);
-        let scaled = F::scalar_mul(c, diff);
-        buf[i] = F::scalar_add(a, scaled);
-    }
-}
-
-/// Parallel reduce using rayon.
-#[cfg(feature = "parallel")]
-fn reduce_raw_parallel<F: crate::simd_fields::SimdBaseField>(
-    buf: &mut [F::Scalar],
-    half: usize,
-    c: F::Scalar,
-) {
-    use rayon::prelude::*;
-
-    let pairs = &buf[..2 * half];
-    let reduced: Vec<F::Scalar> = pairs
-        .par_chunks(2)
-        .map(|pair| {
-            let a = pair[0];
-            let b = pair[1];
-            let diff = F::scalar_sub(b, a);
-            let scaled = F::scalar_mul(c, diff);
-            F::scalar_add(a, scaled)
-        })
-        .collect();
-
-    buf[..half].copy_from_slice(&reduced);
 }
 
 #[cfg(test)]
@@ -483,10 +166,11 @@ mod tests {
         let mut transcript1 = SanityTranscript::new(&mut rng1);
         let generic_result = multilinear_sumcheck::<F64, F64>(&mut generic_evals, &mut transcript1);
 
-        // Run SIMD sumcheck with the same transcript seeding
+        // Run SIMD sumcheck (auto-dispatched via multilinear_sumcheck)
+        let mut simd_evals = evaluations.clone();
         let mut rng2 = test_rng();
         let mut transcript2 = SanityTranscript::new(&mut rng2);
-        let simd_result = simd_multilinear_sumcheck::<F64>(&evaluations, &mut transcript2);
+        let simd_result = multilinear_sumcheck::<F64, F64>(&mut simd_evals, &mut transcript2);
 
         // Prover messages must match exactly
         assert_eq!(

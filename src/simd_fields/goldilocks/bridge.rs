@@ -4,9 +4,6 @@
 //! directly on arkworks' internal representation — zero-cost access,
 //! no conversion needed.
 
-use ark_ff::BigInt;
-use core::marker::PhantomData;
-
 use super::MontGoldilocksSIMD;
 use crate::simd_fields::SimdAccelerated;
 use crate::tests::F64;
@@ -16,23 +13,19 @@ impl SimdAccelerated for F64 {
 
     #[inline(always)]
     fn to_raw(val: F64) -> u64 {
-        // F64 = Fp(BigInt([val]), PhantomData)
-        // .0 is the BigInt<1>, .0.0 is [u64; 1]
-        (val.0).0[0]
+        // SmallFp { value: u64, _phantom } — direct access to Montgomery-form value.
+        val.value
     }
 
     #[inline(always)]
     fn from_raw(val: u64) -> F64 {
-        // Construct Fp directly from Montgomery-form value.
-        // new_unchecked skips the R2 multiplication (value is already in Montgomery form).
-        ark_ff::Fp(BigInt([val]), PhantomData)
+        // Construct SmallFp directly from Montgomery-form value (no conversion).
+        F64::from_raw(val)
     }
 
     #[inline(always)]
     fn slice_to_raw(src: &[F64]) -> Vec<u64> {
-        // Zero-cost: F64 is repr-compatible with u64 (BigInt<1> + ZST PhantomData).
-        // We copy instead of transmute-in-place since the caller owns &[F64].
-        // SAFETY: F64 and u64 have the same size and alignment.
+        // Zero-cost: SmallFp<P> is repr-compatible with u64 (value: u64 + ZST PhantomData).
         let mut out = Vec::with_capacity(src.len());
         unsafe {
             core::ptr::copy_nonoverlapping(src.as_ptr() as *const u64, out.as_mut_ptr(), src.len());

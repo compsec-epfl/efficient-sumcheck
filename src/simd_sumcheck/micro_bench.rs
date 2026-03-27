@@ -18,8 +18,8 @@ mod tests {
         let mut rng = test_rng();
         let a_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
         let b_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let a_raw: Vec<u64> = a_ff.iter().map(|f| f.into_bigint().0[0]).collect();
-        let b_raw: Vec<u64> = b_ff.iter().map(|f| f.into_bigint().0[0]).collect();
+        let a_raw: Vec<u64> = a_ff.iter().map(|f| f.value).collect();
+        let b_raw: Vec<u64> = b_ff.iter().map(|f| f.value).collect();
 
         // Warm up
         let mut sink = 0u64;
@@ -28,7 +28,7 @@ mod tests {
         let start = std::time::Instant::now();
         for _ in 0..iters {
             for i in 0..n {
-                sink ^= (a_ff[i] * b_ff[i]).into_bigint().0[0];
+                sink ^= (a_ff[i] * b_ff[i]).value;
             }
         }
         let arkworks_time = start.elapsed();
@@ -57,8 +57,8 @@ mod tests {
         );
 
         // === Montgomery Goldilocks scalar multiply ===
-        let a_mont: Vec<u64> = a_ff.iter().map(|f| (f.0).0[0]).collect();
-        let b_mont: Vec<u64> = b_ff.iter().map(|f| (f.0).0[0]).collect();
+        let a_mont: Vec<u64> = a_ff.iter().map(|f| f.value).collect();
+        let b_mont: Vec<u64> = b_ff.iter().map(|f| f.value).collect();
         let start = std::time::Instant::now();
         for _ in 0..iters {
             for i in 0..n {
@@ -82,7 +82,7 @@ mod tests {
         let start = std::time::Instant::now();
         for _ in 0..iters {
             for i in 0..n {
-                sink ^= (a_ff[i] + b_ff[i]).into_bigint().0[0];
+                sink ^= (a_ff[i] + b_ff[i]).value;
             }
         }
         let arkworks_add_time = start.elapsed();

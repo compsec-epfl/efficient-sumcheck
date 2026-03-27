@@ -7,7 +7,6 @@ use criterion::{
 use efficient_sumcheck::{
     multilinear_sumcheck,
     simd_fields::{goldilocks::GoldilocksSIMD, SimdBaseField},
-    simd_multilinear_sumcheck,
     tests::F64,
     transcript::SanityTranscript,
 };
@@ -24,10 +23,10 @@ fn get_bench_group(c: &mut Criterion) -> BenchmarkGroup<'_, WallTime> {
 fn simd_vs_generic_sumcheck(c: &mut Criterion) {
     let mut group = get_bench_group(c);
 
-    for num_vars in [16, 20, 24] {
+    for num_vars in [16, 17, 18, 19, 20, 24] {
         let n = 1usize << num_vars;
 
-        // ── Generic multilinear_sumcheck ──
+        // ── Generic multilinear_sumcheck (auto-dispatches to SIMD for F64) ──
         group.bench_with_input(
             BenchmarkId::new("generic", format!("2^{}", num_vars)),
             &num_vars,
@@ -45,26 +44,6 @@ fn simd_vs_generic_sumcheck(c: &mut Criterion) {
                             &mut evals,
                             &mut transcript,
                         ));
-                    },
-                )
-            },
-        );
-
-        // ── SIMD multilinear_sumcheck (with Montgomery conversion) ──
-        group.bench_with_input(
-            BenchmarkId::new("simd_with_conv", format!("2^{}", num_vars)),
-            &num_vars,
-            |bencher, _| {
-                bencher.iter_with_setup(
-                    || {
-                        let mut rng = ark_std::test_rng();
-                        let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-                        evals
-                    },
-                    |evals| {
-                        let mut rng = ark_std::test_rng();
-                        let mut transcript = SanityTranscript::new(&mut rng);
-                        black_box(simd_multilinear_sumcheck::<F64>(&evals, &mut transcript));
                     },
                 )
             },

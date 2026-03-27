@@ -35,7 +35,7 @@ mod multilinear_sumcheck;
 pub use inner_product_sumcheck::{
     accumulate_sparse_evaluations, batched_constraint_poly, inner_product_sumcheck, ProductSumcheck,
 };
-pub use multilinear_sumcheck::{multilinear_sumcheck, simd_multilinear_sumcheck, Sumcheck};
+pub use multilinear_sumcheck::{multilinear_sumcheck, Sumcheck};
 
 // ─── Internal / Advanced ─────────────────────────────────────────────────────
 
