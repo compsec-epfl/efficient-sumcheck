@@ -126,7 +126,7 @@ pub fn reduce_parallel<F: SimdBaseField>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::simd_fields::goldilocks::mont_neon::MontGoldilocksNeon;
+    use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
     use crate::tests::F64;
     use ark_ff::UniformRand;
     use ark_std::test_rng;
@@ -150,7 +150,7 @@ mod tests {
         let mut expected_ff = evals_ff.clone();
         pairwise::reduce_evaluations(&mut expected_ff, challenge_ff);
 
-        let received_raw = reduce_to_vec::<MontGoldilocksNeon>(&evals_raw, challenge_raw);
+        let received_raw = reduce_to_vec::<GoldilocksNeon>(&evals_raw, challenge_raw);
 
         assert_eq!(expected_ff.len(), received_raw.len());
         for i in 0..expected_ff.len() {
@@ -178,7 +178,7 @@ mod tests {
         let mut expected_ff = evals_ff;
         pairwise::reduce_evaluations(&mut expected_ff, challenge_ff);
 
-        let out_len = reduce_in_place::<MontGoldilocksNeon>(&mut evals_raw, challenge_raw);
+        let out_len = reduce_in_place::<GoldilocksNeon>(&mut evals_raw, challenge_raw);
 
         assert_eq!(expected_ff.len(), out_len);
         for i in 0..out_len {
@@ -206,7 +206,7 @@ mod tests {
         let mut expected_ff = evals_ff;
         pairwise::reduce_evaluations(&mut expected_ff, challenge_ff);
 
-        let received_raw = reduce_parallel::<MontGoldilocksNeon>(&evals_raw, challenge_raw);
+        let received_raw = reduce_parallel::<GoldilocksNeon>(&evals_raw, challenge_raw);
 
         assert_eq!(expected_ff.len(), received_raw.len());
         for i in 0..expected_ff.len() {

@@ -4,6 +4,5 @@
 
 pub(crate) mod dispatch;
 pub mod evaluate;
-pub mod micro_bench;
 pub mod prove;
 pub mod reduce;

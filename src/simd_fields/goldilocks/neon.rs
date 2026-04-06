@@ -26,9 +26,9 @@ const MONT_ONE: u64 = EPSILON;
 const MONT_ZERO: u64 = 0;
 
 #[derive(Copy, Clone)]
-pub struct MontGoldilocksNeon;
+pub struct GoldilocksNeon;
 
-impl SimdBaseField for MontGoldilocksNeon {
+impl SimdBaseField for GoldilocksNeon {
     type Scalar = u64;
     type Packed = uint64x2_t;
     const LANES: usize = 2;
@@ -204,7 +204,7 @@ mod tests {
             let a = F64::rand(&mut rng);
             let b = F64::rand(&mut rng);
             let expected = a + b;
-            let result = from_mont(MontGoldilocksNeon::scalar_add(to_mont(a), to_mont(b)));
+            let result = from_mont(GoldilocksNeon::scalar_add(to_mont(a), to_mont(b)));
             assert_eq!(expected, result);
         }
     }
@@ -216,7 +216,7 @@ mod tests {
             let a = F64::rand(&mut rng);
             let b = F64::rand(&mut rng);
             let expected = a - b;
-            let result = from_mont(MontGoldilocksNeon::scalar_sub(to_mont(a), to_mont(b)));
+            let result = from_mont(GoldilocksNeon::scalar_sub(to_mont(a), to_mont(b)));
             assert_eq!(expected, result);
         }
     }
@@ -233,12 +233,12 @@ mod tests {
             let a_raw = [to_mont(a0), to_mont(a1)];
             let b_raw = [to_mont(b0), to_mont(b1)];
 
-            let a_v = unsafe { MontGoldilocksNeon::load(a_raw.as_ptr()) };
-            let b_v = unsafe { MontGoldilocksNeon::load(b_raw.as_ptr()) };
-            let r_v = MontGoldilocksNeon::mul(a_v, b_v);
+            let a_v = unsafe { GoldilocksNeon::load(a_raw.as_ptr()) };
+            let b_v = unsafe { GoldilocksNeon::load(b_raw.as_ptr()) };
+            let r_v = GoldilocksNeon::mul(a_v, b_v);
 
             let mut result = [0u64; 2];
-            unsafe { MontGoldilocksNeon::store(result.as_mut_ptr(), r_v) };
+            unsafe { GoldilocksNeon::store(result.as_mut_ptr(), r_v) };
 
             assert_eq!(from_mont(result[0]), a0 * b0);
             assert_eq!(from_mont(result[1]), a1 * b1);
