@@ -128,7 +128,11 @@ pub(crate) fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
 /// All-SIMD path: evaluate + reduce both in raw u64 SIMD.
 /// Best for small inputs where allocation overhead dominates.
 #[cfg(target_arch = "aarch64")]
-fn dispatch_all_simd<BF: Field, EF: Field + From<BF>, S: crate::simd_fields::SimdBaseField<Scalar = u64>>(
+fn dispatch_all_simd<
+    BF: Field,
+    EF: Field + From<BF>,
+    S: crate::simd_fields::SimdBaseField<Scalar = u64>,
+>(
     evaluations: &[BF],
     transcript: &mut impl Transcript<EF>,
     num_rounds: usize,
@@ -167,7 +171,11 @@ fn dispatch_all_simd<BF: Field, EF: Field + From<BF>, S: crate::simd_fields::Sim
 /// Hybrid path: SIMD evaluate + generic arkworks reduce.
 /// Best for large inputs where rayon-parallel Field reduce dominates.
 #[cfg(target_arch = "aarch64")]
-fn dispatch_hybrid<BF: Field, EF: Field + From<BF>, S: crate::simd_fields::SimdBaseField<Scalar = u64>>(
+fn dispatch_hybrid<
+    BF: Field,
+    EF: Field + From<BF>,
+    S: crate::simd_fields::SimdBaseField<Scalar = u64>,
+>(
     evaluations: &[BF],
     transcript: &mut impl Transcript<EF>,
     num_rounds: usize,
@@ -184,9 +192,7 @@ fn dispatch_hybrid<BF: Field, EF: Field + From<BF>, S: crate::simd_fields::SimdB
     }
 
     // ── Round 0: BF evaluate (SIMD) + cross-field reduce ──────────
-    let buf: &[u64] = unsafe {
-        core::slice::from_raw_parts(evaluations.as_ptr() as *const u64, n)
-    };
+    let buf: &[u64] = unsafe { core::slice::from_raw_parts(evaluations.as_ptr() as *const u64, n) };
     let (s0, s1) = evaluate_parallel::<S>(buf);
 
     let msg = (u64_to_field::<EF>(s0), u64_to_field::<EF>(s1));
@@ -201,9 +207,8 @@ fn dispatch_hybrid<BF: Field, EF: Field + From<BF>, S: crate::simd_fields::SimdB
 
     // ── Rounds 1+: EF evaluate (SIMD) + EF reduce (generic) ──────
     for _ in 1..num_rounds {
-        let buf: &[u64] = unsafe {
-            core::slice::from_raw_parts(ef_evals.as_ptr() as *const u64, ef_evals.len())
-        };
+        let buf: &[u64] =
+            unsafe { core::slice::from_raw_parts(ef_evals.as_ptr() as *const u64, ef_evals.len()) };
         let (s0, s1) = evaluate_parallel::<S>(buf);
 
         let msg = (u64_to_field::<EF>(s0), u64_to_field::<EF>(s1));
@@ -239,4 +244,3 @@ fn field_to_u64<F: Field>(val: F) -> u64 {
     debug_assert_eq!(core::mem::size_of::<F>(), 8);
     unsafe { core::mem::transmute_copy(&val) }
 }
-
