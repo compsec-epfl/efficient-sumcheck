@@ -6,7 +6,7 @@ use criterion::{
 
 use efficient_sumcheck::{
     multilinear_sumcheck,
-    simd_fields::{goldilocks::GoldilocksSIMD, SimdBaseField},
+    simd_fields::{goldilocks::GoldilocksNeon, SimdBaseField},
     tests::F64,
     transcript::SanityTranscript,
 };
@@ -56,25 +56,23 @@ fn simd_vs_generic_sumcheck(c: &mut Criterion) {
             |bencher, _| {
                 bencher.iter_with_setup(
                     || {
-                        // Generate raw u64 values directly (as SmallFp would store them)
-                        use ark_ff::PrimeField;
                         let mut rng = ark_std::test_rng();
-                        let evals: Vec<u64> = (0..n)
-                            .map(|_| F64::rand(&mut rng).into_bigint().0[0])
-                            .collect();
+                        let evals: Vec<u64> =
+                            (0..n).map(|_| F64::rand(&mut rng).value).collect();
                         evals
                     },
                     |evals| {
-                        use efficient_sumcheck::simd_fields::goldilocks::GoldilocksSIMD;
                         use efficient_sumcheck::simd_sumcheck::prove::prove_base_eq_ext;
-                        // Use fixed challenge function (avoids transcript overhead)
                         let mut challenge_idx = 0u64;
-                        black_box(prove_base_eq_ext::<GoldilocksSIMD>(&evals, |_s0, _s1| {
-                            challenge_idx = challenge_idx
-                                .wrapping_mul(6364136223846793005)
-                                .wrapping_add(1);
-                            challenge_idx % GoldilocksSIMD::MODULUS
-                        }));
+                        black_box(prove_base_eq_ext::<GoldilocksNeon>(
+                            &evals,
+                            |_s0, _s1| {
+                                challenge_idx = challenge_idx
+                                    .wrapping_mul(6364136223846793005)
+                                    .wrapping_add(1);
+                                challenge_idx % GoldilocksNeon::MODULUS
+                            },
+                        ));
                     },
                 )
             },
@@ -102,7 +100,8 @@ fn simd_vs_generic_sumcheck(c: &mut Criterion) {
                             challenge_idx = challenge_idx
                                 .wrapping_mul(6364136223846793005)
                                 .wrapping_add(1);
-                            let chg = F64::from(challenge_idx % GoldilocksSIMD::MODULUS);
+                            let chg =
+                                F64::from(challenge_idx % GoldilocksNeon::MODULUS);
                             pairwise::reduce_evaluations(&mut evals, chg);
                         }
                         black_box(msgs);

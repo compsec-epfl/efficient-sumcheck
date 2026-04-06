@@ -81,7 +81,7 @@ pub(crate) fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
         "Goldilocks dispatch: field element size must be 8 bytes"
     );
 
-    use crate::simd_fields::goldilocks::mont_neon::MontGoldilocksNeon;
+    use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
     use crate::simd_sumcheck::evaluate::evaluate_parallel;
     use crate::simd_sumcheck::reduce::reduce_parallel;
 
@@ -99,7 +99,7 @@ pub(crate) fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
 
     for round in 0..num_rounds {
         // ── Evaluate: SIMD-vectorized even/odd sums ────────────────────
-        let (s0, s1) = evaluate_parallel::<MontGoldilocksNeon>(&current);
+        let (s0, s1) = evaluate_parallel::<GoldilocksNeon>(&current);
 
         let s0_ef: EF = u64_to_field(s0);
         let s1_ef: EF = u64_to_field(s1);
@@ -114,7 +114,7 @@ pub(crate) fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
 
         if round < num_rounds - 1 {
             let chg: u64 = field_to_u64(chg_ef);
-            current = reduce_parallel::<MontGoldilocksNeon>(&current, chg);
+            current = reduce_parallel::<GoldilocksNeon>(&current, chg);
         }
     }
 

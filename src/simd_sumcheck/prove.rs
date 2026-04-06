@@ -57,7 +57,7 @@ pub fn prove_base_eq_ext<F: SimdBaseField>(
 mod tests {
     use super::*;
     use crate::multilinear_sumcheck;
-    use crate::simd_fields::goldilocks::mont_neon::MontGoldilocksNeon;
+    use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
     use crate::tests::F64;
     use crate::transcript::SanityTranscript;
     use ark_ff::UniformRand;
@@ -86,7 +86,7 @@ mod tests {
         let ref_challenges = ref_result.verifier_messages.clone();
         let mut challenge_idx = 0;
 
-        let simd_result = prove_base_eq_ext::<MontGoldilocksNeon>(&evals_raw, |_s0, _s1| {
+        let simd_result = prove_base_eq_ext::<GoldilocksNeon>(&evals_raw, |_s0, _s1| {
             let c = to_mont(ref_challenges[challenge_idx]);
             challenge_idx += 1;
             c
@@ -118,7 +118,7 @@ mod tests {
         let f4 = F64::from(4u64);
         let evals_raw: Vec<u64> = vec![to_mont(f1), to_mont(f2), to_mont(f3), to_mont(f4)];
 
-        let simd_result = prove_base_eq_ext::<MontGoldilocksNeon>(&evals_raw, |_s0, _s1| {
+        let simd_result = prove_base_eq_ext::<GoldilocksNeon>(&evals_raw, |_s0, _s1| {
             to_mont(F64::from(7u64))
         });
 
