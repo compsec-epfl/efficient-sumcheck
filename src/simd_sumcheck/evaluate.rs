@@ -14,21 +14,9 @@ use crate::simd_fields::SimdBaseField;
 ///
 /// # Panics
 ///
-/// Panics if `src.len()` is not a multiple of `8 * F::LANES` (the unroll factor).
-/// In production, the caller should pad to this alignment.
+/// Panics if `src.len()` is not a multiple of `4 * F::LANES` (the unroll factor).
 pub fn evaluate<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
     let lanes = F::LANES;
-    // Interleaved layout: even indices go to even_acc, odd indices to odd_acc.
-    // With LANES=2 (Goldilocks NEON), a single load of 2 elements gives
-    // one even and one odd. But the pairwise layout puts elements contiguously,
-    // so we need to load 2*LANES elements and split even/odd.
-    //
-    // Instead, we use the simpler approach: load LANES-wide vectors and
-    // accumulate. The first load is "even", the second is "odd", repeating.
-    //
-    // With 4-way unroll: we process 4*LANES scalars per iteration.
-    // Each iteration: 4 loads, 4 adds.
-
     let step = 4 * lanes;
     assert!(
         src.len() % step == 0 || src.is_empty(),
@@ -56,44 +44,13 @@ pub fn evaluate<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
         i += step;
     }
 
-    // Combine accumulators: acc0, acc2 are "even groups", acc1, acc3 are "odd groups".
-    // Wait — that's not right. The layout is contiguous:
-    //   [0..LANES) [LANES..2*LANES) [2*LANES..3*LANES) [3*LANES..4*LANES)
-    //
-    // With pairwise storage [f(0), f(1), f(2), f(3), ...], and LANES=2:
-    //   acc0 = [f(0)+f(4)+..., f(1)+f(5)+...]
-    //   acc1 = [f(2)+f(6)+..., f(3)+f(7)+...]
-    //   etc.
-    //
-    // So all accumulators mix even and odd. We need to reduce them lane-by-lane.
-    // Combine: total = acc0 + acc1 + acc2 + acc3 (element-wise)
+    // Combine accumulators element-wise.
+    // With LANES=2 and pairwise storage [f(0), f(1), f(2), f(3), ...]:
+    //   each load of 2 elements gives lane 0 = even-indexed, lane 1 = odd-indexed.
+    // After accumulating: total[0] = sum of all even-indexed, total[1] = sum of all odd-indexed.
     let total = F::add(F::add(acc0, acc1), F::add(acc2, acc3));
 
-    // Now `total` has LANES values. For pairwise semantics with the interleaved
-    // storage [f(0), f(1), f(2), f(3), ...], each pair of adjacent elements
-    // contributes:
-    //   lane 0: sum of f(0), f(2), f(4), ... (even-indexed in each LANES-group)
-    //   lane 1: sum of f(1), f(3), f(5), ... (odd-indexed in each LANES-group)
-    //
-    // Hmm, this only works cleanly if LANES=2. For LANES>2 (AVX), we need
-    // a different decomposition. Let me think about this more carefully.
-    //
-    // Actually, the pairwise evaluation sums even-indexed and odd-indexed elements
-    // from the ORIGINAL array. With LANES=2:
-    //   Load [f(0), f(1)] → lane 0 is even, lane 1 is odd
-    //   Load [f(2), f(3)] → lane 0 is even, lane 1 is odd
-    //
-    // So after accumulating, total[0] = sum of all even-indexed, total[1] = sum of all odd-indexed.
-    // This is exactly what we want!
-    //
-    // For LANES=4 (AVX2 with u64):
-    //   Load [f(0), f(1), f(2), f(3)] → lanes 0,2 are even, lanes 1,3 are odd
-    //
-    // So for general LANES: even lanes (0, 2, 4, ...) sum to even_total,
-    // odd lanes (1, 3, 5, ...) sum to odd_total.
-
-    // Extract lanes and sum them appropriately.
-    // Store total to a temporary array, then sum even/odd lanes scalar-wise.
+    // Extract lanes and sum even/odd groups.
     let mut lanes_buf: Vec<F::Scalar> = vec![F::ZERO; F::LANES];
     unsafe { F::store(lanes_buf.as_mut_ptr(), total) };
 
@@ -118,14 +75,11 @@ pub fn evaluate<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
 pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
     use rayon::prelude::*;
 
-    let chunk_size: usize = 32_768; // number of scalars per chunk
+    let chunk_size: usize = 32_768;
     let lanes = F::LANES;
     let step = 4 * lanes;
-
-    // Round chunk size up to multiple of step
     let chunk_size = chunk_size.div_ceil(step) * step;
 
-    // For small inputs, use the aligned+tail scalar approach directly
     if src.len() <= chunk_size {
         let aligned_len = (src.len() / step) * step;
         let (mut even, mut odd) = if aligned_len > 0 {
@@ -145,10 +99,8 @@ pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::
 
     src.par_chunks(chunk_size)
         .map(|chunk| {
-            // Handle last chunk that may not be aligned
             let aligned_len = (chunk.len() / step) * step;
             if aligned_len == 0 {
-                // Scalar fallback for tiny remainder
                 let mut even = F::ZERO;
                 let mut odd = F::ZERO;
                 for (i, &val) in chunk.iter().enumerate() {
@@ -161,7 +113,6 @@ pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::
                 (even, odd)
             } else {
                 let (e, o) = evaluate::<F>(&chunk[..aligned_len]);
-                // Handle remainder scalarly
                 let mut even = e;
                 let mut odd = o;
                 for (i, &val) in chunk.iter().enumerate().skip(aligned_len) {
@@ -207,13 +158,14 @@ pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    use crate::simd_fields::goldilocks::mont_neon::MontGoldilocksNeon;
     use crate::tests::F64;
-    use ark_ff::{PrimeField, UniformRand};
+    use ark_ff::UniformRand;
     use ark_std::test_rng;
 
-    fn to_raw(f: F64) -> u64 {
-        f.into_bigint().0[0]
+    /// Get the Montgomery-form raw value for SIMD operations.
+    fn to_mont(f: F64) -> u64 {
+        f.value
     }
 
     #[test]
@@ -221,19 +173,18 @@ mod tests {
         use crate::multilinear::reductions::pairwise;
 
         let mut rng = test_rng();
-        // Length must be multiple of 4*LANES = 8 for non-parallel evaluate
-        let n = 1 << 16; // 65536
+        let n = 1 << 16;
         let evals_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_raw(*f)).collect();
+        let evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_mont(*f)).collect();
 
         // Reference: arkworks pairwise evaluate
         let (expected_even, expected_odd) = pairwise::evaluate(&evals_ff);
 
-        // SIMD evaluate
-        let (simd_even, simd_odd) = evaluate::<GoldilocksNeon>(&evals_raw);
+        // SIMD evaluate (Montgomery domain)
+        let (simd_even, simd_odd) = evaluate::<MontGoldilocksNeon>(&evals_raw);
 
-        assert_eq!(to_raw(expected_even), simd_even, "even sum mismatch");
-        assert_eq!(to_raw(expected_odd), simd_odd, "odd sum mismatch");
+        assert_eq!(to_mont(expected_even), simd_even, "even sum mismatch");
+        assert_eq!(to_mont(expected_odd), simd_odd, "odd sum mismatch");
     }
 
     #[test]
@@ -241,18 +192,18 @@ mod tests {
         use crate::multilinear::reductions::pairwise;
 
         let mut rng = test_rng();
-        let n = 1 << 20; // ~1M elements, enough to trigger parallel chunks
+        let n = 1 << 20;
         let evals_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_raw(*f)).collect();
+        let evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_mont(*f)).collect();
 
         let (expected_even, expected_odd) = pairwise::evaluate(&evals_ff);
-        let (simd_even, simd_odd) = evaluate_parallel::<GoldilocksNeon>(&evals_raw);
+        let (simd_even, simd_odd) = evaluate_parallel::<MontGoldilocksNeon>(&evals_raw);
 
         assert_eq!(
-            to_raw(expected_even),
+            to_mont(expected_even),
             simd_even,
             "parallel even sum mismatch"
         );
-        assert_eq!(to_raw(expected_odd), simd_odd, "parallel odd sum mismatch");
+        assert_eq!(to_mont(expected_odd), simd_odd, "parallel odd sum mismatch");
     }
 }

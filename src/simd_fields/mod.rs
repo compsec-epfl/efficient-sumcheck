@@ -1,7 +1,9 @@
 //! SIMD-vectorized field arithmetic using native intrinsics.
 //!
 //! Each base field provides platform-specific implementations of add, sub, mul
-//! operating on packed SIMD vectors.
+//! operating on packed SIMD vectors. Currently supports:
+//!
+//! - **Goldilocks** (p = 2^64 − 2^32 + 1) via NEON on aarch64.
 
 pub mod goldilocks;
 
@@ -68,37 +70,4 @@ pub trait SimdBaseField: Copy + Send + Sync + Sized + 'static {
 
     /// Scalar modular multiplication (non-vectorized, for reductions).
     fn scalar_mul(a: Self::Scalar, b: Self::Scalar) -> Self::Scalar;
-}
-
-/// Bridge trait: connects an arkworks `Field` type to its SIMD backend.
-///
-/// Implement this for any arkworks field type (e.g., `Fp64<MontBackend<F64Config, 1>>`)
-/// to enable compile-time dispatch to the SIMD sumcheck path.
-///
-/// The conversion functions handle the representation difference
-/// (e.g., Montgomery form → canonical) at the sumcheck boundary.
-/// This is an O(n) one-time cost that's amortized over the O(n log n) sumcheck.
-pub trait SimdAccelerated: ark_ff::Field + Sized {
-    /// The SIMD backend for this field.
-    type Backend: SimdBaseField;
-
-    /// Convert from arkworks field element to raw scalar.
-    fn to_raw(val: Self) -> <Self::Backend as SimdBaseField>::Scalar;
-
-    /// Convert from raw scalar to arkworks field element.
-    fn from_raw(val: <Self::Backend as SimdBaseField>::Scalar) -> Self;
-
-    /// Bulk convert a slice of arkworks elements to raw scalars.
-    ///
-    /// Default implementation calls `to_raw` element-wise.
-    /// Override for zero-cost `transmute` when the representations match
-    /// (e.g., `SmallFp` backends where internal repr IS the canonical value).
-    fn slice_to_raw(src: &[Self]) -> Vec<<Self::Backend as SimdBaseField>::Scalar> {
-        src.iter().map(|x| Self::to_raw(*x)).collect()
-    }
-
-    /// Bulk convert raw scalars back to arkworks elements.
-    fn slice_from_raw(src: &[<Self::Backend as SimdBaseField>::Scalar]) -> Vec<Self> {
-        src.iter().map(|x| Self::from_raw(*x)).collect()
-    }
 }
