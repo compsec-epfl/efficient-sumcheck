@@ -6,52 +6,6 @@
 
 use crate::simd_fields::SimdBaseField;
 
-/// SIMD-vectorized pairwise reduce (base = extension, in-place).
-///
-/// For each pair `(src[2i], src[2i+1])`, computes:
-///   `src[2i] + challenge * (src[2i+1] - src[2i])`
-///
-/// Results are written into the first `src.len() / 2` positions.
-/// Returns the number of output elements.
-pub fn reduce_in_place<F: SimdBaseField>(src: &mut [F::Scalar], challenge: F::Scalar) -> usize {
-    let n = src.len() / 2;
-    let lanes = F::LANES;
-    let challenge_v = F::splat(challenge);
-
-    let aligned = (n / lanes) * lanes;
-
-    for i in (0..aligned).step_by(lanes) {
-        let src_idx = 2 * i;
-        let mut a_buf = vec![F::ZERO; lanes];
-        let mut b_buf = vec![F::ZERO; lanes];
-
-        for j in 0..lanes {
-            a_buf[j] = src[src_idx + 2 * j];
-            b_buf[j] = src[src_idx + 2 * j + 1];
-        }
-
-        unsafe {
-            let a_v = F::load(a_buf.as_ptr());
-            let b_v = F::load(b_buf.as_ptr());
-            let diff = F::sub(b_v, a_v);
-            let scaled = F::mul(challenge_v, diff);
-            let result = F::add(a_v, scaled);
-            F::store(src[i..].as_mut_ptr(), result);
-        }
-    }
-
-    // Scalar tail
-    for i in aligned..n {
-        let a = src[2 * i];
-        let b = src[2 * i + 1];
-        let diff = F::scalar_sub(b, a);
-        let scaled = F::scalar_mul(challenge, diff);
-        src[i] = F::scalar_add(a, scaled);
-    }
-
-    n
-}
-
 /// SIMD-vectorized pairwise reduce, producing a new Vec.
 pub fn reduce_to_vec<F: SimdBaseField>(src: &[F::Scalar], challenge: F::Scalar) -> Vec<F::Scalar> {
     let n = src.len() / 2;
@@ -127,13 +81,9 @@ pub fn reduce_parallel<F: SimdBaseField>(
 mod tests {
     use super::*;
     use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
-    use crate::tests::F64;
+    use crate::tests::{to_mont, F64};
     use ark_ff::UniformRand;
     use ark_std::test_rng;
-
-    fn to_mont(f: F64) -> u64 {
-        f.value
-    }
 
     #[test]
     fn test_reduce_matches_pairwise() {
@@ -157,34 +107,6 @@ mod tests {
             assert_eq!(
                 to_mont(expected_ff[i]),
                 received_raw[i],
-                "mismatch at index {}",
-                i
-            );
-        }
-    }
-
-    #[test]
-    fn test_reduce_in_place_matches_pairwise() {
-        use crate::multilinear::reductions::pairwise;
-
-        let mut rng = test_rng();
-        let n = 1 << 16;
-        let evals_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let mut evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_mont(*f)).collect();
-
-        let challenge_ff = F64::rand(&mut rng);
-        let challenge_raw = to_mont(challenge_ff);
-
-        let mut expected_ff = evals_ff;
-        pairwise::reduce_evaluations(&mut expected_ff, challenge_ff);
-
-        let out_len = reduce_in_place::<GoldilocksNeon>(&mut evals_raw, challenge_raw);
-
-        assert_eq!(expected_ff.len(), out_len);
-        for i in 0..out_len {
-            assert_eq!(
-                to_mont(expected_ff[i]),
-                evals_raw[i],
                 "mismatch at index {}",
                 i
             );

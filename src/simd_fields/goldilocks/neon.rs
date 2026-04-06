@@ -167,19 +167,9 @@ fn mont_mul(a: u64, b: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::F64;
+    use crate::tests::{from_mont, to_mont, F64};
     use ark_ff::{AdditiveGroup, UniformRand};
     use ark_std::test_rng;
-
-    /// Get the Montgomery-form value (raw internal representation).
-    fn to_mont(f: F64) -> u64 {
-        f.value
-    }
-
-    /// Reconstruct F64 from Montgomery-form value.
-    fn from_mont(val: u64) -> F64 {
-        F64::from_raw(val)
-    }
 
     #[test]
     fn test_mont_mul_matches_arkworks() {
