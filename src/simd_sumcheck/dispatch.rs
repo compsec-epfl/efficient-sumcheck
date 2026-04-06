@@ -82,46 +82,140 @@ pub(crate) fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
     );
 
     use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
-    use crate::simd_sumcheck::evaluate::evaluate_parallel;
-    use crate::simd_sumcheck::reduce::reduce_parallel;
 
-    // SAFETY: BF/EF are Goldilocks, size_of == 8, layout-compatible with u64.
-    let buf: &[u64] = unsafe {
-        core::slice::from_raw_parts(evaluations.as_ptr() as *const u64, evaluations.len())
-    };
-
-    let n = buf.len();
+    let n = evaluations.len();
     let num_rounds = n.trailing_zeros() as usize;
     let mut prover_messages: Vec<(EF, EF)> = Vec::with_capacity(num_rounds);
     let mut verifier_messages: Vec<EF> = Vec::with_capacity(num_rounds);
 
-    let mut current = buf.to_vec();
+    // Two strategies depending on input size:
+    //
+    // Small inputs (≤ HYBRID_THRESHOLD): all-SIMD path.
+    //   SIMD evaluate (add) + SIMD in-place reduce (mul). The mul isn't
+    //   truly vectorized on NEON (no 64×64→128), but for small arrays the
+    //   overhead of cross-field reduce + Vec allocation costs more.
+    //
+    // Large inputs (> HYBRID_THRESHOLD): hybrid path.
+    //   SIMD evaluate (add, genuine NEON speedup) + generic arkworks
+    //   reduce (rayon-parallel Field ops outperform our scalar-fallback
+    //   SIMD mul at scale).
+    const HYBRID_THRESHOLD: usize = 1 << 18; // 262144 elements
 
-    for round in 0..num_rounds {
-        // ── Evaluate: SIMD-vectorized even/odd sums ────────────────────
-        let (s0, s1) = evaluate_parallel::<GoldilocksNeon>(&current);
-
-        let s0_ef: EF = u64_to_field(s0);
-        let s1_ef: EF = u64_to_field(s1);
-
-        prover_messages.push((s0_ef, s1_ef));
-        transcript.write(s0_ef);
-        transcript.write(s1_ef);
-
-        // ── Reduce: fold with verifier challenge ───────────────────────
-        let chg_ef: EF = transcript.read();
-        verifier_messages.push(chg_ef);
-
-        if round < num_rounds - 1 {
-            let chg: u64 = field_to_u64(chg_ef);
-            current = reduce_parallel::<GoldilocksNeon>(&current, chg);
-        }
+    if n <= HYBRID_THRESHOLD {
+        dispatch_all_simd::<BF, EF, GoldilocksNeon>(
+            evaluations,
+            transcript,
+            num_rounds,
+            &mut prover_messages,
+            &mut verifier_messages,
+        );
+    } else {
+        dispatch_hybrid::<BF, EF, GoldilocksNeon>(
+            evaluations,
+            transcript,
+            num_rounds,
+            &mut prover_messages,
+            &mut verifier_messages,
+        );
     }
 
     Some(Sumcheck {
         verifier_messages,
         prover_messages,
     })
+}
+
+/// All-SIMD path: evaluate + reduce both in raw u64 SIMD.
+/// Best for small inputs where allocation overhead dominates.
+#[cfg(target_arch = "aarch64")]
+fn dispatch_all_simd<BF: Field, EF: Field + From<BF>, S: crate::simd_fields::SimdBaseField<Scalar = u64>>(
+    evaluations: &[BF],
+    transcript: &mut impl Transcript<EF>,
+    num_rounds: usize,
+    prover_messages: &mut Vec<(EF, EF)>,
+    verifier_messages: &mut Vec<EF>,
+) {
+    use crate::simd_sumcheck::evaluate::evaluate_parallel;
+    use crate::simd_sumcheck::reduce::reduce_in_place;
+
+    // SAFETY: BF is Goldilocks, size_of == 8, layout-compatible with u64.
+    let buf: &[u64] = unsafe {
+        core::slice::from_raw_parts(evaluations.as_ptr() as *const u64, evaluations.len())
+    };
+
+    let mut current = buf.to_vec();
+    let mut len = current.len();
+
+    for round in 0..num_rounds {
+        let (s0, s1) = evaluate_parallel::<S>(&current[..len]);
+
+        let msg = (u64_to_field::<EF>(s0), u64_to_field::<EF>(s1));
+        prover_messages.push(msg);
+        transcript.write(msg.0);
+        transcript.write(msg.1);
+
+        let chg_ef: EF = transcript.read();
+        verifier_messages.push(chg_ef);
+
+        if round < num_rounds - 1 {
+            let chg: u64 = field_to_u64(chg_ef);
+            len = reduce_in_place::<S>(&mut current[..len], chg);
+        }
+    }
+}
+
+/// Hybrid path: SIMD evaluate + generic arkworks reduce.
+/// Best for large inputs where rayon-parallel Field reduce dominates.
+#[cfg(target_arch = "aarch64")]
+fn dispatch_hybrid<BF: Field, EF: Field + From<BF>, S: crate::simd_fields::SimdBaseField<Scalar = u64>>(
+    evaluations: &[BF],
+    transcript: &mut impl Transcript<EF>,
+    num_rounds: usize,
+    prover_messages: &mut Vec<(EF, EF)>,
+    verifier_messages: &mut Vec<EF>,
+) {
+    use crate::multilinear::reductions::pairwise;
+    use crate::simd_sumcheck::evaluate::evaluate_parallel;
+
+    let n = evaluations.len();
+
+    if num_rounds == 0 {
+        return;
+    }
+
+    // ── Round 0: BF evaluate (SIMD) + cross-field reduce ──────────
+    let buf: &[u64] = unsafe {
+        core::slice::from_raw_parts(evaluations.as_ptr() as *const u64, n)
+    };
+    let (s0, s1) = evaluate_parallel::<S>(buf);
+
+    let msg = (u64_to_field::<EF>(s0), u64_to_field::<EF>(s1));
+    prover_messages.push(msg);
+    transcript.write(msg.0);
+    transcript.write(msg.1);
+
+    let chg: EF = transcript.read();
+    verifier_messages.push(chg);
+
+    let mut ef_evals = pairwise::cross_field_reduce(evaluations, chg);
+
+    // ── Rounds 1+: EF evaluate (SIMD) + EF reduce (generic) ──────
+    for _ in 1..num_rounds {
+        let buf: &[u64] = unsafe {
+            core::slice::from_raw_parts(ef_evals.as_ptr() as *const u64, ef_evals.len())
+        };
+        let (s0, s1) = evaluate_parallel::<S>(buf);
+
+        let msg = (u64_to_field::<EF>(s0), u64_to_field::<EF>(s1));
+        prover_messages.push(msg);
+        transcript.write(msg.0);
+        transcript.write(msg.1);
+
+        let chg: EF = transcript.read();
+        verifier_messages.push(chg);
+
+        pairwise::reduce_evaluations(&mut ef_evals, chg);
+    }
 }
 
 // ─── Helpers: field ↔ u64 conversion ────────────────────────────────────────
@@ -145,3 +239,4 @@ fn field_to_u64<F: Field>(val: F) -> u64 {
     debug_assert_eq!(core::mem::size_of::<F>(), 8);
     unsafe { core::mem::transmute_copy(&val) }
 }
+
