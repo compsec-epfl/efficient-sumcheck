@@ -159,14 +159,9 @@ pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::
 mod tests {
     use super::*;
     use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
-    use crate::tests::F64;
+    use crate::tests::{to_mont, F64};
     use ark_ff::UniformRand;
     use ark_std::test_rng;
-
-    /// Get the Montgomery-form raw value for SIMD operations.
-    fn to_mont(f: F64) -> u64 {
-        f.value
-    }
 
     #[test]
     fn test_evaluate_matches_pairwise() {

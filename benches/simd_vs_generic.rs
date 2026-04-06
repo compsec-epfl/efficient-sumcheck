@@ -4,12 +4,10 @@ use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BenchmarkGroup, BenchmarkId, Criterion,
 };
 
-use efficient_sumcheck::{
-    multilinear_sumcheck,
-    simd_fields::{goldilocks::GoldilocksNeon, SimdBaseField},
-    tests::F64,
-    transcript::SanityTranscript,
-};
+use efficient_sumcheck::{multilinear_sumcheck, tests::F64, transcript::SanityTranscript};
+
+/// Goldilocks modulus for the fixed-challenge benchmark.
+const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
 
 fn get_bench_group(c: &mut Criterion) -> BenchmarkGroup<'_, WallTime> {
     let mut group = c.benchmark_group("simd_vs_generic");
@@ -26,9 +24,9 @@ fn simd_vs_generic_sumcheck(c: &mut Criterion) {
     for num_vars in [16, 17, 18, 19, 20, 24] {
         let n = 1usize << num_vars;
 
-        // ── Generic multilinear_sumcheck (auto-dispatches to SIMD for F64) ──
+        // ── multilinear_sumcheck (auto-dispatches to SIMD for Goldilocks) ──
         group.bench_with_input(
-            BenchmarkId::new("generic", format!("2^{}", num_vars)),
+            BenchmarkId::new("auto_dispatch", format!("2^{}", num_vars)),
             &num_vars,
             |bencher, _| {
                 bencher.iter_with_setup(
@@ -49,38 +47,9 @@ fn simd_vs_generic_sumcheck(c: &mut Criterion) {
             },
         );
 
-        // ── Raw SIMD (no conversion — simulates SmallFp / zero-cost transmute) ──
+        // ── Generic pairwise path with fixed challenges (apples-to-apples baseline) ──
         group.bench_with_input(
-            BenchmarkId::new("simd_raw", format!("2^{}", num_vars)),
-            &num_vars,
-            |bencher, _| {
-                bencher.iter_with_setup(
-                    || {
-                        let mut rng = ark_std::test_rng();
-                        let evals: Vec<u64> =
-                            (0..n).map(|_| F64::rand(&mut rng).value).collect();
-                        evals
-                    },
-                    |evals| {
-                        use efficient_sumcheck::simd_sumcheck::prove::prove_base_eq_ext;
-                        let mut challenge_idx = 0u64;
-                        black_box(prove_base_eq_ext::<GoldilocksNeon>(
-                            &evals,
-                            |_s0, _s1| {
-                                challenge_idx = challenge_idx
-                                    .wrapping_mul(6364136223846793005)
-                                    .wrapping_add(1);
-                                challenge_idx % GoldilocksNeon::MODULUS
-                            },
-                        ));
-                    },
-                )
-            },
-        );
-
-        // ── Generic sumcheck with same fixed challenges (apples-to-apples) ──
-        group.bench_with_input(
-            BenchmarkId::new("generic_fixed_chg", format!("2^{}", num_vars)),
+            BenchmarkId::new("generic_pairwise", format!("2^{}", num_vars)),
             &num_vars,
             |bencher, _| {
                 bencher.iter_with_setup(
@@ -100,8 +69,7 @@ fn simd_vs_generic_sumcheck(c: &mut Criterion) {
                             challenge_idx = challenge_idx
                                 .wrapping_mul(6364136223846793005)
                                 .wrapping_add(1);
-                            let chg =
-                                F64::from(challenge_idx % GoldilocksNeon::MODULUS);
+                            let chg = F64::from(challenge_idx % GOLDILOCKS_P);
                             pairwise::reduce_evaluations(&mut evals, chg);
                         }
                         black_box(msgs);

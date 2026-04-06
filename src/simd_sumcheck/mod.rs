@@ -4,5 +4,4 @@
 
 pub(crate) mod dispatch;
 pub mod evaluate;
-pub mod prove;
 pub mod reduce;
