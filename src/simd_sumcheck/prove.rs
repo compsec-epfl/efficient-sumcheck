@@ -7,7 +7,7 @@ use crate::simd_fields::SimdBaseField;
 use crate::simd_sumcheck::evaluate::evaluate_parallel;
 use crate::simd_sumcheck::reduce::reduce_parallel;
 
-/// Result of the SIMD multilinear sumcheck.
+/// Result of the SIMD multilinear sumcheck over raw scalars.
 #[derive(Debug)]
 pub struct SimdSumcheck<S: Copy> {
     /// Round messages: `(s(0), s(1))` for each round.
@@ -21,9 +21,6 @@ pub struct SimdSumcheck<S: Copy> {
 /// `evals` are the raw scalar evaluations of the multilinear polynomial on the
 /// boolean hypercube. `challenge_fn` provides the verifier's challenge after each
 /// round (e.g., from a Fiat-Shamir transcript).
-///
-/// This function consumes the evaluations and runs the full sumcheck protocol,
-/// returning the transcript.
 pub fn prove_base_eq_ext<F: SimdBaseField>(
     evals: &[F::Scalar],
     mut challenge_fn: impl FnMut(F::Scalar, F::Scalar) -> F::Scalar,
@@ -40,16 +37,12 @@ pub fn prove_base_eq_ext<F: SimdBaseField>(
     let mut current = evals.to_vec();
 
     for round in 0..num_rounds {
-        // Evaluate: sum even-indexed and odd-indexed elements
         let (s0, s1) = evaluate_parallel::<F>(&current);
         prover_messages.push((s0, s1));
 
         if round < num_rounds - 1 {
-            // Get verifier challenge
             let challenge = challenge_fn(s0, s1);
             verifier_messages.push(challenge);
-
-            // Reduce
             current = reduce_parallel::<F>(&current, challenge);
         }
     }
@@ -64,14 +57,14 @@ pub fn prove_base_eq_ext<F: SimdBaseField>(
 mod tests {
     use super::*;
     use crate::multilinear_sumcheck;
-    use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    use crate::simd_fields::goldilocks::mont_neon::MontGoldilocksNeon;
     use crate::tests::F64;
     use crate::transcript::SanityTranscript;
-    use ark_ff::{PrimeField, UniformRand};
+    use ark_ff::UniformRand;
     use ark_std::test_rng;
 
-    fn to_raw(f: F64) -> u64 {
-        f.into_bigint().0[0]
+    fn to_mont(f: F64) -> u64 {
+        f.value
     }
 
     #[test]
@@ -81,7 +74,7 @@ mod tests {
 
         let mut rng = test_rng();
         let evals_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_raw(*f)).collect();
+        let evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_mont(*f)).collect();
 
         // Run the reference sumcheck
         let mut ref_evals = evals_ff.clone();
@@ -90,19 +83,15 @@ mod tests {
         let ref_result = multilinear_sumcheck::<F64, F64>(&mut ref_evals, &mut ref_transcript);
 
         // Run the SIMD sumcheck with the same challenges
-        // We need to produce the same challenges. The SanityTranscript uses
-        // random challenges that depend on the prover messages via write/read.
-        // To make this deterministic, we use the reference challenges directly.
         let ref_challenges = ref_result.verifier_messages.clone();
         let mut challenge_idx = 0;
 
-        let simd_result = prove_base_eq_ext::<GoldilocksNeon>(&evals_raw, |_s0, _s1| {
-            let c = to_raw(ref_challenges[challenge_idx]);
+        let simd_result = prove_base_eq_ext::<MontGoldilocksNeon>(&evals_raw, |_s0, _s1| {
+            let c = to_mont(ref_challenges[challenge_idx]);
             challenge_idx += 1;
             c
         });
 
-        // Check prover messages match
         assert_eq!(
             ref_result.prover_messages.len(),
             simd_result.prover_messages.len(),
@@ -115,33 +104,36 @@ mod tests {
             .zip(simd_result.prover_messages.iter())
             .enumerate()
         {
-            assert_eq!(to_raw(ref_msg.0), simd_msg.0, "s0 mismatch at round {}", i);
-            assert_eq!(to_raw(ref_msg.1), simd_msg.1, "s1 mismatch at round {}", i);
+            assert_eq!(to_mont(ref_msg.0), simd_msg.0, "s0 mismatch at round {}", i);
+            assert_eq!(to_mont(ref_msg.1), simd_msg.1, "s1 mismatch at round {}", i);
         }
     }
 
     #[test]
     fn test_simd_sumcheck_small() {
-        // Small test (4 elements = 2 rounds)
-        let evals_raw: Vec<u64> = vec![1, 2, 3, 4];
-        // sum = 10, s0 = 1+3=4, s1 = 2+4=6
+        // Use actual field elements converted to Montgomery form
+        let f1 = F64::from(1u64);
+        let f2 = F64::from(2u64);
+        let f3 = F64::from(3u64);
+        let f4 = F64::from(4u64);
+        let evals_raw: Vec<u64> = vec![to_mont(f1), to_mont(f2), to_mont(f3), to_mont(f4)];
 
-        let simd_result = prove_base_eq_ext::<GoldilocksNeon>(
-            &evals_raw,
-            |_s0, _s1| 7, // fixed challenge
-        );
+        let simd_result = prove_base_eq_ext::<MontGoldilocksNeon>(&evals_raw, |_s0, _s1| {
+            to_mont(F64::from(7u64))
+        });
 
         assert_eq!(simd_result.prover_messages.len(), 2);
         assert_eq!(simd_result.verifier_messages.len(), 1);
 
-        // Round 0: s0 = 4, s1 = 6
-        assert_eq!(simd_result.prover_messages[0], (4, 6));
+        // Round 0: s0 = f(0)+f(2) = 1+3 = 4, s1 = f(1)+f(3) = 2+4 = 6
+        assert_eq!(simd_result.prover_messages[0].0, to_mont(F64::from(4u64)));
+        assert_eq!(simd_result.prover_messages[0].1, to_mont(F64::from(6u64)));
 
-        // After reduce with challenge=7: for each pair (a, b):
-        //   a + 7*(b-a) = a + 7b - 7a = 7b - 6a
+        // Round 1: after reduce with challenge=7:
         //   pair (1,2): 1 + 7*(2-1) = 8
         //   pair (3,4): 3 + 7*(4-3) = 10
-        // Round 1: s0 = 8, s1 = 10
-        assert_eq!(simd_result.prover_messages[1], (8, 10));
+        //   s0 = 8, s1 = 10
+        assert_eq!(simd_result.prover_messages[1].0, to_mont(F64::from(8u64)));
+        assert_eq!(simd_result.prover_messages[1].1, to_mont(F64::from(10u64)));
     }
 }

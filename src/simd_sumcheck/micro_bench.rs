@@ -4,10 +4,10 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    use crate::simd_fields::goldilocks::mont_neon::MontGoldilocksNeon;
     use crate::simd_fields::SimdBaseField;
     use crate::tests::F64;
-    use ark_ff::{Field, PrimeField, UniformRand};
+    use ark_ff::UniformRand;
     use ark_std::test_rng;
 
     #[test]
@@ -18,10 +18,9 @@ mod tests {
         let mut rng = test_rng();
         let a_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
         let b_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let a_raw: Vec<u64> = a_ff.iter().map(|f| f.value).collect();
-        let b_raw: Vec<u64> = b_ff.iter().map(|f| f.value).collect();
+        let a_mont: Vec<u64> = a_ff.iter().map(|f| f.value).collect();
+        let b_mont: Vec<u64> = b_ff.iter().map(|f| f.value).collect();
 
-        // Warm up
         let mut sink = 0u64;
 
         // === Arkworks multiply ===
@@ -38,33 +37,11 @@ mod tests {
             arkworks_time.as_nanos() as f64 / (n * iters) as f64
         );
 
-        // === Our Goldilocks scalar multiply ===
+        // === Montgomery SIMD scalar multiply ===
         let start = std::time::Instant::now();
         for _ in 0..iters {
             for i in 0..n {
-                sink ^= GoldilocksNeon::scalar_mul(a_raw[i], b_raw[i]);
-            }
-        }
-        let goldilocks_time = start.elapsed();
-        println!(
-            "Goldilocks scalar mul: {:?} ({} muls)",
-            goldilocks_time,
-            n * iters
-        );
-        println!(
-            "  per mul: {:.1}ns",
-            goldilocks_time.as_nanos() as f64 / (n * iters) as f64
-        );
-
-        // === Montgomery Goldilocks scalar multiply ===
-        let a_mont: Vec<u64> = a_ff.iter().map(|f| f.value).collect();
-        let b_mont: Vec<u64> = b_ff.iter().map(|f| f.value).collect();
-        let start = std::time::Instant::now();
-        for _ in 0..iters {
-            for i in 0..n {
-                sink ^= crate::simd_fields::goldilocks::MontGoldilocksSIMD::scalar_mul(
-                    a_mont[i], b_mont[i],
-                );
+                sink ^= MontGoldilocksNeon::scalar_mul(a_mont[i], b_mont[i]);
             }
         }
         let mont_time = start.elapsed();
@@ -92,18 +69,18 @@ mod tests {
             arkworks_add_time.as_nanos() as f64 / (n * iters) as f64
         );
 
-        // === Our Goldilocks scalar add ===
+        // === Montgomery SIMD scalar add ===
         let start = std::time::Instant::now();
         for _ in 0..iters {
             for i in 0..n {
-                sink ^= GoldilocksNeon::scalar_add(a_raw[i], b_raw[i]);
+                sink ^= MontGoldilocksNeon::scalar_add(a_mont[i], b_mont[i]);
             }
         }
-        let goldilocks_add_time = start.elapsed();
-        println!("Goldilocks scalar add: {:?}", goldilocks_add_time);
+        let mont_add_time = start.elapsed();
+        println!("Montgomery scalar add: {:?}", mont_add_time);
         println!(
             "  per add: {:.1}ns",
-            goldilocks_add_time.as_nanos() as f64 / (n * iters) as f64
+            mont_add_time.as_nanos() as f64 / (n * iters) as f64
         );
 
         // === Vec allocation test ===
