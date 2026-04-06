@@ -1,6 +1,8 @@
 //! SIMD-vectorized pairwise evaluation: computes (sum_even, sum_odd).
 //!
-//! Uses a 4-accumulator unroll for instruction-level parallelism.
+//! Uses an 8-accumulator unroll for instruction-level parallelism,
+//! which is the sweet spot on NEON (saturates the register file without
+//! spilling — see "Proof Systems Engineering" for benchmarking methodology).
 
 use crate::simd_fields::SimdBaseField;
 
@@ -14,13 +16,13 @@ use crate::simd_fields::SimdBaseField;
 ///
 /// # Panics
 ///
-/// Panics if `src.len()` is not a multiple of `4 * F::LANES` (the unroll factor).
+/// Panics if `src.len()` is not a multiple of `8 * F::LANES` (the unroll factor).
 pub fn evaluate<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
     let lanes = F::LANES;
-    let step = 4 * lanes;
+    let step = 8 * lanes;
     assert!(
         src.len() % step == 0 || src.is_empty(),
-        "src.len() ({}) must be a multiple of {} (4 * LANES)",
+        "src.len() ({}) must be a multiple of {} (8 * LANES)",
         src.len(),
         step
     );
@@ -30,6 +32,10 @@ pub fn evaluate<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
     let mut acc1 = zero;
     let mut acc2 = zero;
     let mut acc3 = zero;
+    let mut acc4 = zero;
+    let mut acc5 = zero;
+    let mut acc6 = zero;
+    let mut acc7 = zero;
 
     let ptr = src.as_ptr();
     let mut i = 0;
@@ -40,18 +46,23 @@ pub fn evaluate<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
             acc1 = F::add(acc1, F::load(ptr.add(i + lanes)));
             acc2 = F::add(acc2, F::load(ptr.add(i + 2 * lanes)));
             acc3 = F::add(acc3, F::load(ptr.add(i + 3 * lanes)));
+            acc4 = F::add(acc4, F::load(ptr.add(i + 4 * lanes)));
+            acc5 = F::add(acc5, F::load(ptr.add(i + 5 * lanes)));
+            acc6 = F::add(acc6, F::load(ptr.add(i + 6 * lanes)));
+            acc7 = F::add(acc7, F::load(ptr.add(i + 7 * lanes)));
         }
         i += step;
     }
 
-    // Combine accumulators element-wise.
-    // With LANES=2 and pairwise storage [f(0), f(1), f(2), f(3), ...]:
-    //   each load of 2 elements gives lane 0 = even-indexed, lane 1 = odd-indexed.
-    // After accumulating: total[0] = sum of all even-indexed, total[1] = sum of all odd-indexed.
-    let total = F::add(F::add(acc0, acc1), F::add(acc2, acc3));
+    // Combine accumulators in a tree to keep ILP.
+    let total = F::add(
+        F::add(F::add(acc0, acc1), F::add(acc2, acc3)),
+        F::add(F::add(acc4, acc5), F::add(acc6, acc7)),
+    );
 
     // Extract lanes and sum even/odd groups.
-    let mut lanes_buf: Vec<F::Scalar> = vec![F::ZERO; F::LANES];
+    let mut lanes_buf = [F::ZERO; 16];
+    debug_assert!(F::LANES <= 16);
     unsafe { F::store(lanes_buf.as_mut_ptr(), total) };
 
     let mut even_sum = F::ZERO;
@@ -77,7 +88,7 @@ pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::
 
     let chunk_size: usize = 32_768;
     let lanes = F::LANES;
-    let step = 4 * lanes;
+    let step = 8 * lanes;
     let chunk_size = chunk_size.div_ceil(step) * step;
 
     if src.len() <= chunk_size {
@@ -135,7 +146,7 @@ pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::
 #[cfg(not(feature = "parallel"))]
 pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
     let lanes = F::LANES;
-    let step = 4 * lanes;
+    let step = 8 * lanes;
     let aligned_len = (src.len() / step) * step;
 
     let (mut even, mut odd) = if aligned_len > 0 {
