@@ -27,18 +27,18 @@ pub fn reduce_to_vec<F: SimdBaseField>(src: &[F::Scalar], challenge: F::Scalar) 
     let mut i = 0;
     while i < aligned {
         // Deinterleave 4 groups of LANES pairs
-        for g in 0..4 {
+        for (g, group) in ab.iter_mut().enumerate() {
             for j in 0..lanes {
                 let s = 2 * (i + g * lanes + j);
-                ab[g].0[j] = src[s];
-                ab[g].1[j] = src[s + 1];
+                group.0[j] = src[s];
+                group.1[j] = src[s + 1];
             }
         }
 
         unsafe {
-            for g in 0..4 {
-                let av = F::load(ab[g].0.as_ptr());
-                let bv = F::load(ab[g].1.as_ptr());
+            for (g, group) in ab.iter().enumerate() {
+                let av = F::load(group.0.as_ptr());
+                let bv = F::load(group.1.as_ptr());
                 let r = F::add(av, F::mul(challenge_v, F::sub(bv, av)));
                 F::store(out[i + g * lanes..].as_mut_ptr(), r);
             }
@@ -91,18 +91,18 @@ pub fn reduce_in_place<F: SimdBaseField>(src: &mut [F::Scalar], challenge: F::Sc
 
     let mut i = 0;
     while i < aligned {
-        for g in 0..4 {
+        for (g, group) in ab.iter_mut().enumerate() {
             for j in 0..lanes {
                 let s = 2 * (i + g * lanes + j);
-                ab[g].0[j] = src[s];
-                ab[g].1[j] = src[s + 1];
+                group.0[j] = src[s];
+                group.1[j] = src[s + 1];
             }
         }
 
         unsafe {
-            for g in 0..4 {
-                let av = F::load(ab[g].0.as_ptr());
-                let bv = F::load(ab[g].1.as_ptr());
+            for (g, group) in ab.iter().enumerate() {
+                let av = F::load(group.0.as_ptr());
+                let bv = F::load(group.1.as_ptr());
                 let r = F::add(av, F::mul(challenge_v, F::sub(bv, av)));
                 F::store(src[i + g * lanes..].as_mut_ptr(), r);
             }
