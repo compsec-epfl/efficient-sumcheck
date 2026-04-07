@@ -167,6 +167,10 @@ pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::
 }
 
 #[cfg(test)]
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
 mod tests {
     use super::*;
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]

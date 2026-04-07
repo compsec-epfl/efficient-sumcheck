@@ -11,12 +11,28 @@
 //! concrete type names are referenced. After monomorphization the check
 //! is constant-folded by LLVM, so the dead branch is eliminated entirely.
 
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
 use ark_ff::Field;
 
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
 use crate::multilinear::Sumcheck;
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
 use crate::transcript::Transcript;
 
 /// Goldilocks modulus: p = 2^64 − 2^32 + 1.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
 const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
 
 /// Returns `true` when `F` is a Goldilocks prime field stored as a

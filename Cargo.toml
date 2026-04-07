@@ -40,6 +40,6 @@ path = "benches/simd_vs_generic.rs"
 harness = false
 
 [patch.crates-io]
-ark-ff = { git = "https://github.com/arkworks-rs/algebra.git" }
-ark-poly = { git = "https://github.com/arkworks-rs/algebra.git" }
-ark-serialize = { git = "https://github.com/arkworks-rs/algebra.git" }
+ark-ff = { git = "https://github.com/arkworks-rs/algebra.git", rev = "285dac2" }
+ark-poly = { git = "https://github.com/arkworks-rs/algebra.git", rev = "285dac2" }
+ark-serialize = { git = "https://github.com/arkworks-rs/algebra.git", rev = "285dac2" }
