@@ -234,11 +234,11 @@ fn bench_eval_reduce_loop(c: &mut Criterion) {
                     },
                     |(mut current, challenges)| {
                         let mut len = current.len();
-                        for round in 0..num_vars {
+                        for chg in &challenges {
                             let _ = evaluate::evaluate_parallel::<SimdBackend>(&current[..len]);
                             len = reduce::reduce_in_place::<SimdBackend>(
                                 &mut current[..len],
-                                challenges[round],
+                                *chg,
                             );
                         }
                         black_box(current);
@@ -266,14 +266,52 @@ fn bench_eval_reduce_loop(c: &mut Criterion) {
                     },
                     |(mut current, challenges)| {
                         let mut len = current.len();
-                        for round in 0..num_vars {
+                        for chg in &challenges {
                             let (s0, s1) =
                                 evaluate::evaluate_parallel::<SimdBackend>(&current[..len]);
                             black_box((s0, s1));
                             len = reduce::reduce_in_place::<SimdBackend>(
                                 &mut current[..len],
-                                challenges[round],
+                                *chg,
                             );
+                        }
+                        black_box(current);
+                    },
+                );
+            },
+        );
+
+        // Fused: reduce + next evaluate in a single pass
+        group.bench_with_input(
+            BenchmarkId::new("simd_fused", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        let evals: Vec<u64> = (0..n).map(|_| F64::rand(&mut rng).value).collect();
+                        let challenges: Vec<u64> =
+                            (0..num_vars).map(|_| F64::rand(&mut rng).value).collect();
+                        (evals, challenges)
+                    },
+                    |(mut current, challenges)| {
+                        let mut len = current.len();
+                        // First evaluate standalone
+                        let (mut s0, mut s1) =
+                            evaluate::evaluate_parallel::<SimdBackend>(&current[..len]);
+                        for (round, chg) in challenges.iter().enumerate() {
+                            black_box((s0, s1));
+                            if round < num_vars - 1 {
+                                // Fused reduce + next evaluate
+                                let (ns0, ns1, new_len) =
+                                    reduce::reduce_and_evaluate::<SimdBackend>(
+                                        &mut current[..len],
+                                        *chg,
+                                    );
+                                len = new_len;
+                                s0 = ns0;
+                                s1 = ns1;
+                            }
                         }
                         black_box(current);
                     },

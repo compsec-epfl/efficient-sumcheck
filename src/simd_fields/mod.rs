@@ -71,6 +71,35 @@ pub trait SimdBaseField: Copy + Send + Sync + Sized + 'static {
     /// Scalar modular multiplication (non-vectorized, for reductions).
     fn scalar_mul(a: Self::Scalar, b: Self::Scalar) -> Self::Scalar;
 
+    /// Wrapping add without modular reduction — just raw integer addition.
+    ///
+    /// Callers must track carries separately and finalize with `reduce_carry`.
+    /// Backends should override for performance; default falls back to `add`.
+    #[inline(always)]
+    fn add_wrapping(a: Self::Packed, b: Self::Packed) -> Self::Packed {
+        Self::add(a, b)
+    }
+
+    /// Detect carries from a wrapping add: returns a packed vector with `1` in
+    /// lanes where `sum < a` (unsigned overflow) and `0` elsewhere.
+    ///
+    /// Default returns zero (no carries tracked — consistent with `add` default).
+    #[inline(always)]
+    fn carry_mask(_sum: Self::Packed, _a_before: Self::Packed) -> Self::Packed {
+        Self::splat(Self::ZERO)
+    }
+
+    /// Correct a wrapping accumulator given the carry count per lane.
+    ///
+    /// For Goldilocks: each carry represents 2^64 ≡ EPSILON (mod P),
+    /// so result = sum + carry_count * EPSILON (mod P).
+    ///
+    /// Default is identity (assumes `add_wrapping` already reduced).
+    #[inline(always)]
+    fn reduce_carry(sum: Self::Packed, _carry_count: Self::Packed) -> Self::Packed {
+        sum
+    }
+
     /// Load `2 * LANES` scalars from interleaved pairs and deinterleave:
     ///   `[a0, b0, a1, b1, ..., a_{L-1}, b_{L-1}]` → `(evens, odds)`.
     ///
