@@ -57,7 +57,10 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
     // When BF == EF and BF has a SIMD backend, transparently route to the
     // fast SIMD path. The TypeId checks evaluate to compile-time constants
     // in monomorphized code, so LLVM eliminates the dead branch — zero cost.
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    ))]
     if let Some(result) =
         crate::simd_sumcheck::dispatch::try_simd_dispatch::<BF, EF>(evaluations, transcript)
     {

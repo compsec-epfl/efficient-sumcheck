@@ -14,50 +14,44 @@ use crate::simd_fields::SimdBaseField;
 pub fn reduce_to_vec<F: SimdBaseField>(src: &[F::Scalar], challenge: F::Scalar) -> Vec<F::Scalar> {
     let n = src.len() / 2;
     let mut out = vec![F::ZERO; n];
+    reduce_into::<F>(src, &mut out, challenge);
+    out
+}
+
+/// Core SIMD reduce: reads pairs from `src` and writes folded results to `out`.
+///
+/// `src` must have `2 * out.len()` elements. Each pair `(src[2i], src[2i+1])`
+/// produces `out[i] = src[2i] + challenge * (src[2i+1] - src[2i])`.
+fn reduce_into<F: SimdBaseField>(src: &[F::Scalar], out: &mut [F::Scalar], challenge: F::Scalar) {
+    let n = out.len();
+    debug_assert_eq!(src.len(), 2 * n);
 
     let lanes = F::LANES;
     let challenge_v = F::splat(challenge);
     let step = 4 * lanes; // 4× unroll
     let aligned = (n / step) * step;
 
-    // Stack-allocated deinterleave buffers (LANES is small: 2 for NEON u64).
-    debug_assert!(lanes <= 16);
-    let mut ab = [([F::ZERO; 16], [F::ZERO; 16]); 4];
+    let src_ptr = src.as_ptr();
+    let out_ptr = out.as_mut_ptr();
 
     let mut i = 0;
     while i < aligned {
-        // Deinterleave 4 groups of LANES pairs
-        for (g, group) in ab.iter_mut().enumerate() {
-            for j in 0..lanes {
-                let s = 2 * (i + g * lanes + j);
-                group.0[j] = src[s];
-                group.1[j] = src[s + 1];
-            }
-        }
-
         unsafe {
-            for (g, group) in ab.iter().enumerate() {
-                let av = F::load(group.0.as_ptr());
-                let bv = F::load(group.1.as_ptr());
+            for g in 0..4 {
+                let (av, bv) = F::load_deinterleaved(src_ptr.add(2 * (i + g * lanes)));
                 let r = F::add(av, F::mul(challenge_v, F::sub(bv, av)));
-                F::store(out[i + g * lanes..].as_mut_ptr(), r);
+                F::store(out_ptr.add(i + g * lanes), r);
             }
         }
-
         i += step;
     }
 
-    // Handle remaining full SIMD vectors (1–3 vectors that didn't fill a 4× group)
+    // Handle remaining full SIMD vectors
     while i + lanes <= n {
-        for j in 0..lanes {
-            ab[0].0[j] = src[2 * (i + j)];
-            ab[0].1[j] = src[2 * (i + j) + 1];
-        }
         unsafe {
-            let av = F::load(ab[0].0.as_ptr());
-            let bv = F::load(ab[0].1.as_ptr());
+            let (av, bv) = F::load_deinterleaved(src_ptr.add(2 * i));
             let r = F::add(av, F::mul(challenge_v, F::sub(bv, av)));
-            F::store(out[i..].as_mut_ptr(), r);
+            F::store(out_ptr.add(i), r);
         }
         i += lanes;
     }
@@ -71,8 +65,6 @@ pub fn reduce_to_vec<F: SimdBaseField>(src: &[F::Scalar], challenge: F::Scalar) 
         out[i] = F::scalar_add(a, scaled);
         i += 1;
     }
-
-    out
 }
 
 /// SIMD-vectorized pairwise reduce, in-place.
@@ -83,42 +75,27 @@ pub fn reduce_in_place<F: SimdBaseField>(src: &mut [F::Scalar], challenge: F::Sc
     let n = src.len() / 2;
     let lanes = F::LANES;
     let challenge_v = F::splat(challenge);
-    let step = 4 * lanes;
+    let step = 8 * lanes;
     let aligned = (n / step) * step;
 
-    debug_assert!(lanes <= 16);
-    let mut ab = [([F::ZERO; 16], [F::ZERO; 16]); 4];
+    let src_ptr = src.as_ptr();
+    let out_ptr = src.as_mut_ptr();
 
     let mut i = 0;
     while i < aligned {
-        for (g, group) in ab.iter_mut().enumerate() {
-            for j in 0..lanes {
-                let s = 2 * (i + g * lanes + j);
-                group.0[j] = src[s];
-                group.1[j] = src[s + 1];
-            }
-        }
-
         unsafe {
-            for (g, group) in ab.iter().enumerate() {
-                let av = F::load(group.0.as_ptr());
-                let bv = F::load(group.1.as_ptr());
+            for g in 0..4 {
+                let (av, bv) = F::load_deinterleaved(src_ptr.add(2 * (i + g * lanes)));
                 let r = F::add(av, F::mul(challenge_v, F::sub(bv, av)));
-                F::store(src[i + g * lanes..].as_mut_ptr(), r);
+                F::store(out_ptr.add(i + g * lanes), r);
             }
         }
-
         i += step;
     }
 
     while i + lanes <= n {
-        for j in 0..lanes {
-            ab[0].0[j] = src[2 * (i + j)];
-            ab[0].1[j] = src[2 * (i + j) + 1];
-        }
         unsafe {
-            let av = F::load(ab[0].0.as_ptr());
-            let bv = F::load(ab[0].1.as_ptr());
+            let (av, bv) = F::load_deinterleaved(src_ptr.add(2 * i));
             let r = F::add(av, F::mul(challenge_v, F::sub(bv, av)));
             F::store(src[i..].as_mut_ptr(), r);
         }
@@ -138,6 +115,9 @@ pub fn reduce_in_place<F: SimdBaseField>(src: &mut [F::Scalar], challenge: F::Sc
 }
 
 /// Parallel SIMD reduce (producing a new Vec).
+///
+/// Pre-allocates the output and writes directly to non-overlapping slices
+/// via `par_chunks_mut`, avoiding per-chunk Vec allocations.
 #[cfg(feature = "parallel")]
 pub fn reduce_parallel<F: SimdBaseField>(
     src: &[F::Scalar],
@@ -147,15 +127,23 @@ pub fn reduce_parallel<F: SimdBaseField>(
 
     let n = src.len() / 2;
     let chunk_size = 32_768_usize;
-    let pair_chunk = chunk_size * 2;
 
     if n <= chunk_size {
         return reduce_to_vec::<F>(src, challenge);
     }
 
-    src.par_chunks(pair_chunk)
-        .flat_map(|chunk| reduce_to_vec::<F>(chunk, challenge))
-        .collect()
+    let mut out = vec![F::ZERO; n];
+    let pair_chunk = chunk_size * 2;
+
+    out.par_chunks_mut(chunk_size)
+        .enumerate()
+        .for_each(|(idx, out_chunk)| {
+            let src_start = idx * pair_chunk;
+            let src_end = src_start + out_chunk.len() * 2;
+            reduce_into::<F>(&src[src_start..src_end], out_chunk, challenge);
+        });
+
+    out
 }
 
 /// Non-parallel fallback.
@@ -170,7 +158,10 @@ pub fn reduce_parallel<F: SimdBaseField>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    use crate::simd_fields::goldilocks::avx512::GoldilocksAvx512 as Backend;
+    #[cfg(target_arch = "aarch64")]
+    use crate::simd_fields::goldilocks::neon::GoldilocksNeon as Backend;
     use crate::tests::{to_mont, F64};
     use ark_ff::UniformRand;
     use ark_std::test_rng;
@@ -190,7 +181,7 @@ mod tests {
         let mut expected_ff = evals_ff.clone();
         pairwise::reduce_evaluations(&mut expected_ff, challenge_ff);
 
-        let received_raw = reduce_to_vec::<GoldilocksNeon>(&evals_raw, challenge_raw);
+        let received_raw = reduce_to_vec::<Backend>(&evals_raw, challenge_raw);
 
         assert_eq!(expected_ff.len(), received_raw.len());
         for i in 0..expected_ff.len() {
@@ -218,7 +209,7 @@ mod tests {
         let mut expected_ff = evals_ff;
         pairwise::reduce_evaluations(&mut expected_ff, challenge_ff);
 
-        let received_raw = reduce_parallel::<GoldilocksNeon>(&evals_raw, challenge_raw);
+        let received_raw = reduce_parallel::<Backend>(&evals_raw, challenge_raw);
 
         assert_eq!(expected_ff.len(), received_raw.len());
         for i in 0..expected_ff.len() {

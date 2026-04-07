@@ -169,7 +169,10 @@ pub fn evaluate_parallel<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    use crate::simd_fields::goldilocks::avx512::GoldilocksAvx512 as Backend;
+    #[cfg(target_arch = "aarch64")]
+    use crate::simd_fields::goldilocks::neon::GoldilocksNeon as Backend;
     use crate::tests::{to_mont, F64};
     use ark_ff::UniformRand;
     use ark_std::test_rng;
@@ -187,7 +190,7 @@ mod tests {
         let (expected_even, expected_odd) = pairwise::evaluate(&evals_ff);
 
         // SIMD evaluate (Montgomery domain)
-        let (simd_even, simd_odd) = evaluate::<GoldilocksNeon>(&evals_raw);
+        let (simd_even, simd_odd) = evaluate::<Backend>(&evals_raw);
 
         assert_eq!(to_mont(expected_even), simd_even, "even sum mismatch");
         assert_eq!(to_mont(expected_odd), simd_odd, "odd sum mismatch");
@@ -203,7 +206,7 @@ mod tests {
         let evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_mont(*f)).collect();
 
         let (expected_even, expected_odd) = pairwise::evaluate(&evals_ff);
-        let (simd_even, simd_odd) = evaluate_parallel::<GoldilocksNeon>(&evals_raw);
+        let (simd_even, simd_odd) = evaluate_parallel::<Backend>(&evals_raw);
 
         assert_eq!(
             to_mont(expected_even),

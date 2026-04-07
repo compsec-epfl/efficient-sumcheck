@@ -3,7 +3,7 @@
 //! Each base field provides platform-specific implementations of add, sub, mul
 //! operating on packed SIMD vectors. Currently supports:
 //!
-//! - **Goldilocks** (p = 2^64 − 2^32 + 1) via NEON on aarch64.
+//! - **Goldilocks** (p = 2^64 − 2^32 + 1) via NEON on aarch64, AVX-512 IFMA on x86_64.
 
 pub mod goldilocks;
 
@@ -70,4 +70,24 @@ pub trait SimdBaseField: Copy + Send + Sync + Sized + 'static {
 
     /// Scalar modular multiplication (non-vectorized, for reductions).
     fn scalar_mul(a: Self::Scalar, b: Self::Scalar) -> Self::Scalar;
+
+    /// Load `2 * LANES` scalars from interleaved pairs and deinterleave:
+    ///   `[a0, b0, a1, b1, ..., a_{L-1}, b_{L-1}]` → `(evens, odds)`.
+    ///
+    /// Default: scalar deinterleave through stack buffers.
+    /// Backends with native shuffle (e.g. AVX-512 `vpermutex2var`) should override.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to at least `2 * LANES` valid `Scalar` values.
+    #[inline(always)]
+    unsafe fn load_deinterleaved(ptr: *const Self::Scalar) -> (Self::Packed, Self::Packed) {
+        let mut evens = [Self::ZERO; 16];
+        let mut odds = [Self::ZERO; 16];
+        for j in 0..Self::LANES {
+            evens[j] = *ptr.add(2 * j);
+            odds[j] = *ptr.add(2 * j + 1);
+        }
+        (Self::load(evens.as_ptr()), Self::load(odds.as_ptr()))
+    }
 }
