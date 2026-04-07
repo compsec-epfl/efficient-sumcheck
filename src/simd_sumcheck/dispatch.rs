@@ -181,7 +181,7 @@ fn dispatch_all_simd<
     verifier_messages: &mut Vec<EF>,
 ) {
     use crate::simd_sumcheck::evaluate::evaluate_parallel;
-    use crate::simd_sumcheck::reduce::reduce_in_place;
+    use crate::simd_sumcheck::reduce::{reduce_and_evaluate, reduce_in_place};
 
     // SAFETY: BF is Goldilocks, size_of == 8, layout-compatible with u64.
     // Work in-place on the evaluation buffer to avoid allocation overhead.
@@ -191,8 +191,14 @@ fn dispatch_all_simd<
 
     let mut len = current.len();
 
+    // Fused reduce+evaluate eliminates one data pass per round.
+    // Only beneficial when data exceeds L2 cache (~2 MB = ~2^18 u64s).
+    const FUSE_THRESHOLD: usize = 1 << 20;
+
+    let mut pending_eval: Option<(u64, u64)> = None;
+
     for round in 0..num_rounds {
-        let (s0, s1) = evaluate_parallel::<S>(&current[..len]);
+        let (s0, s1) = pending_eval.unwrap_or_else(|| evaluate_parallel::<S>(&current[..len]));
 
         let msg = (u64_to_field::<EF>(s0), u64_to_field::<EF>(s1));
         prover_messages.push(msg);
@@ -204,7 +210,15 @@ fn dispatch_all_simd<
 
         if round < num_rounds - 1 {
             let chg: u64 = field_to_u64(chg_ef);
-            len = reduce_in_place::<S>(&mut current[..len], chg);
+            if len > FUSE_THRESHOLD {
+                let (ns0, ns1, new_len) =
+                    reduce_and_evaluate::<S>(&mut current[..len], chg);
+                len = new_len;
+                pending_eval = Some((ns0, ns1));
+            } else {
+                len = reduce_in_place::<S>(&mut current[..len], chg);
+                pending_eval = None;
+            }
         }
     }
 }

@@ -105,6 +105,30 @@ impl SimdBaseField for GoldilocksAvx512 {
     }
 
     #[inline(always)]
+    fn add_wrapping(a: __m512i, b: __m512i) -> __m512i {
+        unsafe { _mm512_add_epi64(a, b) }
+    }
+
+    #[inline(always)]
+    fn carry_mask(sum: __m512i, a_before: __m512i) -> __m512i {
+        unsafe {
+            let carry = _mm512_cmplt_epu64_mask(sum, a_before);
+            _mm512_maskz_set1_epi64(carry, 1)
+        }
+    }
+
+    #[inline(always)]
+    fn reduce_carry(sum: __m512i, carry_count: __m512i) -> __m512i {
+        // Each carry represents 2^64 ≡ EPSILON (mod P).
+        // correction = carry_count * EPSILON (fits in u64 for reasonable counts).
+        unsafe {
+            let eps_vec = _mm512_set1_epi64(EPSILON as i64);
+            let correction = _mm512_mullo_epi64(carry_count, eps_vec);
+            Self::add(sum, correction)
+        }
+    }
+
+    #[inline(always)]
     unsafe fn load_deinterleaved(ptr: *const u64) -> (__m512i, __m512i) {
         unsafe {
             let v0 = _mm512_loadu_si512(ptr.cast()); // [a0,b0,a1,b1,a2,b2,a3,b3]
