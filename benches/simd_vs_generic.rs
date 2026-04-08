@@ -236,10 +236,7 @@ fn bench_eval_reduce_loop(c: &mut Criterion) {
                         let mut len = current.len();
                         for chg in &challenges {
                             let _ = evaluate::evaluate_parallel::<SimdBackend>(&current[..len]);
-                            len = reduce::reduce_in_place::<SimdBackend>(
-                                &mut current[..len],
-                                *chg,
-                            );
+                            len = reduce::reduce_in_place::<SimdBackend>(&mut current[..len], *chg);
                         }
                         black_box(current);
                     },
@@ -270,10 +267,7 @@ fn bench_eval_reduce_loop(c: &mut Criterion) {
                             let (s0, s1) =
                                 evaluate::evaluate_parallel::<SimdBackend>(&current[..len]);
                             black_box((s0, s1));
-                            len = reduce::reduce_in_place::<SimdBackend>(
-                                &mut current[..len],
-                                *chg,
-                            );
+                            len = reduce::reduce_in_place::<SimdBackend>(&mut current[..len], *chg);
                         }
                         black_box(current);
                     },

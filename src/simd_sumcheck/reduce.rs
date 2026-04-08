@@ -543,7 +543,11 @@ mod tests {
         let (fused_even, fused_odd, _) =
             reduce_and_evaluate::<Backend>(&mut evals_raw, challenge_raw);
 
-        assert_eq!(to_mont(expected_even), fused_even, "large fused even mismatch");
+        assert_eq!(
+            to_mont(expected_even),
+            fused_even,
+            "large fused even mismatch"
+        );
         assert_eq!(to_mont(expected_odd), fused_odd, "large fused odd mismatch");
     }
 

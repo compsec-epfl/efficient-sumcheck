@@ -211,8 +211,7 @@ fn dispatch_all_simd<
         if round < num_rounds - 1 {
             let chg: u64 = field_to_u64(chg_ef);
             if len > FUSE_THRESHOLD {
-                let (ns0, ns1, new_len) =
-                    reduce_and_evaluate::<S>(&mut current[..len], chg);
+                let (ns0, ns1, new_len) = reduce_and_evaluate::<S>(&mut current[..len], chg);
                 len = new_len;
                 pending_eval = Some((ns0, ns1));
             } else {
