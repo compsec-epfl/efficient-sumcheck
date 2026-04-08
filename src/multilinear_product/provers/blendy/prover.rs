@@ -12,7 +12,7 @@ use crate::{
 
 impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
     type ProverConfig = BlendyProductProverConfig<F, S>;
-    type ProverMessage = Option<(F, F, F)>;
+    type ProverMessage = Option<(F, F)>;
     type VerifierMessage = Option<F>;
 
     fn new(prover_config: Self::ProverConfig) -> Self {
@@ -96,7 +96,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for BlendyProductProver<F, S> {
 
         self.compute_state();
 
-        let sums: (F, F, F) = self.compute_round();
+        let sums = self.compute_round();
 
         // Increment the round counter
         self.current_round += 1;

@@ -43,25 +43,6 @@ impl<'a, F: Field, O: OrderStrategy> LagrangePolynomial<'a, F, O> {
             },
         )
     }
-    pub fn evaluate_from_three_points(verifier_message: F, prover_message: (F, F, F)) -> F {
-        // Hardcoded x-values:
-        let zero = F::zero();
-        let one = F::one();
-        let half = F::from(2_u32).inverse().unwrap();
-
-        // Compute denominators for the Lagrange basis polynomials
-        let inv_denom_0 = ((zero - one) * (zero - half)).inverse().unwrap();
-        let inv_denom_1 = ((one - zero) * (one - half)).inverse().unwrap();
-        let inv_denom_2 = ((half - zero) * (half - one)).inverse().unwrap();
-
-        // Compute the Lagrange basis polynomials evaluated at x
-        let basis_p_0 = (verifier_message - one) * (verifier_message - half) * inv_denom_0;
-        let basis_p_1 = (verifier_message - zero) * (verifier_message - half) * inv_denom_1;
-        let basis_p_2 = (verifier_message - zero) * (verifier_message - one) * inv_denom_2;
-
-        // Return the evaluation of the unique quadratic polynomial
-        prover_message.0 * basis_p_0 + prover_message.1 * basis_p_1 + prover_message.2 * basis_p_2
-    }
 }
 
 impl<'a, F: Field> Iterator for LagrangePolynomial<'a, F, GraycodeOrder> {

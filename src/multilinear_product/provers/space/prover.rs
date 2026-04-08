@@ -10,7 +10,7 @@ use crate::{
 
 impl<F: Field, S: Stream<F>> Prover<F> for SpaceProductProver<F, S> {
     type ProverConfig = SpaceProductProverConfig<F, S>;
-    type ProverMessage = Option<(F, F, F)>;
+    type ProverMessage = Option<(F, F)>;
     type VerifierMessage = Option<F>;
 
     fn new(prover_config: Self::ProverConfig) -> Self {
@@ -31,23 +31,17 @@ impl<F: Field, S: Stream<F>> Prover<F> for SpaceProductProver<F, S> {
     }
 
     fn next_message(&mut self, verifier_message: Self::VerifierMessage) -> Self::ProverMessage {
-        // Ensure the current round is within bounds
         if self.current_round >= self.num_variables {
             return None;
         }
 
-        // If it's not the first round, add the verifier message to verifier_messages
         if self.current_round != 0 {
             self.verifier_messages
                 .receive_message(verifier_message.unwrap());
         }
 
-        // evaluate using cty
-        let sums: (F, F, F) = self.cty_evaluate();
-
-        // don't forget to increment the round
+        let sums = self.cty_evaluate();
         self.current_round += 1;
-
         Some(sums)
     }
 }
