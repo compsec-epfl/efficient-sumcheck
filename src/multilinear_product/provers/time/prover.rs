@@ -8,7 +8,7 @@ use crate::{
 
 impl<F: Field, S: Stream<F>> Prover<F> for TimeProductProver<F, S> {
     type ProverConfig = TimeProductProverConfig<F, S>;
-    type ProverMessage = Option<(F, F, F)>;
+    type ProverMessage = Option<(F, F)>;
     type VerifierMessage = Option<F>;
 
     fn new(prover_config: Self::ProverConfig) -> Self {
@@ -23,7 +23,7 @@ impl<F: Field, S: Stream<F>> Prover<F> for TimeProductProver<F, S> {
         }
     }
 
-    fn next_message(&mut self, verifier_message: Option<F>) -> Option<(F, F, F)> {
+    fn next_message(&mut self, verifier_message: Option<F>) -> Option<(F, F)> {
         // Ensure the current round is within bounds
         if self.current_round >= self.total_rounds() {
             return None;

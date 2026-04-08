@@ -10,21 +10,21 @@ fn multilinear_product_round_sanity<F, P>(
     round_num: usize,
     p: &mut P,
     message: Option<F>,
-    eval_0: F,
-    eval_1: F,
+    expected_a: F,
+    expected_b: F,
 ) where
     F: Field,
-    P: Prover<F, VerifierMessage = Option<F>, ProverMessage = Option<(F, F, F)>>,
+    P: Prover<F, VerifierMessage = Option<F>, ProverMessage = Option<(F, F)>>,
 {
-    let round = p.next_message(message).unwrap();
+    let (a, b) = p.next_message(message).unwrap();
     assert_eq!(
-        round.0, eval_0,
-        "g0 should evaluate correctly round {}",
+        a, expected_a,
+        "coefficient a (q(0)) mismatch at round {}",
         round_num
     );
     assert_eq!(
-        round.1, eval_1,
-        "g1 should evaluate correctly round {}",
+        b, expected_b,
+        "coefficient b (cross-term) mismatch at round {}",
         round_num
     );
 }
@@ -32,35 +32,26 @@ fn multilinear_product_round_sanity<F, P>(
 pub fn sanity_test_driver<F, P>(p: &mut P)
 where
     F: Field,
-    P: Prover<F, VerifierMessage = Option<F>, ProverMessage = Option<(F, F, F)>>,
+    P: Prover<F, VerifierMessage = Option<F>, ProverMessage = Option<(F, F)>>,
 {
     /*
      * Zeroth Round:
      *
-     * Evaluations:
+     * a = Σ f_even · g_even (= q(0)):
      *   0000 →  0 * 0  =  0
-     *   0001 →  1 * 1  =  1
      *   0010 →  0 * 0  =  0
-     *   0011 →  1 * 1  =  1
      *   0100 → 13 * 13 = 17
-     *   0101 → 14 * 14 =  6
      *   0110 →  1 * 1  =  1
-     *   0111 →  2 * 2  =  4
-     *   ----------------------
-     *   Sum g₀(0) = 11
-     *
      *   1000 →  2 * 2  =  4
-     *   1001 →  3 * 3  =  9
      *   1010 →  2 * 2  =  4
-     *   1011 →  3 * 3  =  9
      *   1100 →  0 * 0  =  0
-     *   1101 →  1 * 1  =  1
      *   1110 →  7 * 7  = 11
-     *   1111 →  8 * 8  =  7
-     *   ----------------------
-     *   Sum g₀(1) = 7
+     *   a = 11 (mod 19)
+     *
+     * b = Σ (f_even·g_odd + f_odd·g_even) (cross-term):
+     *   b = 10 (mod 19)
      */
-    multilinear_product_round_sanity::<F, P>(0, p, None, F::from(11_u32), F::from(7_u32));
+    multilinear_product_round_sanity::<F, P>(0, p, None, F::from(11_u32), F::from(10_u32));
     /*
      * First Round: x₀ fixed to 3
      *
@@ -85,7 +76,7 @@ where
         p,
         Some(F::from(3_u32)),
         F::from(18_u32),
-        F::from(10_u32),
+        F::from(17_u32),
     );
     /*
      * Second Round: x₁ fixed to 4
@@ -107,7 +98,7 @@ where
         p,
         Some(F::from(4_u32)),
         F::from(18_u32),
-        F::from(5_u32),
+        F::from(13_u32),
     );
     /*
      * Last Round: x₂ fixed to 7
@@ -127,7 +118,7 @@ where
         p,
         Some(F::from(7_u32)),
         F::from(4_u32),
-        F::from(1_u32),
+        F::from(4_u32),
     );
 }
 
@@ -135,7 +126,7 @@ pub fn sanity_test<F, S, P>()
 where
     F: Field,
     S: Stream<F> + From<MemoryStream<F>>,
-    P: Prover<F, VerifierMessage = Option<F>, ProverMessage = Option<(F, F, F)>>,
+    P: Prover<F, VerifierMessage = Option<F>, ProverMessage = Option<(F, F)>>,
     P::ProverConfig: ProductProverConfig<F, S>,
 {
     let s_p: S = MemoryStream::new(four_variable_polynomial_evaluations()).into();

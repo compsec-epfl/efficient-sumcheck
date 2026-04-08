@@ -8,7 +8,7 @@ use crate::{
 
 impl<F: Field> Prover<F> for BasicProductProver<F> {
     type ProverConfig = BasicProductProverConfig<F>;
-    type ProverMessage = Option<(F, F, F)>;
+    type ProverMessage = Option<(F, F)>;
     type VerifierMessage = Option<F>;
 
     fn new(prover_config: Self::ProverConfig) -> Self {
@@ -23,7 +23,6 @@ impl<F: Field> Prover<F> for BasicProductProver<F> {
     }
 
     fn next_message(&mut self, verifier_message: Self::VerifierMessage) -> Self::ProverMessage {
-        // Ensure the current round is within bounds
         if self.current_round >= self.total_rounds() {
             return None;
         }
@@ -33,12 +32,8 @@ impl<F: Field> Prover<F> for BasicProductProver<F> {
                 .receive_message(verifier_message.unwrap());
         }
 
-        let sums: (F, F, F) = self.compute_round();
-
-        // Increment the round counter
+        let sums = self.compute_round();
         self.current_round += 1;
-
-        // Return the computed polynomial sums
         Some(sums)
     }
 }

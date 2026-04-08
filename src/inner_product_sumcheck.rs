@@ -95,21 +95,23 @@ pub fn accumulate_sparse_evaluations<F: Field>(
 /// rounds work entirely in `EF`.
 ///
 /// Each round:
-/// 1. Computes the round polynomial evaluations `(s(0), s(1), s(2))` via the product prover.
-/// 2. Writes them to the transcript (3 field elements).
+/// 1. Computes `(a, b)` — the constant and linear coefficients of the degree-2
+///    round polynomial `q(x) = a + bx + cx²`.
+/// 2. Writes them to the transcript (2 field elements).
 /// 3. Reads the verifier's challenge from the transcript (1 field element).
 /// 4. Reduces both evaluation vectors by folding with the challenge.
+///
+/// The verifier derives `c = claim - 2a - b` from the constraint `q(0) + q(1) = claim`.
 pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
     f: &mut [BF],
     g: &mut [BF],
     transcript: &mut impl Transcript<EF>,
 ) -> ProductSumcheck<EF> {
-    // checks
     assert_eq!(f.len(), g.len());
     assert!(f.len().count_ones() == 1);
 
     let num_rounds = f.len().trailing_zeros() as usize;
-    let mut prover_messages: Vec<(EF, EF, EF)> = vec![];
+    let mut prover_messages: Vec<(EF, EF)> = vec![];
     let mut verifier_messages: Vec<EF> = vec![];
 
     // ── Round 0: evaluate in BF, lift to EF, cross-field reduce ──
@@ -121,12 +123,11 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
         ));
 
         let msg_bf = prover.next_message(None).unwrap();
-        let msg = (EF::from(msg_bf.0), EF::from(msg_bf.1), EF::from(msg_bf.2));
+        let msg = (EF::from(msg_bf.0), EF::from(msg_bf.1));
 
         prover_messages.push(msg);
         transcript.write(msg.0);
         transcript.write(msg.1);
-        transcript.write(msg.2);
 
         let chg = transcript.read();
         verifier_messages.push(chg);
@@ -151,7 +152,6 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
             prover_messages.push(msg);
             transcript.write(msg.0);
             transcript.write(msg.1);
-            transcript.write(msg.2);
 
             let chg = transcript.read();
             verifier_messages.push(chg);

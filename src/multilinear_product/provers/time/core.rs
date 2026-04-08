@@ -33,13 +33,12 @@ impl<F: Field, S: Stream<F>> TimeProductProver<F, S> {
      * Note in evaluate() there's an optimization for the first round where we read directly
      * from the streams (instead of the tables), which reduces max memory usage by 1/2
      */
-    pub fn vsbw_evaluate(&self) -> (F, F, F) {
+    pub fn vsbw_evaluate(&self) -> (F, F) {
         match &self.evaluations[0] {
             None => match self.reduce_mode {
-                ReduceMode::Variablewise => variablewise_product_evaluate_from_stream(
-                    &self.streams.clone().unwrap(),
-                    self.inverse_four,
-                ),
+                ReduceMode::Variablewise => {
+                    variablewise_product_evaluate_from_stream(&self.streams.clone().unwrap())
+                }
                 ReduceMode::Pairwise => {
                     pairwise_product_evaluate_from_stream(&self.streams.clone().unwrap())
                 }
@@ -48,13 +47,11 @@ impl<F: Field, S: Stream<F>> TimeProductProver<F, S> {
                 let evals: Vec<Vec<F>> = self
                     .evaluations
                     .iter()
-                    .filter_map(|opt| opt.clone()) // keep only Some(&Vec<F>)
+                    .filter_map(|opt| opt.clone())
                     .collect();
                 let evals_slice: &[Vec<F>] = &evals;
                 match self.reduce_mode {
-                    ReduceMode::Variablewise => {
-                        variablewise_product_evaluate(evals_slice, self.inverse_four)
-                    }
+                    ReduceMode::Variablewise => variablewise_product_evaluate(evals_slice),
                     ReduceMode::Pairwise => pairwise_product_evaluate(evals_slice),
                 }
             }

@@ -16,7 +16,7 @@ pub fn consistency_test<F, S, P>()
 where
     F: Field,
     S: Stream<F> + From<BenchStream<F>> + Clone,
-    P: Prover<F, VerifierMessage = Option<F>, ProverMessage = Option<(F, F, F)>>,
+    P: Prover<F, VerifierMessage = Option<F>, ProverMessage = Option<(F, F)>>,
     P::ProverConfig: ProductProverConfig<F, S>,
 {
     // get a stream

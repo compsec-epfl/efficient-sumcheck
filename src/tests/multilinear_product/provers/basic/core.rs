@@ -15,10 +15,15 @@ pub struct BasicProductProver<F: Field> {
 }
 
 impl<F: Field> BasicProductProver<F> {
-    pub fn compute_round(&self) -> (F, F, F) {
-        let mut m: ((F, F), (F, F)) = ((F::ZERO, F::ZERO), (F::ZERO, F::ZERO));
-        for (_, b) in Hypercube::<GraycodeOrder>::new(self.num_variables - self.current_round - 1) {
-            let partial_point: Vec<F> = b
+    /// Returns `(a, b)` — the constant and linear coefficients of the degree-2
+    /// round polynomial `q(x) = a + bx + cx²`.
+    pub fn compute_round(&self) -> (F, F) {
+        let mut a = F::ZERO; // sum of p0*q0 (even-even)
+        let mut b = F::ZERO; // sum of p0*q1 + p1*q0 (cross-term)
+        for (_, hypercube_member) in
+            Hypercube::<GraycodeOrder>::new(self.num_variables - self.current_round - 1)
+        {
+            let partial_point: Vec<F> = hypercube_member
                 .to_vec_bool()
                 .into_iter()
                 .map(|bit: bool| -> F {
@@ -53,16 +58,10 @@ impl<F: Field> BasicProductProver<F> {
             let p_one = self.p.evaluate(point_one.clone()).unwrap();
             let q_zero = self.q.evaluate(point_zero.clone()).unwrap();
             let q_one = self.q.evaluate(point_one.clone()).unwrap();
-            m.0 .0 += p_zero * q_zero;
-            m.1 .1 += p_one * q_one;
-            m.0 .1 += p_zero * q_one;
-            m.1 .0 += p_one * q_zero;
+            a += p_zero * q_zero;
+            b += p_zero * q_one + p_one * q_zero;
         }
-        (
-            m.0 .0,
-            m.1 .1,
-            (F::ONE / F::from(4_u32)) * (m.0 .0 + m.1 .1 + m.0 .1 + m.1 .0),
-        )
+        (a, b)
     }
     pub fn is_initial_round(&self) -> bool {
         self.current_round == 0

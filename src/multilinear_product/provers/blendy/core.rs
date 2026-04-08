@@ -57,24 +57,21 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
         }
     }
 
-    pub fn compute_round(&mut self) -> (F, F, F) {
-        let mut sum_0 = F::ZERO;
-        let mut sum_1 = F::ZERO;
-        let mut sum_half = F::ZERO;
+    pub fn compute_round(&mut self) -> (F, F) {
+        let mut a = F::ZERO;
+        let mut b = F::ZERO;
 
         // in the last rounds, we switch to the memory intensive prover
         if self.switched_to_vsbw {
-            (sum_0, sum_1, sum_half) = self.vsbw_prover.vsbw_evaluate();
+            (a, b) = self.vsbw_prover.vsbw_evaluate();
         }
         // if first few rounds, then no table is computed, need to compute sums from the streams
         else if self.current_round < self.last_round_phase1 {
-            // Lag Poly
             let mut sequential_lag_poly: LagrangePolynomial<F, MSBOrder> =
                 LagrangePolynomial::new(&self.verifier_messages_round_comp);
             let lag_polys_len = Hypercube::<MSBOrder>::stop_value(self.current_round);
             let mut lag_polys: Vec<F> = vec![F::ONE; lag_polys_len];
 
-            // reset the streams
             self.stream_iterators
                 .iter_mut()
                 .for_each(|stream_it| stream_it.reset());
@@ -82,15 +79,13 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
             for (x_index, _) in
                 Hypercube::<MSBOrder>::new(self.num_variables - self.current_round - 1)
             {
-                // can avoid unnecessary additions for first round since there is no lag poly: gives a small speedup
                 if self.is_initial_round() {
                     let p0 = self.stream_iterators[0].next().unwrap();
                     let p1 = self.stream_iterators[0].next().unwrap();
                     let q0 = self.stream_iterators[1].next().unwrap();
                     let q1 = self.stream_iterators[1].next().unwrap();
-                    sum_0 += p0 * q0;
-                    sum_1 += p1 * q1;
-                    sum_half += (p0 + p1) * (q0 + q1);
+                    a += p0 * q0;
+                    b += p0 * q1 + p1 * q0;
                 } else {
                     let mut partial_sum_p_0 = F::ZERO;
                     let mut partial_sum_p_1 = F::ZERO;
@@ -110,32 +105,24 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                         partial_sum_q_1 += self.stream_iterators[1].next().unwrap() * lag_poly;
                     }
 
-                    sum_0 += partial_sum_p_0 * partial_sum_q_0;
-                    sum_1 += partial_sum_p_1 * partial_sum_q_1;
-                    sum_half +=
-                        (partial_sum_p_0 + partial_sum_p_1) * (partial_sum_q_0 + partial_sum_q_1);
+                    a += partial_sum_p_0 * partial_sum_q_0;
+                    b += partial_sum_p_0 * partial_sum_q_1 + partial_sum_p_1 * partial_sum_q_0;
                 }
             }
-            sum_half *= self.inverse_four;
         } else {
             // computing evaluations from the cross product tables
-
-            // things to help iterating
             let b_prime_num_vars = self.current_round + 1 - self.prev_table_round_num;
             let v_num_vars: usize =
                 self.prev_table_size + self.prev_table_round_num - self.current_round - 2;
             let b_prime_index_left_shift = v_num_vars + 1;
 
-            // Lag Poly
             let mut sequential_lag_poly: LagrangePolynomial<F, GraycodeOrder> =
                 LagrangePolynomial::new(&self.verifier_messages_round_comp);
             let lag_polys_len = Hypercube::<GraycodeOrder>::stop_value(b_prime_num_vars);
             let mut lag_polys: Vec<F> = vec![F::ONE; lag_polys_len];
 
-            // Sums
             for (b_prime_index, _) in Hypercube::<GraycodeOrder>::new(b_prime_num_vars) {
                 for (b_prime_prime_index, _) in Hypercube::<GraycodeOrder>::new(b_prime_num_vars) {
-                    // doing it like this, for each hypercube member lag_poly is computed exactly once
                     if b_prime_index == 0 {
                         lag_polys[b_prime_prime_index] = sequential_lag_poly.next().unwrap();
                     }
@@ -155,19 +142,17 @@ impl<F: Field, S: Stream<F>> BlendyProductProver<F, S> {
                             | 1 << v_num_vars
                             | v_index;
 
-                        sum_0 += lag_poly * self.j_prime_table[b_prime_0_v][b_prime_prime_0_v];
-                        sum_1 += lag_poly * self.j_prime_table[b_prime_1_v][b_prime_prime_1_v];
-                        sum_half += lag_poly
-                            * (self.j_prime_table[b_prime_0_v][b_prime_prime_0_v]
-                                + self.j_prime_table[b_prime_0_v][b_prime_prime_1_v]
-                                + self.j_prime_table[b_prime_1_v][b_prime_prime_0_v]
-                                + self.j_prime_table[b_prime_1_v][b_prime_prime_1_v]);
+                        // a = sum of even-even products (j_prime_table[0v][0v])
+                        a += lag_poly * self.j_prime_table[b_prime_0_v][b_prime_prime_0_v];
+                        // b = cross-term: even-odd + odd-even
+                        b += lag_poly
+                            * (self.j_prime_table[b_prime_0_v][b_prime_prime_1_v]
+                                + self.j_prime_table[b_prime_1_v][b_prime_prime_0_v]);
                     }
                 }
             }
-            sum_half *= self.inverse_four;
         }
-        (sum_0, sum_1, sum_half)
+        (a, b)
     }
 
     pub fn compute_state(&mut self) {

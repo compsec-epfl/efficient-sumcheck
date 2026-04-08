@@ -17,26 +17,22 @@ pub struct SpaceProductProver<F: Field, S: Stream<F>> {
 }
 
 impl<F: Field, S: Stream<F>> SpaceProductProver<F, S> {
-    pub fn cty_evaluate(&mut self) -> (F, F, F) {
-        let mut sum_0: F = F::ZERO;
-        let mut sum_1: F = F::ZERO;
-        let mut sum_half: F = F::ZERO;
+    pub fn cty_evaluate(&mut self) -> (F, F) {
+        let mut a: F = F::ZERO;
+        let mut b: F = F::ZERO;
 
-        // reset the streams
         self.stream_iterators
             .iter_mut()
             .for_each(|stream_it| stream_it.reset());
 
         for (_, _) in Hypercube::<MSBOrder>::new(self.num_variables - self.current_round - 1) {
-            // can avoid unnecessary additions for first round since there is no lag poly: gives a small speedup
             if self.current_round == 0 {
                 let p0 = self.stream_iterators[0].next().unwrap();
                 let p1 = self.stream_iterators[0].next().unwrap();
                 let q0 = self.stream_iterators[1].next().unwrap();
                 let q1 = self.stream_iterators[1].next().unwrap();
-                sum_0 += p0 * q0;
-                sum_1 += p1 * q1;
-                sum_half += (p0 + p1) * (q0 + q1);
+                a += p0 * q0;
+                b += p0 * q1 + p1 * q0;
             } else {
                 let mut partial_sum_p_0 = F::ZERO;
                 let mut partial_sum_p_1 = F::ZERO;
@@ -59,13 +55,10 @@ impl<F: Field, S: Stream<F>> SpaceProductProver<F, S> {
                     partial_sum_q_1 += self.stream_iterators[1].next().unwrap() * lag_poly;
                 }
 
-                sum_0 += partial_sum_p_0 * partial_sum_q_0;
-                sum_1 += partial_sum_p_1 * partial_sum_q_1;
-                sum_half +=
-                    (partial_sum_p_0 + partial_sum_p_1) * (partial_sum_q_0 + partial_sum_q_1);
+                a += partial_sum_p_0 * partial_sum_q_0;
+                b += partial_sum_p_0 * partial_sum_q_1 + partial_sum_p_1 * partial_sum_q_0;
             }
         }
-        sum_half *= self.inverse_four;
-        (sum_0, sum_1, sum_half)
+        (a, b)
     }
 }
