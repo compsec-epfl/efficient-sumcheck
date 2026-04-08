@@ -1,4 +1,4 @@
-mod provers;
+pub mod provers;
 mod sumcheck;
 
 pub use provers::{

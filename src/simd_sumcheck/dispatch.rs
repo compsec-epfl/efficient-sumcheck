@@ -280,6 +280,92 @@ fn dispatch_hybrid<
     }
 }
 
+// ─── Inner product dispatch ─────────────────────────────────────────────────
+
+/// Try to run the inner product sumcheck on the SIMD backend.
+///
+/// Same safety invariant as [`try_simd_dispatch`].
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+pub(crate) fn try_simd_product_dispatch<BF: Field, EF: Field + From<BF>>(
+    f: &mut [BF],
+    g: &mut [BF],
+    transcript: &mut impl Transcript<EF>,
+) -> Option<crate::multilinear_product::ProductSumcheck<EF>> {
+    if !(is_goldilocks::<BF>() && is_goldilocks::<EF>()) {
+        return None;
+    }
+
+    assert!(
+        core::mem::size_of::<BF>() == 8 && core::mem::size_of::<EF>() == 8,
+        "Goldilocks dispatch: field element size must be 8 bytes"
+    );
+
+    #[cfg(target_arch = "aarch64")]
+    type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+    use crate::multilinear::reductions::pairwise;
+    use crate::simd_sumcheck::evaluate::product_evaluate_parallel;
+
+    let n = f.len();
+    let num_rounds = n.trailing_zeros() as usize;
+    let mut prover_messages: Vec<(EF, EF)> = Vec::with_capacity(num_rounds);
+    let mut verifier_messages: Vec<EF> = Vec::with_capacity(num_rounds);
+
+    if num_rounds > 0 {
+        // ── Round 0: SIMD product evaluate in BF + cross-field reduce ──
+        let f_buf: &[u64] =
+            unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n) };
+        let g_buf: &[u64] =
+            unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n) };
+
+        let (a, b) = product_evaluate_parallel::<Backend>(f_buf, g_buf);
+
+        let msg = (u64_to_field::<EF>(a), u64_to_field::<EF>(b));
+        prover_messages.push(msg);
+        transcript.write(msg.0);
+        transcript.write(msg.1);
+
+        let chg: EF = transcript.read();
+        verifier_messages.push(chg);
+
+        let mut ef_f = pairwise::cross_field_reduce(f, chg);
+        let mut ef_g = pairwise::cross_field_reduce(g, chg);
+
+        // ── Rounds 1+: SIMD product evaluate in EF + generic reduce ──
+        for _ in 1..num_rounds {
+            let f_buf: &[u64] = unsafe {
+                core::slice::from_raw_parts(ef_f.as_ptr() as *const u64, ef_f.len())
+            };
+            let g_buf: &[u64] = unsafe {
+                core::slice::from_raw_parts(ef_g.as_ptr() as *const u64, ef_g.len())
+            };
+
+            let (a, b) = product_evaluate_parallel::<Backend>(f_buf, g_buf);
+
+            let msg = (u64_to_field::<EF>(a), u64_to_field::<EF>(b));
+            prover_messages.push(msg);
+            transcript.write(msg.0);
+            transcript.write(msg.1);
+
+            let chg: EF = transcript.read();
+            verifier_messages.push(chg);
+
+            pairwise::reduce_evaluations(&mut ef_f, chg);
+            pairwise::reduce_evaluations(&mut ef_g, chg);
+        }
+    }
+
+    Some(crate::multilinear_product::ProductSumcheck {
+        verifier_messages,
+        prover_messages,
+    })
+}
+
 // ─── Helpers: field ↔ u64 conversion ────────────────────────────────────────
 
 /// Reinterpret a Montgomery-form `u64` as a field element.
