@@ -339,11 +339,100 @@ fn bench_eval_reduce_loop(c: &mut Criterion) {
     group.finish();
 }
 
+// ── Inner product sumcheck ──────────────────────────────────────────────────
+
+fn inner_product_sumcheck_bench(c: &mut Criterion) {
+    use efficient_sumcheck::inner_product_sumcheck;
+
+    let mut group = c.benchmark_group("inner_product_sumcheck");
+    group
+        .sample_size(10)
+        .warm_up_time(Duration::from_secs(2))
+        .measurement_time(Duration::from_secs(5));
+
+    for num_vars in [16, 18, 20, 24] {
+        let n = 1usize << num_vars;
+
+        // ── Auto-dispatch (SIMD for Goldilocks) ──
+        group.bench_with_input(
+            BenchmarkId::new("auto_dispatch", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        let f: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+                        let g: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+                        (f, g)
+                    },
+                    |(mut f, mut g)| {
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        black_box(inner_product_sumcheck::<F64, F64>(
+                            &mut f,
+                            &mut g,
+                            &mut transcript,
+                        ));
+                    },
+                )
+            },
+        );
+
+        // ── Generic path with same transcript overhead ──
+        group.bench_with_input(
+            BenchmarkId::new("generic_pairwise", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        let f: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+                        let g: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+                        (f, g)
+                    },
+                    |(f, g)| {
+                        use efficient_sumcheck::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate;
+
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        let num_rounds = f.len().trailing_zeros() as usize;
+                        let mut prover_msgs = Vec::with_capacity(num_rounds);
+
+                        // Round 0 in BF
+                        let msg = pairwise_product_evaluate(&[f.clone(), g.clone()]);
+                        prover_msgs.push(msg);
+                        transcript.write(msg.0);
+                        transcript.write(msg.1);
+                        let chg: F64 = transcript.read();
+                        let mut ef_f = pairwise::cross_field_reduce(&f, chg);
+                        let mut ef_g = pairwise::cross_field_reduce(&g, chg);
+
+                        // Rounds 1+
+                        for _ in 1..num_rounds {
+                            let msg = pairwise_product_evaluate(&[ef_f.clone(), ef_g.clone()]);
+                            prover_msgs.push(msg);
+                            transcript.write(msg.0);
+                            transcript.write(msg.1);
+                            let chg: F64 = transcript.read();
+                            pairwise::reduce_evaluations(&mut ef_f, chg);
+                            pairwise::reduce_evaluations(&mut ef_g, chg);
+                        }
+                        black_box(prover_msgs);
+                    },
+                )
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     simd_vs_generic_sumcheck,
     bench_evaluate_isolated,
     bench_reduce_isolated,
-    bench_eval_reduce_loop
+    bench_eval_reduce_loop,
+    inner_product_sumcheck_bench
 );
 criterion_main!(benches);

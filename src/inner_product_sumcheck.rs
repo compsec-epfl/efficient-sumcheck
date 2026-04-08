@@ -110,6 +110,17 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
     assert_eq!(f.len(), g.len());
     assert!(f.len().count_ones() == 1);
 
+    // ── SIMD auto-dispatch ──
+    #[cfg(any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    ))]
+    if let Some(result) =
+        crate::simd_sumcheck::dispatch::try_simd_product_dispatch::<BF, EF>(f, g, transcript)
+    {
+        return result;
+    }
+
     let num_rounds = f.len().trailing_zeros() as usize;
     let mut prover_messages: Vec<(EF, EF)> = vec![];
     let mut verifier_messages: Vec<EF> = vec![];
