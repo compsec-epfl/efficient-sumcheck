@@ -21,8 +21,7 @@ pub fn variablewise_product_evaluate<F: Field>(src: &[Vec<F>]) -> (F, F) {
 
     let b: F = cfg_into_iter!(0..second_half_bit)
         .map(|i| {
-            p_evals[i] * q_evals[i | second_half_bit]
-                + p_evals[i | second_half_bit] * q_evals[i]
+            p_evals[i] * q_evals[i | second_half_bit] + p_evals[i | second_half_bit] * q_evals[i]
         })
         .sum();
 
