@@ -383,6 +383,70 @@ pub(crate) fn try_simd_reduce<F: Field>(evals: &mut Vec<F>, challenge: F) -> boo
     true
 }
 
+// ─── SIMD degree-1 evaluate for coefficient sumcheck ────────────────────────
+
+/// Fused SIMD reduce + degree-1 evaluate.
+///
+/// Reduces `pw` in-place and returns `[s0, s1 - s0]` for the next round,
+/// computed in a single data pass via `reduce_and_evaluate`.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: Field>(
+    pw: &mut Vec<F>,
+    challenge: F,
+) -> Option<Vec<F>> {
+    if !is_goldilocks::<F>() {
+        return None;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+    use crate::simd_sumcheck::reduce::reduce_and_evaluate;
+
+    let buf: &mut [u64] =
+        unsafe { core::slice::from_raw_parts_mut(pw.as_mut_ptr() as *mut u64, pw.len()) };
+    let chg: u64 = field_to_u64(challenge);
+    let (s0_raw, s1_raw, new_len) = reduce_and_evaluate::<Backend>(buf, chg);
+    pw.truncate(new_len);
+
+    let s0: F = u64_to_field(s0_raw);
+    let s1: F = u64_to_field(s1_raw);
+    Some(vec![s0, s1 - s0])
+}
+
+/// SIMD-accelerated degree-1 pairwise evaluate: returns `[s0, s1 - s0]`.
+///
+/// This is the coefficient sumcheck fast path for `degree() == 1` with a single
+/// pairwise table and no tablewise tables — equivalent to the multilinear
+/// `evaluate_parallel` kernel.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+pub(crate) fn try_simd_evaluate_degree1<F: Field>(pw: &[F]) -> Option<Vec<F>> {
+    if !is_goldilocks::<F>() {
+        return None;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+    use crate::simd_sumcheck::evaluate::evaluate_parallel;
+
+    let buf: &[u64] = unsafe { core::slice::from_raw_parts(pw.as_ptr() as *const u64, pw.len()) };
+    let (s0_raw, s1_raw) = evaluate_parallel::<Backend>(buf);
+    let s0: F = u64_to_field(s0_raw);
+    let s1: F = u64_to_field(s1_raw);
+    Some(vec![s0, s1 - s0])
+}
+
 // ─── Helpers: field ↔ u64 conversion ────────────────────────────────────────
 
 /// Reinterpret a Montgomery-form `u64` as a field element.

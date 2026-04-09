@@ -61,6 +61,148 @@ pub trait RoundPolyEvaluator<F: Field>: Sync {
         tablewise_pairs: &[(&[F], &[F])],
         pairwise_pairs: &[(F, F)],
     );
+
+    /// Hint: is the per-pair work heavy enough to benefit from rayon parallelism?
+    ///
+    /// Return `true` for evaluators that do substantial work per pair (polynomial
+    /// multiplication, R1CS evaluation, etc.). Return `false` for trivial
+    /// evaluators (simple sums, single multiply) where rayon overhead dominates.
+    ///
+    /// Default: `true` (assume heavy — safe default since rayon's overhead is
+    /// small relative to the work for most real use cases).
+    fn parallelize(&self) -> bool {
+        true
+    }
+}
+
+// ── Evaluate strategies ─────────────────────────────────────────────────────
+
+/// SIMD fast path for degree-1 with a single pairwise table.
+///
+/// Returns `[sum_even, sum_odd - sum_even]` = coefficients of `h(x) = c0 + c1*x`.
+fn simd_evaluate_degree1<F: Field>(pw: &[F]) -> Vec<F> {
+    // Try SIMD dispatch for Goldilocks
+    #[cfg(any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    ))]
+    {
+        if let Some(coeffs) = try_simd_evaluate_degree1(pw) {
+            return coeffs;
+        }
+    }
+
+    // Generic fallback
+    let mut s0 = F::ZERO;
+    let mut s1 = F::ZERO;
+    for chunk in pw.chunks_exact(2) {
+        s0 += chunk[0];
+        s1 += chunk[1];
+    }
+    vec![s0, s1 - s0]
+}
+
+/// SIMD implementation of degree-1 evaluate.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+fn try_simd_evaluate_degree1<F: ark_ff::Field>(pw: &[F]) -> Option<Vec<F>> {
+    crate::simd_sumcheck::dispatch::try_simd_evaluate_degree1(pw)
+}
+
+/// Fused SIMD reduce + degree-1 evaluate for next round.
+///
+/// Returns `Some([s0, s1 - s0])` if SIMD dispatch succeeded (reduces in-place
+/// and computes next round's coefficients). Returns `None` to fall back to
+/// separate reduce + evaluate.
+fn try_simd_fused_reduce_evaluate<F: Field>(pw: &mut Vec<F>, challenge: F) -> Option<Vec<F>> {
+    #[cfg(any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    ))]
+    {
+        return crate::simd_sumcheck::dispatch::try_simd_fused_reduce_evaluate_degree1(
+            pw, challenge,
+        );
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+/// Parallel evaluate using rayon (for heavy evaluators).
+fn parallel_evaluate<F: Field>(
+    evaluator: &impl RoundPolyEvaluator<F>,
+    tablewise: &[Vec<Vec<F>>],
+    pairwise: &[Vec<F>],
+    n_tw: usize,
+    n_pw: usize,
+    n_pairs: usize,
+    n_coeffs: usize,
+) -> Vec<F> {
+    let accumulate_at = |coeffs: &mut [F], pair_idx: usize| {
+        let mut tw_buf: [(&[F], &[F]); 16] = [(&[], &[]); 16];
+        let mut pw_buf: [(F, F); 16] = [(F::ZERO, F::ZERO); 16];
+        debug_assert!(n_tw <= 16 && n_pw <= 16);
+        for (i, table) in tablewise.iter().enumerate() {
+            tw_buf[i] = (&table[2 * pair_idx], &table[2 * pair_idx + 1]);
+        }
+        for (i, table) in pairwise.iter().enumerate() {
+            pw_buf[i] = (table[2 * pair_idx], table[2 * pair_idx + 1]);
+        }
+        evaluator.accumulate_pair(coeffs, &tw_buf[..n_tw], &pw_buf[..n_pw]);
+    };
+
+    #[cfg(feature = "parallel")]
+    {
+        (0..n_pairs)
+            .into_par_iter()
+            .fold_with(vec![F::ZERO; n_coeffs], |mut acc, pair_idx| {
+                accumulate_at(&mut acc, pair_idx);
+                acc
+            })
+            .reduce_with(|mut a, b| {
+                for (ai, bi) in a.iter_mut().zip(&b) {
+                    *ai += *bi;
+                }
+                a
+            })
+            .unwrap_or_else(|| vec![F::ZERO; n_coeffs])
+    }
+
+    #[cfg(not(feature = "parallel"))]
+    {
+        sequential_evaluate(
+            evaluator, tablewise, pairwise, n_tw, n_pw, n_pairs, n_coeffs,
+        )
+    }
+}
+
+/// Sequential evaluate (for trivial evaluators where rayon overhead dominates).
+fn sequential_evaluate<F: Field>(
+    evaluator: &impl RoundPolyEvaluator<F>,
+    tablewise: &[Vec<Vec<F>>],
+    pairwise: &[Vec<F>],
+    n_tw: usize,
+    n_pw: usize,
+    n_pairs: usize,
+    n_coeffs: usize,
+) -> Vec<F> {
+    let mut coeffs = vec![F::ZERO; n_coeffs];
+    let mut tw_buf: [(&[F], &[F]); 16] = [(&[], &[]); 16];
+    let mut pw_buf: [(F, F); 16] = [(F::ZERO, F::ZERO); 16];
+    debug_assert!(n_tw <= 16 && n_pw <= 16);
+
+    for pair_idx in 0..n_pairs {
+        for (i, table) in tablewise.iter().enumerate() {
+            tw_buf[i] = (&table[2 * pair_idx], &table[2 * pair_idx + 1]);
+        }
+        for (i, table) in pairwise.iter().enumerate() {
+            pw_buf[i] = (table[2 * pair_idx], table[2 * pair_idx + 1]);
+        }
+        evaluator.accumulate_pair(&mut coeffs, &tw_buf[..n_tw], &pw_buf[..n_pw]);
+    }
+    coeffs
 }
 
 /// Sumcheck prover for arbitrary-degree round polynomials in coefficient form.
@@ -87,7 +229,15 @@ pub fn coefficient_sumcheck<F: Field>(
     let deg = evaluator.degree();
     let n_coeffs = deg + 1;
 
-    for _ in 0..n_rounds {
+    let use_parallel = evaluator.parallelize();
+    let is_degree1_simd_path = deg == 1 && n_pw == 1 && n_tw == 0;
+
+    // For the degree-1 SIMD fast path, we can fuse reduce+evaluate into
+    // a single data pass after the first round. This halves memory traffic
+    // for the dominant early rounds.
+    let mut pending_degree1_eval: Option<Vec<F>> = None;
+
+    for round in 0..n_rounds {
         let n_pairs = if n_tw > 0 {
             tablewise[0].len() / 2
         } else if n_pw > 0 {
@@ -96,52 +246,30 @@ pub fn coefficient_sumcheck<F: Field>(
             0
         };
 
-        // Accumulate round polynomial coefficients.
-        // Each pair adds its contribution into a coefficient buffer.
-        // For rayon: each thread gets its own buffer, summed at the end.
-        let accumulate_at = |coeffs: &mut [F], pair_idx: usize| {
-            let mut tw_buf: [(&[F], &[F]); 16] = [(&[], &[]); 16];
-            let mut pw_buf: [(F, F); 16] = [(F::ZERO, F::ZERO); 16];
-            debug_assert!(n_tw <= 16 && n_pw <= 16);
-
-            for (i, table) in tablewise.iter().enumerate() {
-                tw_buf[i] = (&table[2 * pair_idx], &table[2 * pair_idx + 1]);
-            }
-            for (i, table) in pairwise.iter().enumerate() {
-                pw_buf[i] = (table[2 * pair_idx], table[2 * pair_idx + 1]);
-            }
-
-            evaluator.accumulate_pair(coeffs, &tw_buf[..n_tw], &pw_buf[..n_pw]);
-        };
-
-        #[cfg(feature = "parallel")]
-        let coeffs = (0..n_pairs)
-            .into_par_iter()
-            .fold_with(vec![F::ZERO; n_coeffs], |mut acc, pair_idx| {
-                accumulate_at(&mut acc, pair_idx);
-                acc
-            })
-            .reduce_with(|mut a, b| {
-                for (ai, bi) in a.iter_mut().zip(&b) {
-                    *ai += *bi;
-                }
-                a
-            })
-            .unwrap_or_else(|| vec![F::ZERO; n_coeffs]);
-
-        #[cfg(not(feature = "parallel"))]
-        let coeffs = {
-            let mut coeffs = vec![F::ZERO; n_coeffs];
-            for pair_idx in 0..n_pairs {
-                accumulate_at(&mut coeffs, pair_idx);
-            }
-            coeffs
+        // ── Evaluate: build round polynomial coefficients ──
+        //
+        // Three strategies in order of preference:
+        // 1. SIMD fast path: degree-1, single pairwise table, no tablewise →
+        //    use evaluate_parallel or fused reduce+evaluate
+        // 2. Parallel: heavy evaluator → rayon fold_with across pairs
+        // 3. Sequential: trivial evaluator → simple loop, no rayon overhead
+        let coeffs = if let Some(cached) = pending_degree1_eval.take() {
+            cached
+        } else if is_degree1_simd_path {
+            simd_evaluate_degree1::<F>(&pairwise[0])
+        } else if use_parallel {
+            parallel_evaluate(
+                evaluator, tablewise, pairwise, n_tw, n_pw, n_pairs, n_coeffs,
+            )
+        } else {
+            sequential_evaluate(
+                evaluator, tablewise, pairwise, n_tw, n_pw, n_pairs, n_coeffs,
+            )
         };
 
         let round_poly = DensePolynomial { coeffs };
 
         // Send only the first d coefficients (omit the leading one).
-        // The verifier derives it from h(0) + h(1) = claim.
         let d = round_poly.coeffs.len().saturating_sub(1);
         for coeff in &round_poly.coeffs[..d] {
             transcript.write(*coeff);
@@ -152,18 +280,31 @@ pub fn coefficient_sumcheck<F: Field>(
         let c = transcript.read();
         verifier_messages.push(c);
 
+        // ── Reduce ──
         for table in tablewise.iter_mut() {
             tablewise::reduce_evaluations(table, c);
         }
-        for table in pairwise.iter_mut() {
-            #[cfg(any(
-                target_arch = "aarch64",
-                all(target_arch = "x86_64", target_feature = "avx512ifma")
-            ))]
-            if crate::simd_sumcheck::dispatch::try_simd_reduce(table, c) {
-                continue;
+
+        if is_degree1_simd_path && round < n_rounds - 1 {
+            // Fused reduce+evaluate: SIMD reduce in-place and compute
+            // next round's (s0, s1) in one pass when possible.
+            if let Some(next_coeffs) = try_simd_fused_reduce_evaluate(&mut pairwise[0], c) {
+                pending_degree1_eval = Some(next_coeffs);
+            } else {
+                // Fallback: separate reduce
+                pairwise::reduce_evaluations(&mut pairwise[0], c);
             }
-            pairwise::reduce_evaluations(table, c);
+        } else {
+            for table in pairwise.iter_mut() {
+                #[cfg(any(
+                    target_arch = "aarch64",
+                    all(target_arch = "x86_64", target_feature = "avx512ifma")
+                ))]
+                if crate::simd_sumcheck::dispatch::try_simd_reduce(table, c) {
+                    continue;
+                }
+                pairwise::reduce_evaluations(table, c);
+            }
         }
     }
 
