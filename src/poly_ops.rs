@@ -198,7 +198,7 @@ mod tests {
     fn test_mul_add_into_accumulates() {
         let a = [F64::from(1u64), F64::from(2u64)]; // 1 + 2x
         let b = [F64::from(3u64), F64::from(4u64)]; // 3 + 4x
-        // a*b = 3 + 10x + 8x²
+                                                    // a*b = 3 + 10x + 8x²
 
         let mut out = [F64::from(10u64), F64::zero(), F64::zero()]; // start with 10
         mul_add_into(&mut out, &a, &b);

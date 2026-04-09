@@ -75,7 +75,7 @@ pub fn reduce_in_place<F: SimdBaseField>(src: &mut [F::Scalar], challenge: F::Sc
     let n = src.len() / 2;
     let lanes = F::LANES;
     let challenge_v = F::splat(challenge);
-    let step = 8 * lanes;
+    let step = 4 * lanes; // 4× unroll: 4 groups of LANES outputs per iteration
     let aligned = (n / step) * step;
 
     let src_ptr = src.as_ptr();
