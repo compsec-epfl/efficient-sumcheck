@@ -366,6 +366,37 @@ pub(crate) fn try_simd_product_dispatch<BF: Field, EF: Field + From<BF>>(
     })
 }
 
+// ─── Standalone SIMD reduce (Field-level API) ──────────────────────────────
+
+/// SIMD-accelerated pairwise reduce on a `Vec<F>`.
+///
+/// If `F` is a recognised Goldilocks field, runs the SIMD reduce in-place
+/// and truncates the vector. Otherwise returns `false` and the caller
+/// should fall back to the generic path.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+pub(crate) fn try_simd_reduce<F: Field>(evals: &mut Vec<F>, challenge: F) -> bool {
+    if !is_goldilocks::<F>() {
+        return false;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+    use crate::simd_sumcheck::reduce::reduce_in_place;
+
+    let buf: &mut [u64] =
+        unsafe { core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, evals.len()) };
+    let chg: u64 = field_to_u64(challenge);
+    let new_len = reduce_in_place::<Backend>(buf, chg);
+    evals.truncate(new_len);
+    true
+}
+
 // ─── Helpers: field ↔ u64 conversion ────────────────────────────────────────
 
 /// Reinterpret a Montgomery-form `u64` as a field element.

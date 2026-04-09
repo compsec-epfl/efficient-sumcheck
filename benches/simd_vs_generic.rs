@@ -427,12 +427,174 @@ fn inner_product_sumcheck_bench(c: &mut Criterion) {
     group.finish();
 }
 
+// ── Coefficient sumcheck ────────────────────────────────────────────────────
+
+fn coefficient_sumcheck_bench(c: &mut Criterion) {
+    use efficient_sumcheck::coefficient_sumcheck::{coefficient_sumcheck, RoundPolyEvaluator};
+
+    struct Degree1Eval;
+    impl RoundPolyEvaluator<F64> for Degree1Eval {
+        fn degree(&self) -> usize { 1 }
+        fn accumulate_pair(&self, coeffs: &mut [F64], _tw: &[(&[F64], &[F64])], pw: &[(F64, F64)]) {
+            let (even, odd) = pw[0];
+            coeffs[0] += even;
+            coeffs[1] += odd - even;
+        }
+    }
+
+    struct MixedEval;
+    impl RoundPolyEvaluator<F64> for MixedEval {
+        fn degree(&self) -> usize { 0 }
+        fn accumulate_pair(&self, coeffs: &mut [F64], tw: &[(&[F64], &[F64])], pw: &[(F64, F64)]) {
+            coeffs[0] += tw[0].0[0] + pw[0].0;
+        }
+    }
+
+    let mut group = c.benchmark_group("coefficient_sumcheck");
+    group
+        .sample_size(10)
+        .warm_up_time(Duration::from_secs(2))
+        .measurement_time(Duration::from_secs(5));
+
+    for num_vars in [16, 18, 20] {
+        let n = 1usize << num_vars;
+
+        // ── Degree-1: evaluator trait (parallel + SIMD reduce) ──
+        group.bench_with_input(
+            BenchmarkId::new("degree1_auto", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        (0..n).map(|_| F64::rand(&mut rng)).collect::<Vec<F64>>()
+                    },
+                    |evals| {
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        let mut pw = vec![evals];
+                        let mut tw: Vec<Vec<Vec<F64>>> = vec![];
+                        black_box(coefficient_sumcheck(
+                            &Degree1Eval,
+                            &mut tw,
+                            &mut pw,
+                            num_vars,
+                            &mut transcript,
+                        ));
+                    },
+                )
+            },
+        );
+
+        // ── Degree-1: generic (manual reduce, no SIMD) ──
+        group.bench_with_input(
+            BenchmarkId::new("degree1_generic", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        (0..n).map(|_| F64::rand(&mut rng)).collect::<Vec<F64>>()
+                    },
+                    |evals| {
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        let mut pw = vec![evals];
+                        let num_rounds = pw[0].len().trailing_zeros() as usize;
+                        let mut msgs = Vec::with_capacity(num_rounds);
+                        for _ in 0..num_rounds {
+                            let s0: F64 = pw[0].iter().step_by(2).copied().sum();
+                            let s1: F64 = pw[0].iter().skip(1).step_by(2).copied().sum();
+                            transcript.write(s0);
+                            let c: F64 = transcript.read();
+                            msgs.push((s0, s1));
+                            pairwise::reduce_evaluations(&mut pw[0], c);
+                        }
+                        black_box(msgs);
+                    },
+                )
+            },
+        );
+
+        // ── Tablewise 2-col: evaluator trait ──
+        group.bench_with_input(
+            BenchmarkId::new("tablewise_auto", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        let table: Vec<Vec<F64>> = (0..n)
+                            .map(|_| vec![F64::rand(&mut rng), F64::rand(&mut rng)])
+                            .collect();
+                        let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+                        (table, evals)
+                    },
+                    |(table, evals)| {
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        let mut tw = vec![table];
+                        let mut pw = vec![evals];
+                        black_box(coefficient_sumcheck(
+                            &MixedEval,
+                            &mut tw,
+                            &mut pw,
+                            num_vars,
+                            &mut transcript,
+                        ));
+                    },
+                )
+            },
+        );
+
+        // ── Tablewise 2-col: generic (no SIMD) ──
+        group.bench_with_input(
+            BenchmarkId::new("tablewise_generic", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                use efficient_sumcheck::multilinear::reductions::tablewise;
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        let table: Vec<Vec<F64>> = (0..n)
+                            .map(|_| vec![F64::rand(&mut rng), F64::rand(&mut rng)])
+                            .collect();
+                        let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+                        (table, evals)
+                    },
+                    |(table, evals)| {
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        let mut tw = vec![table];
+                        let mut pw = vec![evals];
+                        let num_rounds = pw[0].len().trailing_zeros() as usize;
+                        let mut msgs = Vec::with_capacity(num_rounds);
+                        for _ in 0..num_rounds {
+                            let ts: F64 = tw[0].iter().map(|row| row[0]).sum();
+                            let ps: F64 = pw[0].iter().step_by(2).copied().sum();
+                            transcript.write(ts + ps);
+                            let c: F64 = transcript.read();
+                            msgs.push(ts + ps);
+                            tablewise::reduce_evaluations(&mut tw[0], c);
+                            pairwise::reduce_evaluations(&mut pw[0], c);
+                        }
+                        black_box(msgs);
+                    },
+                )
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     simd_vs_generic_sumcheck,
     bench_evaluate_isolated,
     bench_reduce_isolated,
     bench_eval_reduce_loop,
-    inner_product_sumcheck_bench
+    inner_product_sumcheck_bench,
+    coefficient_sumcheck_bench
 );
 criterion_main!(benches);
