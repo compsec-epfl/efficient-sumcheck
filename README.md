@@ -117,36 +117,65 @@ Here, `batched_constraint_poly` merges dense evaluation vectors (out-of-domain s
 
 ### 2) WARP - Twin Constraint Batching
 
-[WARP](https://github.com/compsec-epfl/warp) also uses `coefficient_sumcheck` with `folding::protogalaxy::fold` to batch a codeword check and an R1CS constraint check into a single sumcheck. The codewords, witness vectors, and folding coefficients are stored as tablewise tables and the equality polynomial evaluations as a pairwise vector:
+[WARP](https://github.com/compsec-epfl/warp) also uses `coefficient_sumcheck` with `folding::protogalaxy::fold` to batch a codeword check and an R1CS constraint check into a single sumcheck. The user implements `RoundPolyEvaluator` to define the per-pair math; the library handles iteration, parallelism, and reductions:
 
 ```rust
-use efficient_sumcheck::coefficient_sumcheck::coefficient_sumcheck;
+use efficient_sumcheck::coefficient_sumcheck::{coefficient_sumcheck, RoundPolyEvaluator};
 use efficient_sumcheck::folding::protogalaxy;
+
+struct TwinConstraintEvaluator { r1cs: ..., omega: F, degree: usize }
+
+impl RoundPolyEvaluator<F> for TwinConstraintEvaluator {
+    fn degree(&self) -> usize { self.degree }
+    fn accumulate_pair(&self, coeffs: &mut [F], tw: &[(&[F], &[F])], pw: &[(F, F)]) {
+        let f = protogalaxy::fold(/* alpha pairs */, /* codeword polys */);
+        let p = protogalaxy::fold(/* beta pairs  */, /* constraint polys */);
+        let t = [pw[0].0, pw[0].1 - pw[0].0]; // linear tau polynomial
+        // h(X) = (f(X) + ω·p(X)) · t(X) — accumulated directly into coeffs
+        // ... using poly_ops::add_scaled and poly_ops::mul_add_into
+    }
+}
 
 let mut tablewise = [codewords, z_vecs, alpha_vecs, beta_vecs];
 let mut pairwise = [tau_eq_evals];
 
 let sc = coefficient_sumcheck(
-    |tw, pw| {
-        let (u, z, a, b) = (&tw[0], &tw[1], &tw[2], &tw[3]);
-        let tau = &pw[0];
-
-        let f = protogalaxy::fold(/* ... */, /* codeword polys */);
-        let p = protogalaxy::fold(/* ... */, /* constraint polys */);
-        let t = linear_poly(tau[0], tau[1]);
-
-        // h(X) = (f(X) + ω·p(X)) · t(X)
-        (f + p * omega).naive_mul(&t)
-    },
+    &TwinConstraintEvaluator { r1cs, omega, degree },
     &mut tablewise,
     &mut pairwise,
     log_l,
     &mut prover_state,
 );
-let gamma = sc.verifier_messages;
 ```
 
 After each round `coefficient_sumcheck` reduces all four tablewise tables and the pairwise equality evaluations by folding with the verifier's challenge.
+
+## SIMD Acceleration
+
+All three sumcheck variants auto-dispatch to SIMD-accelerated backends for Goldilocks (p = 2^64 − 2^32 + 1):
+
+- **aarch64 (NEON)**: 2-wide vectorized add/sub, scalar multiply fallback
+- **x86_64 (AVX-512 IFMA)**: 8-wide vectorized add/sub/mul via 52-bit fused multiply-accumulate
+
+The dispatch is transparent — no code changes needed. LLVM constant-folds the field detection at compile time, so the non-SIMD path has zero overhead.
+
+## Zero-Allocation Polynomial Arithmetic (`poly_ops`)
+
+The `poly_ops` module provides slice-based polynomial arithmetic with no heap allocation:
+
+```rust
+use efficient_sumcheck::poly_ops;
+
+let a = [F::from(1u64), F::from(2u64)];  // 1 + 2x
+let b = [F::from(3u64), F::from(4u64)];  // 3 + 4x
+let mut out = [F::ZERO; 3];
+
+poly_ops::mul_into(&mut out, &a, &b);         // out = a * b
+poly_ops::add_scaled(&mut out, s, &c);        // out += s * c
+let val = poly_ops::eval_at(&out, challenge); // Horner evaluation
+```
+
+These are designed for hot loops where `DensePolynomial` allocation overhead dominates — protogalaxy folding, R1CS constraint evaluation, etc. The `protogalaxy::fold` function uses them internally, achieving up to 93× speedup over the naive `DensePolynomial` approach.
 
 ## Advanced Usage
 

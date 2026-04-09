@@ -5,8 +5,16 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- **Base/Extension field support**: `multilinear_sumcheck` and `inner_product_sumcheck` now take two type parameters `<BF, EF>` — base field for evaluations, extension field for challenges. Set `EF = BF` when no extension is needed.
-- `pairwise::cross_field_reduce` — parallel helper for folding `BF` evaluations with an `EF` challenge.
+- **SIMD auto-dispatch** for Goldilocks (NEON + AVX-512 IFMA) across all three sumcheck variants.
+- **`poly_ops` module** — zero-allocation polynomial arithmetic on coefficient slices.
+- **`RoundPolyEvaluator` trait** for `coefficient_sumcheck` — user implements per-pair math, library handles iteration, parallelism, and reductions.
+- **Base/Extension field support** (`<BF, EF>`) for `multilinear_sumcheck` and `inner_product_sumcheck`.
+
+### Changed
+- **Inner product sumcheck**: 2 prover messages per round instead of 3 (verifier derives the third).
+- **Coefficient sumcheck**: sends d coefficients per round instead of d+1.
+- **`protogalaxy::fold`**: rewritten with flat buffers (93× faster at scale).
+- **`coefficient_sumcheck`** takes `&impl RoundPolyEvaluator<F>` instead of a closure.
 
 ## [0.0.2] - 2026-02-11
 

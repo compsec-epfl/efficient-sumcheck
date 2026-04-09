@@ -116,17 +116,19 @@ fn try_simd_evaluate_degree1<F: ark_ff::Field>(pw: &[F]) -> Option<Vec<F>> {
 /// Returns `Some([s0, s1 - s0])` if SIMD dispatch succeeded (reduces in-place
 /// and computes next round's coefficients). Returns `None` to fall back to
 /// separate reduce + evaluate.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
 fn try_simd_fused_reduce_evaluate<F: Field>(pw: &mut Vec<F>, challenge: F) -> Option<Vec<F>> {
-    #[cfg(any(
-        target_arch = "aarch64",
-        all(target_arch = "x86_64", target_feature = "avx512ifma")
-    ))]
-    {
-        return crate::simd_sumcheck::dispatch::try_simd_fused_reduce_evaluate_degree1(
-            pw, challenge,
-        );
-    }
-    #[allow(unreachable_code)]
+    crate::simd_sumcheck::dispatch::try_simd_fused_reduce_evaluate_degree1(pw, challenge)
+}
+
+#[cfg(not(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+)))]
+fn try_simd_fused_reduce_evaluate<F: Field>(_pw: &mut Vec<F>, _challenge: F) -> Option<Vec<F>> {
     None
 }
 
