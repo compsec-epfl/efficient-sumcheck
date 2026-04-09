@@ -206,6 +206,70 @@ mod tests {
     }
 
     #[test]
+    fn test_simd_parity_with_generic() {
+        // Compare SIMD auto-dispatch path against the generic TimeProductProver path.
+        // Both should produce identical prover messages given the same transcript.
+        use crate::transcript::SanityTranscript;
+
+        let mut eval_rng = test_rng();
+        let n = 1usize << 8;
+        let f_orig: Vec<F64> = (0..n).map(|_| F64::rand(&mut eval_rng)).collect();
+        let g_orig: Vec<F64> = (0..n).map(|_| F64::rand(&mut eval_rng)).collect();
+
+        // Run via inner_product_sumcheck (SIMD dispatched for F64/Goldilocks)
+        let mut rng1 = test_rng();
+        let mut f1 = f_orig.clone();
+        let mut g1 = g_orig.clone();
+        let mut t1 = SanityTranscript::new(&mut rng1);
+        let simd_result = inner_product_sumcheck::<F64, F64>(&mut f1, &mut g1, &mut t1);
+
+        // Run the generic path manually (bypass SIMD dispatch)
+        let mut rng2 = test_rng();
+        let mut t2 = SanityTranscript::new(&mut rng2);
+        let num_rounds = n.trailing_zeros() as usize;
+        let mut generic_prover_msgs = Vec::with_capacity(num_rounds);
+        let mut generic_verifier_msgs = Vec::with_capacity(num_rounds);
+
+        use crate::multilinear::reductions::pairwise;
+        use crate::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate;
+
+        // Round 0
+        let msg = pairwise_product_evaluate(&[f_orig.clone(), g_orig.clone()]);
+        generic_prover_msgs.push(msg);
+        t2.write(msg.0);
+        t2.write(msg.1);
+        let chg: F64 = t2.read();
+        generic_verifier_msgs.push(chg);
+        let mut ef_f = pairwise::cross_field_reduce(&f_orig, chg);
+        let mut ef_g = pairwise::cross_field_reduce(&g_orig, chg);
+
+        // Rounds 1+
+        for _ in 1..num_rounds {
+            let msg = pairwise_product_evaluate(&[ef_f.clone(), ef_g.clone()]);
+            generic_prover_msgs.push(msg);
+            t2.write(msg.0);
+            t2.write(msg.1);
+            let chg: F64 = t2.read();
+            generic_verifier_msgs.push(chg);
+            pairwise::reduce_evaluations(&mut ef_f, chg);
+            pairwise::reduce_evaluations(&mut ef_g, chg);
+        }
+
+        // Compare
+        assert_eq!(simd_result.prover_messages.len(), generic_prover_msgs.len());
+        for (i, (s, g)) in simd_result
+            .prover_messages
+            .iter()
+            .zip(generic_prover_msgs.iter())
+            .enumerate()
+        {
+            assert_eq!(s.0, g.0, "a mismatch at round {i}");
+            assert_eq!(s.1, g.1, "b mismatch at round {i}");
+        }
+        assert_eq!(simd_result.verifier_messages, generic_verifier_msgs);
+    }
+
+    #[test]
     fn test_inner_product_sumcheck_spongefish() {
         use crate::transcript::SpongefishTranscript;
 
