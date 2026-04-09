@@ -1,14 +1,16 @@
 pub mod protogalaxy {
     use ark_ff::{Field, Zero};
-    use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
+    use ark_poly::{univariate::DensePolynomial, Polynomial};
+
+    use crate::poly_ops;
 
     /// Fold `n` polynomials using `log_n` linear coefficient pairs `(a, b)`.
     ///
     /// At each level: `result[i] = p[2i] + (a + b·X)·(p[2i+1] - p[2i])`.
     ///
-    /// This version minimizes allocation by working on flat coefficient buffers
-    /// and folding in-place. Each polynomial at level `k` has degree ≤ `k`,
-    /// so coefficients are stored in fixed-width slots of size `max_degree + 1`.
+    /// Uses [`poly_ops`] for zero-allocation arithmetic on flat coefficient buffers.
+    /// Each polynomial at level `k` has degree ≤ initial_degree + `k`,
+    /// stored in fixed-width slots.
     pub fn fold<F: Field>(
         coeffs: impl Iterator<Item = (F, F)>,
         polys: Vec<DensePolynomial<F>>,
@@ -23,83 +25,53 @@ pub mod protogalaxy {
             return polys.into_iter().next().unwrap();
         }
 
-        // Maximum degree after all folds: initial max degree + n_levels
-        // (each level multiplies by a degree-1 poly, adding 1 to the degree).
         let init_max_deg = polys.iter().map(|p| p.degree()).max().unwrap_or(0);
         let final_max_deg = init_max_deg + n_levels;
-        let slot = final_max_deg + 1; // coefficient slot width
+        let slot = final_max_deg + 1;
 
-        // Pack all polynomials into a flat buffer with fixed-width slots.
+        // Pack into flat buffer with fixed-width slots.
         let mut n_polys = polys.len();
         let mut buf = vec![F::ZERO; n_polys * slot];
         for (i, p) in polys.into_iter().enumerate() {
-            for (j, c) in p.coeffs.into_iter().enumerate() {
-                buf[i * slot + j] = c;
-            }
+            poly_ops::copy_into(&mut buf[i * slot..], &p.coeffs);
         }
 
-        // Current degree of polynomials at this level.
         let mut cur_deg = init_max_deg;
-
-        // Scratch buffer for the diff polynomial (reused across levels).
         let mut diff = vec![F::ZERO; slot];
 
-        for (level, &(a, b)) in coeffs_vec.iter().enumerate() {
-            let _ = level;
+        for &(a, b) in &coeffs_vec {
             let half = n_polys / 2;
 
             for i in 0..half {
                 let p0_off = (2 * i) * slot;
                 let p1_off = (2 * i + 1) * slot;
                 let out_off = i * slot;
+                let deg = cur_deg + 1; // new degree after this level
 
-                // diff = p1 - p0 (degree ≤ cur_deg)
-                for j in 0..=cur_deg {
-                    diff[j] = buf[p1_off + j] - buf[p0_off + j];
-                }
+                // diff[0..=cur_deg] = p1 - p0
+                poly_ops::sub_into(
+                    &mut diff[..=cur_deg],
+                    &buf[p1_off..p1_off + cur_deg + 1],
+                    &buf[p0_off..p0_off + cur_deg + 1],
+                );
 
-                // result = p0 + (a + b·X) · diff
-                //        = p0 + a·diff + b·X·diff
-                //        = p0[j] + a·diff[j] + b·diff[j-1]  for each j
-                //
-                // New degree = cur_deg + 1
-
-                // Compute in-place into buf[out_off..].
-                // Process from high to low to avoid overwriting p0 before reading it
-                // (out_off ≤ p0_off since i ≤ 2i, and slots don't overlap after halving).
-
-                // Highest coefficient (j = cur_deg + 1): only b·diff[cur_deg]
-                buf[out_off + cur_deg + 1] = b * diff[cur_deg];
-
-                // Middle coefficients (j = cur_deg down to 1): p0[j] + a·diff[j] + b·diff[j-1]
+                // result = p0 + a·diff + b·X·diff
+                // Process high-to-low to allow in-place when out_off ≤ p0_off.
+                buf[out_off + deg] = b * diff[cur_deg];
                 for j in (1..=cur_deg).rev() {
                     buf[out_off + j] = buf[p0_off + j] + a * diff[j] + b * diff[j - 1];
                 }
-
-                // Lowest coefficient (j = 0): p0[0] + a·diff[0]
                 buf[out_off] = buf[p0_off] + a * diff[0];
 
-                // Zero out remaining slots
-                for j in (cur_deg + 2)..slot {
-                    buf[out_off + j] = F::ZERO;
-                }
+                poly_ops::zero(&mut buf[out_off + deg + 1..out_off + slot]);
             }
 
             cur_deg += 1;
             n_polys = half;
         }
 
-        // Extract the single remaining polynomial from slot 0.
         debug_assert_eq!(n_polys, 1);
-        let final_deg = cur_deg.min(final_max_deg);
-        let mut result_coeffs: Vec<F> = buf[..=final_deg].to_vec();
-
-        // Trim trailing zeros
-        while result_coeffs.last() == Some(&F::ZERO) && result_coeffs.len() > 1 {
-            result_coeffs.pop();
-        }
-
-        DensePolynomial::from_coefficients_vec(result_coeffs)
+        poly_ops::to_dense_poly(&buf[..=cur_deg.min(final_max_deg)])
     }
 }
 
