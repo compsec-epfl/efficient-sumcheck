@@ -434,7 +434,9 @@ fn coefficient_sumcheck_bench(c: &mut Criterion) {
 
     struct Degree1Eval;
     impl RoundPolyEvaluator<F64> for Degree1Eval {
-        fn degree(&self) -> usize { 1 }
+        fn degree(&self) -> usize {
+            1
+        }
         fn accumulate_pair(&self, coeffs: &mut [F64], _tw: &[(&[F64], &[F64])], pw: &[(F64, F64)]) {
             let (even, odd) = pw[0];
             coeffs[0] += even;
@@ -444,7 +446,9 @@ fn coefficient_sumcheck_bench(c: &mut Criterion) {
 
     struct MixedEval;
     impl RoundPolyEvaluator<F64> for MixedEval {
-        fn degree(&self) -> usize { 0 }
+        fn degree(&self) -> usize {
+            0
+        }
         fn accumulate_pair(&self, coeffs: &mut [F64], tw: &[(&[F64], &[F64])], pw: &[(F64, F64)]) {
             coeffs[0] += tw[0].0[0] + pw[0].0;
         }
@@ -456,8 +460,31 @@ fn coefficient_sumcheck_bench(c: &mut Criterion) {
         .warm_up_time(Duration::from_secs(2))
         .measurement_time(Duration::from_secs(5));
 
-    for num_vars in [16, 18, 20] {
+    for num_vars in [16, 20, 24] {
         let n = 1usize << num_vars;
+
+        // ── Pairwise reduce only (isolate reduce cost) ──
+        group.bench_with_input(
+            BenchmarkId::new("reduce_only", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        (0..n).map(|_| F64::rand(&mut rng)).collect::<Vec<F64>>()
+                    },
+                    |evals| {
+                        let mut pw = vec![evals];
+                        let num_rounds = pw[0].len().trailing_zeros() as usize;
+                        let chg = F64::from(7u64);
+                        for _ in 0..num_rounds {
+                            pairwise::reduce_evaluations(&mut pw[0], chg);
+                        }
+                        black_box(pw);
+                    },
+                )
+            },
+        );
 
         // ── Degree-1: evaluator trait (parallel + SIMD reduce) ──
         group.bench_with_input(
