@@ -229,7 +229,9 @@ mod tests {
     /// Degree-1 evaluator: h(x) = even + (odd - even) * x per pair.
     struct Degree1Evaluator;
     impl RoundPolyEvaluator<F64> for Degree1Evaluator {
-        fn degree(&self) -> usize { 1 }
+        fn degree(&self) -> usize {
+            1
+        }
         fn accumulate_pair(&self, coeffs: &mut [F64], _tw: &[(&[F64], &[F64])], pw: &[(F64, F64)]) {
             let (even, odd) = pw[0];
             coeffs[0] += even;
@@ -240,7 +242,9 @@ mod tests {
     /// Degree-2 evaluator: interpolate through (0, s0), (1, s1), (2, s0+s1).
     struct Degree2Evaluator;
     impl RoundPolyEvaluator<F64> for Degree2Evaluator {
-        fn degree(&self) -> usize { 2 }
+        fn degree(&self) -> usize {
+            2
+        }
         fn accumulate_pair(&self, coeffs: &mut [F64], _tw: &[(&[F64], &[F64])], pw: &[(F64, F64)]) {
             let (s0, s1) = pw[0];
             let s2 = s0 + s1;
@@ -253,7 +257,9 @@ mod tests {
     /// Mixed evaluator: tablewise column 0 + pairwise even (degree 0).
     struct MixedEvaluator;
     impl RoundPolyEvaluator<F64> for MixedEvaluator {
-        fn degree(&self) -> usize { 0 }
+        fn degree(&self) -> usize {
+            0
+        }
         fn accumulate_pair(&self, coeffs: &mut [F64], tw: &[(&[F64], &[F64])], pw: &[(F64, F64)]) {
             coeffs[0] += tw[0].0[0] + pw[0].0;
         }
@@ -262,7 +268,9 @@ mod tests {
     /// Inner product evaluator: per-pair product from two pairwise tables.
     struct InnerProductEvaluator;
     impl RoundPolyEvaluator<F64> for InnerProductEvaluator {
-        fn degree(&self) -> usize { 1 }
+        fn degree(&self) -> usize {
+            1
+        }
         fn accumulate_pair(&self, coeffs: &mut [F64], _tw: &[(&[F64], &[F64])], pw: &[(F64, F64)]) {
             let (a_even, a_odd) = pw[0];
             let (b_even, b_odd) = pw[1];

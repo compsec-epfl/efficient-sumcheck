@@ -308,8 +308,8 @@ pub(crate) fn try_simd_product_dispatch<BF: Field, EF: Field + From<BF>>(
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
     type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
 
-    use crate::multilinear::reductions::pairwise;
     use crate::simd_sumcheck::evaluate::product_evaluate_parallel;
+    use crate::simd_sumcheck::reduce::reduce_in_place;
 
     let n = f.len();
     let num_rounds = n.trailing_zeros() as usize;
@@ -317,46 +317,32 @@ pub(crate) fn try_simd_product_dispatch<BF: Field, EF: Field + From<BF>>(
     let mut verifier_messages: Vec<EF> = Vec::with_capacity(num_rounds);
 
     if num_rounds > 0 {
-        // ── Round 0: SIMD product evaluate in BF + cross-field reduce ──
-        let f_buf: &[u64] =
-            unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n) };
-        let g_buf: &[u64] =
-            unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n) };
+        // BF == EF (both Goldilocks): work in-place on the original buffers.
+        // No cross_field_reduce allocation needed.
+        let f_raw: &mut [u64] =
+            unsafe { core::slice::from_raw_parts_mut(f.as_mut_ptr() as *mut u64, n) };
+        let g_raw: &mut [u64] =
+            unsafe { core::slice::from_raw_parts_mut(g.as_mut_ptr() as *mut u64, n) };
 
-        let (a, b) = product_evaluate_parallel::<Backend>(f_buf, g_buf);
+        let mut f_len = n;
+        let mut g_len = n;
 
-        let msg = (u64_to_field::<EF>(a), u64_to_field::<EF>(b));
-        prover_messages.push(msg);
-        transcript.write(msg.0);
-        transcript.write(msg.1);
-
-        let chg: EF = transcript.read();
-        verifier_messages.push(chg);
-
-        let mut ef_f = pairwise::cross_field_reduce(f, chg);
-        let mut ef_g = pairwise::cross_field_reduce(g, chg);
-
-        // ── Rounds 1+: SIMD product evaluate in EF + generic reduce ──
-        for _ in 1..num_rounds {
-            let f_buf: &[u64] = unsafe {
-                core::slice::from_raw_parts(ef_f.as_ptr() as *const u64, ef_f.len())
-            };
-            let g_buf: &[u64] = unsafe {
-                core::slice::from_raw_parts(ef_g.as_ptr() as *const u64, ef_g.len())
-            };
-
-            let (a, b) = product_evaluate_parallel::<Backend>(f_buf, g_buf);
+        for round in 0..num_rounds {
+            let (a, b) = product_evaluate_parallel::<Backend>(&f_raw[..f_len], &g_raw[..g_len]);
 
             let msg = (u64_to_field::<EF>(a), u64_to_field::<EF>(b));
             prover_messages.push(msg);
             transcript.write(msg.0);
             transcript.write(msg.1);
 
-            let chg: EF = transcript.read();
-            verifier_messages.push(chg);
+            let chg_ef: EF = transcript.read();
+            verifier_messages.push(chg_ef);
 
-            pairwise::reduce_evaluations(&mut ef_f, chg);
-            pairwise::reduce_evaluations(&mut ef_g, chg);
+            if round < num_rounds - 1 {
+                let chg: u64 = field_to_u64(chg_ef);
+                f_len = reduce_in_place::<Backend>(&mut f_raw[..f_len], chg);
+                g_len = reduce_in_place::<Backend>(&mut g_raw[..g_len], chg);
+            }
         }
     }
 

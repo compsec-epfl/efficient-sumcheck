@@ -263,7 +263,10 @@ pub fn product_evaluate<F: SimdBaseField>(
         let ge = g[i];
         let go = g[i + 1];
         a_sum = F::scalar_add(a_sum, F::scalar_mul(fe, ge));
-        b_sum = F::scalar_add(b_sum, F::scalar_add(F::scalar_mul(fe, go), F::scalar_mul(fo, ge)));
+        b_sum = F::scalar_add(
+            b_sum,
+            F::scalar_add(F::scalar_mul(fe, go), F::scalar_mul(fo, ge)),
+        );
         i += 2;
     }
 
@@ -372,8 +375,7 @@ mod tests {
         let f_raw: Vec<u64> = f_ff.iter().map(|f| to_mont(*f)).collect();
         let g_raw: Vec<u64> = g_ff.iter().map(|g| to_mont(*g)).collect();
 
-        let (expected_a, expected_b) =
-            pairwise_product_evaluate(&[f_ff.clone(), g_ff.clone()]);
+        let (expected_a, expected_b) = pairwise_product_evaluate(&[f_ff.clone(), g_ff.clone()]);
 
         let (simd_a, simd_b) = product_evaluate::<Backend>(&f_raw, &g_raw);
 
@@ -392,8 +394,7 @@ mod tests {
         let f_raw: Vec<u64> = f_ff.iter().map(|f| to_mont(*f)).collect();
         let g_raw: Vec<u64> = g_ff.iter().map(|g| to_mont(*g)).collect();
 
-        let (expected_a, expected_b) =
-            pairwise_product_evaluate(&[f_ff.clone(), g_ff.clone()]);
+        let (expected_a, expected_b) = pairwise_product_evaluate(&[f_ff.clone(), g_ff.clone()]);
 
         let (simd_a, simd_b) = product_evaluate_parallel::<Backend>(&f_raw, &g_raw);
 
