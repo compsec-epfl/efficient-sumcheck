@@ -51,6 +51,7 @@ pub mod order_strategy;
 
 pub mod coefficient_sumcheck;
 pub mod folding;
+pub mod poly_ops;
 
 pub mod simd_fields;
 pub mod simd_sumcheck;
