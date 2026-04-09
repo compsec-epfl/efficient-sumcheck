@@ -55,23 +55,37 @@ let sumcheck_transcript: ProductSumcheck<EF> = inner_product_sumcheck::<BF, EF>(
 claim = \sum_{x \in \{0,1\}^n} p(x), \quad \deg_{x_i}(p) \leq d
 ```
 
-Unlike the multilinear and inner product variants where `p` is multilinear (degree 1 in each variable, yielding degree-1 round polynomials), `coefficient_sumcheck` handles polynomials with arbitrary per-variable degree `d`, producing degree-`d` round polynomials. The user supplies a closure `compute_round_poly` that computes each round polynomial; the library handles transcript interaction and table reductions (both pairwise and tablewise) automatically.
+Unlike the multilinear and inner product variants where `p` is multilinear (degree 1 in each variable, yielding degree-1 round polynomials), `coefficient_sumcheck` handles polynomials with arbitrary per-variable degree `d`, producing degree-`d` round polynomials. The user implements `RoundPolyEvaluator` to define how a single pair of even/odd rows contributes to the round polynomial; the library handles iteration, parallelism, transcript interaction, and table reductions automatically.
 
 ```rust
-use efficient_sumcheck::coefficient_sumcheck::{coefficient_sumcheck, CoefficientSumcheck};
+use efficient_sumcheck::coefficient_sumcheck::{
+    coefficient_sumcheck, CoefficientSumcheck, RoundPolyEvaluator,
+};
 use efficient_sumcheck::transcript::SanityTranscript;
 use ark_poly::univariate::DensePolynomial;
+
+struct MyEvaluator;
+impl RoundPolyEvaluator<F> for MyEvaluator {
+    fn degree(&self) -> usize { 1 }
+
+    fn accumulate_pair(
+        &self,
+        coeffs: &mut [F],         // pre-zeroed buffer of length degree + 1
+        tw: &[(&[F], &[F])],      // (even_row, odd_row) per tablewise table
+        pw: &[(F, F)],            // (even, odd) per pairwise table
+    ) {
+        let (even, odd) = pw[0];
+        coeffs[0] += even;        // add to constant coefficient
+        coeffs[1] += odd - even;  // add to linear coefficient
+    }
+}
 
 let mut tablewise: Vec<Vec<Vec<F>>> = /* multi-column tables */;
 let mut pairwise: Vec<Vec<F>> = /* flat evaluation vectors */;
 let mut transcript = SanityTranscript::new(&mut rng);
 
 let result: CoefficientSumcheck<F> = coefficient_sumcheck(
-  |tablewise, pairwise| {
-      // Compute h(X) as a DensePolynomial<F> from current table state.
-      // Return coefficients in ascending order: [c0, c1, ..., cd].
-      DensePolynomial::from_coefficients_vec(vec![/* ... */])
-  },
+  &MyEvaluator,
   &mut tablewise,
   &mut pairwise,
   n_rounds,
@@ -79,7 +93,7 @@ let result: CoefficientSumcheck<F> = coefficient_sumcheck(
 );
 ```
 
-The closure receives immutable references to the current tables; after each round the library automatically reduces all pairwise and tablewise entries by folding with the verifier challenge.
+The evaluator receives one pair of rows at a time; the library iterates over all pairs (in parallel when the `parallel` feature is enabled), sums the per-pair polynomials, and reduces all pairwise and tablewise entries by folding with the verifier challenge after each round.
 
 ## Examples
 
