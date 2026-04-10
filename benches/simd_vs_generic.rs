@@ -7,7 +7,7 @@ use criterion::{
 use efficient_sumcheck::{
     multilinear::reductions::pairwise,
     multilinear_sumcheck,
-    tests::F64,
+    tests::{F64, F64Ext2, F64Ext3},
     transcript::{SanityTranscript, Transcript},
 };
 
@@ -615,6 +615,136 @@ fn coefficient_sumcheck_bench(c: &mut Criterion) {
     group.finish();
 }
 
+// ── Extension field sumcheck ────────────────────────────────────────────────
+
+fn extension_field_sumcheck_bench(c: &mut Criterion) {
+    use efficient_sumcheck::tests::F64Ext2;
+
+    let mut group = c.benchmark_group("extension_sumcheck");
+    group
+        .sample_size(10)
+        .warm_up_time(Duration::from_secs(2))
+        .measurement_time(Duration::from_secs(5));
+
+    for num_vars in [16, 18, 20, 24] {
+        let n = 1usize << num_vars;
+
+        // ── F64Ext2 (degree-2 extension, SIMD ext evaluate dispatched) ──
+        group.bench_with_input(
+            BenchmarkId::new("ext2_auto", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        (0..n)
+                            .map(|_| F64Ext2::rand(&mut rng))
+                            .collect::<Vec<F64Ext2>>()
+                    },
+                    |mut evals| {
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        black_box(multilinear_sumcheck::<F64Ext2, F64Ext2>(
+                            &mut evals,
+                            &mut transcript,
+                        ));
+                    },
+                )
+            },
+        );
+
+        // ── F64Ext2 generic (no SIMD evaluate) ──
+        group.bench_with_input(
+            BenchmarkId::new("ext2_generic", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        (0..n)
+                            .map(|_| F64Ext2::rand(&mut rng))
+                            .collect::<Vec<F64Ext2>>()
+                    },
+                    |evals| {
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        let num_rounds = evals.len().trailing_zeros() as usize;
+                        let mut ef_evals = evals;
+                        let mut msgs = Vec::with_capacity(num_rounds);
+                        for _ in 0..num_rounds {
+                            let msg = pairwise::evaluate(&ef_evals);
+                            msgs.push(msg);
+                            transcript.write(msg.0);
+                            transcript.write(msg.1);
+                            let chg: F64Ext2 = transcript.read();
+                            pairwise::reduce_evaluations(&mut ef_evals, chg);
+                        }
+                        black_box(msgs);
+                    },
+                )
+            },
+        );
+
+        // ── F64Ext3 (degree-3 extension, SIMD ext evaluate dispatched) ──
+        group.bench_with_input(
+            BenchmarkId::new("ext3_auto", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        (0..n)
+                            .map(|_| F64Ext3::rand(&mut rng))
+                            .collect::<Vec<F64Ext3>>()
+                    },
+                    |mut evals| {
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        black_box(multilinear_sumcheck::<F64Ext3, F64Ext3>(
+                            &mut evals,
+                            &mut transcript,
+                        ));
+                    },
+                )
+            },
+        );
+
+        // ── F64Ext3 generic ──
+        group.bench_with_input(
+            BenchmarkId::new("ext3_generic", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        (0..n)
+                            .map(|_| F64Ext3::rand(&mut rng))
+                            .collect::<Vec<F64Ext3>>()
+                    },
+                    |evals| {
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        let num_rounds = evals.len().trailing_zeros() as usize;
+                        let mut ef_evals = evals;
+                        let mut msgs = Vec::with_capacity(num_rounds);
+                        for _ in 0..num_rounds {
+                            let msg = pairwise::evaluate(&ef_evals);
+                            msgs.push(msg);
+                            transcript.write(msg.0);
+                            transcript.write(msg.1);
+                            let chg: F64Ext3 = transcript.read();
+                            pairwise::reduce_evaluations(&mut ef_evals, chg);
+                        }
+                        black_box(msgs);
+                    },
+                )
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     simd_vs_generic_sumcheck,
@@ -622,6 +752,7 @@ criterion_group!(
     bench_reduce_isolated,
     bench_eval_reduce_loop,
     inner_product_sumcheck_bench,
-    coefficient_sumcheck_bench
+    coefficient_sumcheck_bench,
+    extension_field_sumcheck_bench
 );
 criterion_main!(benches);

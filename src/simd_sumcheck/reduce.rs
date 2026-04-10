@@ -209,7 +209,7 @@ pub fn reduce_and_evaluate<F: SimdBaseField>(
     let total = F::add(F::add(red0, red1), F::add(red2, red3));
 
     // Extract lanes and sum even/odd groups
-    let mut lanes_buf = [F::ZERO; 16];
+    let mut lanes_buf = [F::ZERO; 32];
     debug_assert!(F::LANES <= 16);
     unsafe { F::store(lanes_buf.as_mut_ptr(), total) };
 
@@ -321,7 +321,7 @@ fn reduce_and_evaluate_into<F: SimdBaseField>(
     let red3 = F::reduce_carry(acc3, carry3);
     let total = F::add(F::add(red0, red1), F::add(red2, red3));
 
-    let mut lanes_buf = [F::ZERO; 16];
+    let mut lanes_buf = [F::ZERO; 32];
     debug_assert!(F::LANES <= 16);
     unsafe { F::store(lanes_buf.as_mut_ptr(), total) };
 
@@ -443,6 +443,197 @@ pub fn reduce_parallel<F: SimdBaseField>(
     challenge: F::Scalar,
 ) -> Vec<F::Scalar> {
     reduce_to_vec::<F>(src, challenge)
+}
+
+// ── Extension field reduce ──────────────────────────────────────────────────
+
+/// Degree-2 extension reduce in-place.
+///
+/// `src` contains `n` extension elements as `2*n` consecutive u64s in AoS layout.
+/// `challenge` is the extension challenge as `[c0, c1]` raw u64s.
+/// `w` is the nonresidue in Montgomery form.
+///
+/// For each pair `(a, b)`: `result = a + challenge * (b - a)` using ext2 multiply.
+/// Returns the new length in u64s (`n * ext_degree / 2 = n`).
+/// Degree-2 extension reduce, producing a new Vec (parallel-friendly).
+///
+/// Each pair of adjacent extension elements `(a, b)` is folded:
+/// `result = a + challenge * (b - a)` using degree-2 Karatsuba.
+///
+/// `src` is `n_elems * 2` u64s in AoS layout. Returns `n_elems/2 * 2` u64s.
+#[cfg(feature = "parallel")]
+pub fn ext2_reduce_parallel(src: &[u64], challenge: [u64; 2], w: u64) -> Vec<u64> {
+    use rayon::prelude::*;
+
+    let ext_deg = 2;
+    let pair_u64s = 2 * ext_deg; // 4 u64s per pair (even + odd element)
+    let n_pairs = src.len() / pair_u64s;
+    let chunk_pairs = 16_384_usize;
+    let chunk_u64s = chunk_pairs * pair_u64s;
+
+    if n_pairs <= chunk_pairs {
+        return ext2_reduce_chunk(src, challenge, w);
+    }
+
+    src.par_chunks(chunk_u64s)
+        .flat_map(|chunk| ext2_reduce_chunk(chunk, challenge, w))
+        .collect()
+}
+
+#[cfg(not(feature = "parallel"))]
+pub fn ext2_reduce_parallel(src: &[u64], challenge: [u64; 2], w: u64) -> Vec<u64> {
+    ext2_reduce_chunk(src, challenge, w)
+}
+
+/// Process a chunk of pairs for ext2 reduce.
+fn ext2_reduce_chunk(src: &[u64], challenge: [u64; 2], w: u64) -> Vec<u64> {
+    let ext_deg = 2;
+    let n_elems = src.len() / ext_deg;
+    let n_pairs = n_elems / 2;
+    let mut out = vec![0u64; n_pairs * ext_deg];
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        use crate::simd_fields::goldilocks::neon::{ext2_scalar_mul, GoldilocksNeon};
+
+        for i in 0..n_pairs {
+            let a_off = (2 * i) * ext_deg;
+            let b_off = (2 * i + 1) * ext_deg;
+            let out_off = i * ext_deg;
+
+            let diff = [
+                GoldilocksNeon::scalar_sub(src[b_off], src[a_off]),
+                GoldilocksNeon::scalar_sub(src[b_off + 1], src[a_off + 1]),
+            ];
+            let prod = ext2_scalar_mul(diff, challenge, w);
+            out[out_off] = GoldilocksNeon::scalar_add(src[a_off], prod[0]);
+            out[out_off + 1] = GoldilocksNeon::scalar_add(src[a_off + 1], prod[1]);
+        }
+    }
+
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        use crate::simd_fields::SimdBaseField;
+        type F = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+        for i in 0..n_pairs {
+            let a_off = (2 * i) * ext_deg;
+            let b_off = (2 * i + 1) * ext_deg;
+            let out_off = i * ext_deg;
+
+            let diff = [
+                F::scalar_sub(src[b_off], src[a_off]),
+                F::scalar_sub(src[b_off + 1], src[a_off + 1]),
+            ];
+            // Schoolbook ext2 mul for scalar fallback
+            let prod = [
+                F::scalar_add(
+                    F::scalar_mul(challenge[0], diff[0]),
+                    F::scalar_mul(w, F::scalar_mul(challenge[1], diff[1])),
+                ),
+                F::scalar_add(
+                    F::scalar_mul(challenge[0], diff[1]),
+                    F::scalar_mul(challenge[1], diff[0]),
+                ),
+            ];
+            out[out_off] = F::scalar_add(src[a_off], prod[0]);
+            out[out_off + 1] = F::scalar_add(src[a_off + 1], prod[1]);
+        }
+    }
+
+    out
+}
+
+/// Degree-2 extension reduce in-place (single-threaded, for small inputs).
+#[allow(dead_code)]
+pub fn ext2_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
+    src: &mut [u64],
+    challenge: [u64; 2],
+    w: u64,
+) -> usize {
+    let ext_deg = 2;
+    let n_elems = src.len() / ext_deg;
+    let n_pairs = n_elems / 2;
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        use crate::simd_fields::goldilocks::neon::{ext2_scalar_mul, GoldilocksNeon};
+
+        let _w_vec = GoldilocksNeon::splat(w);
+        let _chg_v = [
+            GoldilocksNeon::splat(challenge[0]),
+            GoldilocksNeon::splat(challenge[1]),
+        ];
+
+        // With NEON LANES=2 and degree-2: one SIMD load = one extension element.
+        // Process pairs: load even (2 u64s), load odd (2 u64s), compute result.
+        let ptr = src.as_mut_ptr();
+        for i in 0..n_pairs {
+            let a_off = (2 * i) * ext_deg;
+            let b_off = (2 * i + 1) * ext_deg;
+            let out_off = i * ext_deg;
+
+            unsafe {
+                // Load even and odd extension elements
+                let a_v = GoldilocksNeon::load(ptr.add(a_off) as *const u64);
+                let b_v = GoldilocksNeon::load(ptr.add(b_off) as *const u64);
+
+                // diff = b - a (component-wise, both components in one SIMD op)
+                let diff_v = GoldilocksNeon::sub(b_v, a_v);
+
+                // For ext2 multiply, we need SoA: separate c0 and c1 components.
+                // With LANES=2, the vector holds [c0, c1] — need to broadcast
+                // each component to both lanes for the multiply.
+                // Actually, ext2_mul expects [Packed; 2] where each Packed has
+                // the same component from multiple elements. With only 1 element
+                // per SIMD vector, we just extract and use scalar.
+                let diff0 = core::arch::aarch64::vgetq_lane_u64(diff_v, 0);
+                let diff1 = core::arch::aarch64::vgetq_lane_u64(diff_v, 1);
+                let prod = ext2_scalar_mul([diff0, diff1], challenge, w);
+
+                // result = a + prod (component-wise)
+                let a0 = core::arch::aarch64::vgetq_lane_u64(a_v, 0);
+                let a1 = core::arch::aarch64::vgetq_lane_u64(a_v, 1);
+                let r0 = GoldilocksNeon::scalar_add(a0, prod[0]);
+                let r1 = GoldilocksNeon::scalar_add(a1, prod[1]);
+
+                *ptr.add(out_off) = r0;
+                *ptr.add(out_off + 1) = r1;
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        // Scalar fallback
+        for i in 0..n_pairs {
+            let a_off = (2 * i) * ext_deg;
+            let b_off = (2 * i + 1) * ext_deg;
+            let out_off = i * ext_deg;
+
+            let diff = [
+                F::scalar_sub(src[b_off], src[a_off]),
+                F::scalar_sub(src[b_off + 1], src[a_off + 1]),
+            ];
+
+            // Use the scalar ext2 mul from whichever backend is available
+            let prod = [
+                F::scalar_add(
+                    F::scalar_mul(challenge[0], diff[0]),
+                    F::scalar_mul(w, F::scalar_mul(challenge[1], diff[1])),
+                ),
+                F::scalar_add(
+                    F::scalar_mul(challenge[0], diff[1]),
+                    F::scalar_mul(challenge[1], diff[0]),
+                ),
+            ];
+
+            src[out_off] = F::scalar_add(src[a_off], prod[0]);
+            src[out_off + 1] = F::scalar_add(src[a_off + 1], prod[1]);
+        }
+    }
+
+    n_pairs * ext_deg
 }
 
 #[cfg(test)]

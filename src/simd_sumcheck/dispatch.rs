@@ -10,6 +10,21 @@
 //! Detection uses [`Field::BasePrimeField::MODULUS`] from arkworks — no
 //! concrete type names are referenced. After monomorphization the check
 //! is constant-folded by LLVM, so the dead branch is eliminated entirely.
+//!
+//! # Safety: `transmute_copy` between `Field` and `u64`
+//!
+//! The `u64_to_field` and `field_to_u64` helpers use `transmute_copy` to
+//! reinterpret between arkworks field elements and raw Montgomery-form `u64`
+//! values. This is safe for Goldilocks because:
+//!
+//! 1. `is_goldilocks()` verifies: extension degree == 1, `size_of::<F>()` == 8,
+//!    modulus bits == 64, and modulus value == `0xFFFF_FFFF_0000_0001`.
+//! 2. Both `SmallFp<P>` and `Fp64<MontBackend<_, 1>>` store a single `u64`
+//!    as their only non-ZST field (`value: u64` resp. `BigInt<1>([u64; 1])`).
+//!
+//! This invariant is NOT guaranteed by `#[repr(transparent)]` in arkworks.
+//! If arkworks changes the internal layout of these types, the SIMD path
+//! must be updated. The `size_of` check provides a compile-time safety net.
 
 #[cfg(any(
     target_arch = "aarch64",
@@ -53,7 +68,7 @@ const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
 ))]
 #[inline(always)]
 fn is_goldilocks<F: Field>() -> bool {
-    use ark_ff::PrimeField; // for MODULUS on BasePrimeField
+    use ark_ff::PrimeField;
 
     if F::extension_degree() != 1 {
         return false;
@@ -62,6 +77,33 @@ fn is_goldilocks<F: Field>() -> bool {
         return false;
     }
     if F::BasePrimeField::MODULUS_BIT_SIZE != 64 {
+        return false;
+    }
+    let modulus = F::BasePrimeField::MODULUS;
+    let limbs: &[u64] = modulus.as_ref();
+    limbs[0] == GOLDILOCKS_P && limbs[1..].iter().all(|&x| x == 0)
+}
+
+/// Returns `true` when `F` has Goldilocks as its base prime field,
+/// regardless of extension degree. For degree-1 this is the same as
+/// `is_goldilocks`. For degree 2, 3, etc., the element is `d` consecutive
+/// `u64` values in Montgomery form.
+///
+/// After monomorphization, fully constant-folded by LLVM.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+#[inline(always)]
+fn is_goldilocks_based<F: Field>() -> bool {
+    use ark_ff::PrimeField;
+
+    if F::BasePrimeField::MODULUS_BIT_SIZE != 64 {
+        return false;
+    }
+    // Check element size matches d * 8 bytes (d u64 components)
+    let d = F::extension_degree() as usize;
+    if core::mem::size_of::<F>() != d * core::mem::size_of::<u64>() {
         return false;
     }
     let modulus = F::BasePrimeField::MODULUS;
@@ -417,6 +459,139 @@ pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: Field>(
     let s0: F = u64_to_field(s0_raw);
     let s1: F = u64_to_field(s1_raw);
     Some(vec![s0, s1 - s0])
+}
+
+// ─── Extension field evaluate dispatch ──────────────────────────────────────
+
+/// SIMD-accelerated pairwise evaluate for extension field elements.
+///
+/// Returns `Some((sum_even, sum_odd))` as extension field elements if
+/// `EF` is a Goldilocks extension. Returns `None` otherwise.
+///
+/// The evaluate is pure addition (component-wise), so SIMD wins regardless
+/// of extension degree.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+pub(crate) fn try_simd_ext_evaluate<EF: Field>(evals: &[EF]) -> Option<(EF, EF)> {
+    if !is_goldilocks_based::<EF>() {
+        return None;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+    let d = EF::extension_degree() as usize;
+
+    if d == 1 {
+        // Base field — use the optimized base evaluate
+        let buf: &[u64] =
+            unsafe { core::slice::from_raw_parts(evals.as_ptr() as *const u64, evals.len()) };
+        let (s0, s1) = crate::simd_sumcheck::evaluate::evaluate_parallel::<Backend>(buf);
+        return Some((u64_to_field(s0), u64_to_field(s1)));
+    }
+
+    // Extension field: view as flat u64 buffer and run ext_evaluate
+    let n_u64 = evals.len() * d;
+    let buf: &[u64] = unsafe { core::slice::from_raw_parts(evals.as_ptr() as *const u64, n_u64) };
+    let (even_comps, odd_comps) =
+        crate::simd_sumcheck::evaluate::ext_evaluate_parallel::<Backend>(buf, d);
+
+    // Reconstruct extension field elements from component vectors
+    let even: EF = unsafe { ext_components_to_field(&even_comps) };
+    let odd: EF = unsafe { ext_components_to_field(&odd_comps) };
+
+    Some((even, odd))
+}
+
+/// Reconstruct an extension field element from its raw u64 components.
+///
+/// # Safety
+///
+/// Components must be valid Montgomery-form u64 values and `F` must be
+/// a Goldilocks extension with `size_of::<F>() == components.len() * 8`.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+#[inline(always)]
+unsafe fn ext_components_to_field<F: Field>(components: &[u64]) -> F {
+    debug_assert_eq!(core::mem::size_of::<F>(), components.len() * 8);
+    let mut val = core::mem::MaybeUninit::<F>::uninit();
+    core::ptr::copy_nonoverlapping(
+        components.as_ptr(),
+        val.as_mut_ptr() as *mut u64,
+        components.len(),
+    );
+    val.assume_init()
+}
+
+/// SIMD-accelerated extension field reduce on `Vec<EF>`.
+///
+/// For degree-2 Goldilocks extensions: uses `ext2_reduce_in_place` with
+/// specialized Karatsuba multiply. Returns `true` if handled.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+#[allow(dead_code)]
+pub(crate) fn try_simd_ext_reduce<EF: Field>(evals: &mut Vec<EF>, challenge: EF) -> bool {
+    if !is_goldilocks_based::<EF>() {
+        return false;
+    }
+
+    let d = EF::extension_degree() as usize;
+
+    if d == 1 {
+        // Base field — use existing reduce
+        return try_simd_reduce(evals, challenge);
+    }
+
+    if d == 2 {
+        #[cfg(target_arch = "aarch64")]
+        type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+        type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+        let n_u64 = evals.len() * d;
+        let buf: &[u64] =
+            unsafe { core::slice::from_raw_parts(evals.as_ptr() as *const u64, n_u64) };
+
+        // Extract challenge components as raw u64
+        let chg_raw: [u64; 2] = unsafe {
+            let ptr = &challenge as *const EF as *const u64;
+            [*ptr, *ptr.add(1)]
+        };
+
+        // Extract nonresidue from the extension field config.
+        // We compute (0, 1) * (0, 1) = (NONRESIDUE, 0) to get it at runtime.
+        let one_x = unsafe {
+            use crate::simd_fields::SimdBaseField;
+            let mut tmp = [0u64; 2];
+            tmp[1] = Backend::ONE; // c1 = 1 (in Montgomery form)
+            let one_x: EF = core::mem::transmute_copy(&tmp);
+            one_x
+        };
+        let nr = one_x * one_x;
+        let w: u64 = unsafe { *((&nr) as *const EF as *const u64) };
+
+        let result_u64 = crate::simd_sumcheck::reduce::ext2_reduce_parallel(buf, chg_raw, w);
+
+        // Reinterpret result u64s as EF elements
+        let new_len = result_u64.len() / d;
+        let result_ef: Vec<EF> = unsafe {
+            let mut v = core::mem::ManuallyDrop::new(result_u64);
+            Vec::from_raw_parts(v.as_mut_ptr() as *mut EF, new_len, v.capacity() / d)
+        };
+        *evals = result_ef;
+        return true;
+    }
+
+    // degree 3, 4, etc. — fall through to generic
+    false
 }
 
 /// SIMD-accelerated degree-1 pairwise evaluate: returns `[s0, s1 - s0]`.

@@ -4,6 +4,14 @@
 //! operating on packed SIMD vectors. Currently supports:
 //!
 //! - **Goldilocks** (p = 2^64 − 2^32 + 1) via NEON on aarch64, AVX-512 IFMA on x86_64.
+//!
+//! # Extension fields
+//!
+//! The [`SimdExtField`] trait extends [`SimdBaseField`] with multiplication
+//! formulas for algebraic extensions (degree 2, 3, 4, ...). Extension field
+//! elements are represented as `d` consecutive base field scalars in memory.
+//! Addition is component-wise (uses base field SIMD directly). Multiplication
+//! uses Karatsuba or schoolbook formulas with base field SIMD operations.
 
 pub mod goldilocks;
 
@@ -111,8 +119,13 @@ pub trait SimdBaseField: Copy + Send + Sync + Sized + 'static {
     /// `ptr` must point to at least `2 * LANES` valid `Scalar` values.
     #[inline(always)]
     unsafe fn load_deinterleaved(ptr: *const Self::Scalar) -> (Self::Packed, Self::Packed) {
-        let mut evens = [Self::ZERO; 16];
-        let mut odds = [Self::ZERO; 16];
+        assert!(
+            Self::LANES <= 32,
+            "LANES={} exceeds max supported (32)",
+            Self::LANES
+        );
+        let mut evens = [Self::ZERO; 32];
+        let mut odds = [Self::ZERO; 32];
         for j in 0..Self::LANES {
             evens[j] = *ptr.add(2 * j);
             odds[j] = *ptr.add(2 * j + 1);
@@ -120,3 +133,9 @@ pub trait SimdBaseField: Copy + Send + Sync + Sized + 'static {
         (Self::load(evens.as_ptr()), Self::load(odds.as_ptr()))
     }
 }
+
+// Extension field SIMD multiplication is implemented as free functions
+// in each backend module (e.g., `goldilocks::neon::ext2_mul`) rather than
+// as a trait, because the nonresidue is a runtime value extracted from the
+// arkworks extension field config during dispatch. See `ext2_mul`, `ext3_mul`
+// in the backend modules.
