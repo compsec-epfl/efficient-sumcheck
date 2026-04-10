@@ -164,6 +164,138 @@ fn mont_mul(a: u64, b: u64) -> u64 {
     result
 }
 
+// ── Extension field SIMD multiply functions ─────────────────────────────────
+//
+// These are free functions rather than trait impls because the nonresidue
+// is a runtime value (extracted from the arkworks extension field config
+// during dispatch). The SimdExtField trait on mod.rs defines the interface;
+// these functions implement the Karatsuba formulas for degree 2 and 3.
+
+/// Degree-2 Karatsuba: (a0 + a1·X)(b0 + b1·X) mod (X² - w)
+/// 3 base muls + 1 mul-by-w + adds.
+#[inline(always)]
+pub fn ext2_mul(a: [uint64x2_t; 2], b: [uint64x2_t; 2], w: uint64x2_t) -> [uint64x2_t; 2] {
+    let v0 = GoldilocksNeon::mul(a[0], b[0]);
+    let v1 = GoldilocksNeon::mul(a[1], b[1]);
+    let c0 = GoldilocksNeon::add(v0, GoldilocksNeon::mul(w, v1));
+    let a_sum = GoldilocksNeon::add(a[0], a[1]);
+    let b_sum = GoldilocksNeon::add(b[0], b[1]);
+    let c1 = GoldilocksNeon::sub(
+        GoldilocksNeon::sub(GoldilocksNeon::mul(a_sum, b_sum), v0),
+        v1,
+    );
+    [c0, c1]
+}
+
+/// Degree-2 Karatsuba (scalar version for tail processing).
+#[inline(always)]
+pub fn ext2_scalar_mul(a: [u64; 2], b: [u64; 2], w: u64) -> [u64; 2] {
+    let v0 = mont_mul(a[0], b[0]);
+    let v1 = mont_mul(a[1], b[1]);
+    let c0 = GoldilocksNeon::scalar_add(v0, mont_mul(w, v1));
+    let a_sum = GoldilocksNeon::scalar_add(a[0], a[1]);
+    let b_sum = GoldilocksNeon::scalar_add(b[0], b[1]);
+    let c1 = GoldilocksNeon::scalar_sub(GoldilocksNeon::scalar_sub(mont_mul(a_sum, b_sum), v0), v1);
+    [c0, c1]
+}
+
+/// Degree-3 Karatsuba: (a0 + a1·X + a2·X²)(b0 + b1·X + b2·X²) mod (X³ - w)
+/// 6 base muls + 2 mul-by-w + adds.
+#[inline(always)]
+pub fn ext3_mul(a: [uint64x2_t; 3], b: [uint64x2_t; 3], w: uint64x2_t) -> [uint64x2_t; 3] {
+    let ad = GoldilocksNeon::mul(a[0], b[0]);
+    let be = GoldilocksNeon::mul(a[1], b[1]);
+    let cf = GoldilocksNeon::mul(a[2], b[2]);
+
+    let x = GoldilocksNeon::sub(
+        GoldilocksNeon::sub(
+            GoldilocksNeon::mul(
+                GoldilocksNeon::add(a[1], a[2]),
+                GoldilocksNeon::add(b[1], b[2]),
+            ),
+            be,
+        ),
+        cf,
+    );
+    let y = GoldilocksNeon::sub(
+        GoldilocksNeon::sub(
+            GoldilocksNeon::mul(
+                GoldilocksNeon::add(a[0], a[1]),
+                GoldilocksNeon::add(b[0], b[1]),
+            ),
+            ad,
+        ),
+        be,
+    );
+    let z = GoldilocksNeon::add(
+        GoldilocksNeon::sub(
+            GoldilocksNeon::sub(
+                GoldilocksNeon::mul(
+                    GoldilocksNeon::add(a[0], a[2]),
+                    GoldilocksNeon::add(b[0], b[2]),
+                ),
+                ad,
+            ),
+            cf,
+        ),
+        be,
+    );
+
+    [
+        GoldilocksNeon::add(ad, GoldilocksNeon::mul(w, x)),
+        GoldilocksNeon::add(y, GoldilocksNeon::mul(w, cf)),
+        z,
+    ]
+}
+
+/// Degree-3 Karatsuba (scalar version).
+#[inline(always)]
+pub fn ext3_scalar_mul(a: [u64; 3], b: [u64; 3], w: u64) -> [u64; 3] {
+    let ad = mont_mul(a[0], b[0]);
+    let be = mont_mul(a[1], b[1]);
+    let cf = mont_mul(a[2], b[2]);
+
+    let x = GoldilocksNeon::scalar_sub(
+        GoldilocksNeon::scalar_sub(
+            mont_mul(
+                GoldilocksNeon::scalar_add(a[1], a[2]),
+                GoldilocksNeon::scalar_add(b[1], b[2]),
+            ),
+            be,
+        ),
+        cf,
+    );
+    let y = GoldilocksNeon::scalar_sub(
+        GoldilocksNeon::scalar_sub(
+            mont_mul(
+                GoldilocksNeon::scalar_add(a[0], a[1]),
+                GoldilocksNeon::scalar_add(b[0], b[1]),
+            ),
+            ad,
+        ),
+        be,
+    );
+    let z = GoldilocksNeon::scalar_add(
+        GoldilocksNeon::scalar_sub(
+            GoldilocksNeon::scalar_sub(
+                mont_mul(
+                    GoldilocksNeon::scalar_add(a[0], a[2]),
+                    GoldilocksNeon::scalar_add(b[0], b[2]),
+                ),
+                ad,
+            ),
+            cf,
+        ),
+        be,
+    );
+
+    [
+        GoldilocksNeon::scalar_add(ad, mont_mul(w, x)),
+        GoldilocksNeon::scalar_add(y, mont_mul(w, cf)),
+        z,
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,5 +391,107 @@ mod tests {
         assert_eq!(from_mont(mont_mul(to_mont(one), to_mont(neg_one))), neg_one);
         // (-1) * (-1) = 1
         assert_eq!(from_mont(mont_mul(to_mont(neg_one), to_mont(neg_one))), one);
+    }
+
+    #[test]
+    fn test_ext2_scalar_mul() {
+        // Test degree-2 extension multiply against naive computation.
+        // Using nonresidue w = 7 (in Montgomery form).
+        let mut rng = test_rng();
+        let w_mont = to_mont(F64::from(7u64));
+
+        for _ in 0..10_000 {
+            let a0 = F64::rand(&mut rng);
+            let a1 = F64::rand(&mut rng);
+            let b0 = F64::rand(&mut rng);
+            let b1 = F64::rand(&mut rng);
+
+            let a = [to_mont(a0), to_mont(a1)];
+            let b = [to_mont(b0), to_mont(b1)];
+            let result = ext2_scalar_mul(a, b, w_mont);
+
+            // Naive: c0 = a0*b0 + 7*a1*b1, c1 = a0*b1 + a1*b0
+            let expected_c0 = a0 * b0 + F64::from(7u64) * a1 * b1;
+            let expected_c1 = a0 * b1 + a1 * b0;
+
+            assert_eq!(from_mont(result[0]), expected_c0, "ext2 c0 mismatch");
+            assert_eq!(from_mont(result[1]), expected_c1, "ext2 c1 mismatch");
+        }
+    }
+
+    #[test]
+    fn test_ext3_scalar_mul() {
+        // Test degree-3 extension multiply against naive schoolbook.
+        // Using nonresidue w = 7 (in Montgomery form).
+        let mut rng = test_rng();
+        let w_mont = to_mont(F64::from(7u64));
+        let w = F64::from(7u64);
+
+        for _ in 0..10_000 {
+            let a0 = F64::rand(&mut rng);
+            let a1 = F64::rand(&mut rng);
+            let a2 = F64::rand(&mut rng);
+            let b0 = F64::rand(&mut rng);
+            let b1 = F64::rand(&mut rng);
+            let b2 = F64::rand(&mut rng);
+
+            let a = [to_mont(a0), to_mont(a1), to_mont(a2)];
+            let b = [to_mont(b0), to_mont(b1), to_mont(b2)];
+            let result = ext3_scalar_mul(a, b, w_mont);
+
+            // Naive schoolbook mod (X³ - w):
+            // c0 = a0*b0 + w*(a1*b2 + a2*b1)
+            // c1 = a0*b1 + a1*b0 + w*a2*b2
+            // c2 = a0*b2 + a1*b1 + a2*b0
+            let expected_c0 = a0 * b0 + w * (a1 * b2 + a2 * b1);
+            let expected_c1 = a0 * b1 + a1 * b0 + w * a2 * b2;
+            let expected_c2 = a0 * b2 + a1 * b1 + a2 * b0;
+
+            assert_eq!(from_mont(result[0]), expected_c0, "ext3 c0 mismatch");
+            assert_eq!(from_mont(result[1]), expected_c1, "ext3 c1 mismatch");
+            assert_eq!(from_mont(result[2]), expected_c2, "ext3 c2 mismatch");
+        }
+    }
+
+    #[test]
+    fn test_ext2_neon_matches_scalar() {
+        // Verify NEON ext2_mul matches ext2_scalar_mul.
+        let mut rng = test_rng();
+        let w_mont = to_mont(F64::from(7u64));
+        let w_vec = GoldilocksNeon::splat(w_mont);
+
+        for _ in 0..10_000 {
+            let a0 = F64::rand(&mut rng);
+            let a1 = F64::rand(&mut rng);
+            let b0 = F64::rand(&mut rng);
+            let b1 = F64::rand(&mut rng);
+
+            let a_raw = [[to_mont(a0), to_mont(a0)], [to_mont(a1), to_mont(a1)]];
+            let b_raw = [[to_mont(b0), to_mont(b0)], [to_mont(b1), to_mont(b1)]];
+
+            let a_v = [unsafe { GoldilocksNeon::load(a_raw[0].as_ptr()) }, unsafe {
+                GoldilocksNeon::load(a_raw[1].as_ptr())
+            }];
+            let b_v = [unsafe { GoldilocksNeon::load(b_raw[0].as_ptr()) }, unsafe {
+                GoldilocksNeon::load(b_raw[1].as_ptr())
+            }];
+
+            let r_v = ext2_mul(a_v, b_v, w_vec);
+
+            let mut r_out = [[0u64; 2]; 2];
+            unsafe {
+                GoldilocksNeon::store(r_out[0].as_mut_ptr(), r_v[0]);
+                GoldilocksNeon::store(r_out[1].as_mut_ptr(), r_v[1]);
+            }
+
+            let scalar_result = ext2_scalar_mul(
+                [to_mont(a0), to_mont(a1)],
+                [to_mont(b0), to_mont(b1)],
+                w_mont,
+            );
+
+            assert_eq!(r_out[0][0], scalar_result[0], "ext2 NEON c0 mismatch");
+            assert_eq!(r_out[1][0], scalar_result[1], "ext2 NEON c1 mismatch");
+        }
     }
 }

@@ -88,6 +88,18 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
 
         // Remaining rounds work in EF
         for _ in 1..num_rounds {
+            // Try SIMD extension evaluate (accelerates when EF is Goldilocks-based)
+            #[cfg(any(
+                target_arch = "aarch64",
+                all(target_arch = "x86_64", target_feature = "avx512ifma")
+            ))]
+            let msg = crate::simd_sumcheck::dispatch::try_simd_ext_evaluate(&ef_evals)
+                .unwrap_or_else(|| pairwise::evaluate(&ef_evals));
+
+            #[cfg(not(any(
+                target_arch = "aarch64",
+                all(target_arch = "x86_64", target_feature = "avx512ifma")
+            )))]
             let msg = pairwise::evaluate(&ef_evals);
 
             prover_messages.push(msg);
@@ -195,5 +207,52 @@ mod tests {
             generic_result.verifier_messages,
             simd_result.verifier_messages
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "power of 2")]
+    fn test_non_power_of_2_panics() {
+        use crate::transcript::SanityTranscript;
+        let mut rng = test_rng();
+        let mut evals = vec![F64::from(1u64); 7]; // not a power of 2
+        let mut transcript = SanityTranscript::new(&mut rng);
+        multilinear_sumcheck::<F64, F64>(&mut evals, &mut transcript);
+    }
+
+    #[test]
+    fn test_minimal_input() {
+        // n = 2 (1 variable, 1 round)
+        use crate::transcript::SanityTranscript;
+        let mut rng = test_rng();
+        let mut evals = vec![F64::from(3u64), F64::from(7u64)];
+        let mut transcript = SanityTranscript::new(&mut rng);
+        let result = multilinear_sumcheck::<F64, F64>(&mut evals, &mut transcript);
+        assert_eq!(result.prover_messages.len(), 1);
+        assert_eq!(result.prover_messages[0].0, F64::from(3u64)); // s(0)
+        assert_eq!(result.prover_messages[0].1, F64::from(7u64)); // s(1)
+    }
+
+    #[test]
+    fn test_extension_field_sumcheck() {
+        // Test multilinear sumcheck with BF = EF = F64Ext2 (degree-2 extension).
+        // This exercises the SIMD extension evaluate path in rounds 1+.
+        use crate::tests::F64Ext2;
+        use crate::transcript::SanityTranscript;
+
+        let mut rng = test_rng();
+        let n = 1 << 8;
+        let mut evals: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+
+        // Run the sumcheck (SIMD extension evaluate dispatched for Goldilocks Ext2)
+        let mut transcript = SanityTranscript::new(&mut rng);
+        let result = multilinear_sumcheck::<F64Ext2, F64Ext2>(&mut evals, &mut transcript);
+
+        assert_eq!(result.prover_messages.len(), 8);
+        assert_eq!(result.verifier_messages.len(), 8);
+
+        // Verify round 0: s(0) + s(1) == sum of all evaluations
+        let claimed_sum: F64Ext2 = evals.iter().copied().sum();
+        let (s0, s1) = result.prover_messages[0];
+        assert_eq!(s0 + s1, claimed_sum, "round 0 sum mismatch");
     }
 }

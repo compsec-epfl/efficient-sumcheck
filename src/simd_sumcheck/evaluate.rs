@@ -61,7 +61,7 @@ pub fn evaluate<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
     );
 
     // Extract lanes and sum even/odd groups.
-    let mut lanes_buf = [F::ZERO; 16];
+    let mut lanes_buf = [F::ZERO; 32];
     debug_assert!(F::LANES <= 16);
     unsafe { F::store(lanes_buf.as_mut_ptr(), total) };
 
@@ -242,8 +242,8 @@ pub fn product_evaluate<F: SimdBaseField>(
     let total_b = F::add(F::add(acc_b0, acc_b1), F::add(acc_b2, acc_b3));
 
     // Horizontal reduce: sum all lanes into a scalar
-    let mut buf = [F::ZERO; 16];
-    debug_assert!(lanes <= 16);
+    let mut buf = [F::ZERO; 32];
+    debug_assert!(lanes <= 32);
     let mut a_sum = F::ZERO;
     let mut b_sum = F::ZERO;
     unsafe { F::store(buf.as_mut_ptr(), total_a) };
@@ -309,6 +309,181 @@ pub fn product_evaluate_parallel<F: SimdBaseField>(
 ) -> (F::Scalar, F::Scalar) {
     product_evaluate::<F>(f, g)
 }
+
+// ── Extension field evaluate ────────────────────────────────────────────────
+
+/// SIMD-vectorized pairwise evaluate for extension field elements.
+///
+/// Given `src` containing `n` extension elements of degree `d` (total
+/// `n * d` base field scalars in AoS layout: `[e0_c0, e0_c1, ..., e1_c0, ...]`),
+/// computes:
+///   sum_even = e0 + e2 + e4 + ...   (component-wise)
+///   sum_odd  = e1 + e3 + e5 + ...   (component-wise)
+///
+/// Returns `(even_components, odd_components)` each of length `d`.
+///
+/// For degree-1 (base field), use [`evaluate`] instead — it's more optimized.
+pub fn ext_evaluate<F: SimdBaseField>(
+    src: &[F::Scalar],
+    ext_degree: usize,
+) -> (Vec<F::Scalar>, Vec<F::Scalar>) {
+    let n_elems = src.len() / ext_degree;
+    debug_assert_eq!(src.len(), n_elems * ext_degree);
+
+    let lanes = F::LANES;
+    let n_pairs = n_elems / 2;
+    // Stride in u64s between adjacent extension elements
+    let elem_stride = ext_degree;
+    // Stride in u64s between even and odd element in a pair
+    let pair_stride = 2 * ext_degree;
+
+    let mut even_sums = vec![F::ZERO; ext_degree];
+    let mut odd_sums = vec![F::ZERO; ext_degree];
+
+    // Number of SIMD vectors needed to load one extension element
+    let vecs_per_elem = ext_degree.div_ceil(lanes);
+
+    if ext_degree >= lanes {
+        // Optimized path: each extension element is ≥ 1 SIMD vector.
+        // Use 4× unrolling for ILP (processes 4 pairs per outer iteration).
+        let unroll = 4;
+        let aligned_pairs = (n_pairs / unroll) * unroll;
+
+        let simd_components = ext_degree / lanes;
+        // 4 even + 4 odd accumulators, each with simd_components vectors
+        let zero = F::splat(F::ZERO);
+        let mut even_accs = [[zero; 8]; 4]; // [unroll][max_simd_components]
+        let mut odd_accs = [[zero; 8]; 4];
+        debug_assert!(simd_components <= 8);
+
+        let ptr = src.as_ptr();
+        let mut pair = 0;
+        while pair < aligned_pairs {
+            for u in 0..unroll {
+                let p = pair + u;
+                let even_off = p * pair_stride;
+                let odd_off = even_off + elem_stride;
+                for c in 0..simd_components {
+                    unsafe {
+                        even_accs[u][c] =
+                            F::add(even_accs[u][c], F::load(ptr.add(even_off + c * lanes)));
+                        odd_accs[u][c] =
+                            F::add(odd_accs[u][c], F::load(ptr.add(odd_off + c * lanes)));
+                    }
+                }
+            }
+            pair += unroll;
+        }
+
+        // Combine unrolled accumulators
+        for u in 1..unroll {
+            for c in 0..simd_components {
+                even_accs[0][c] = F::add(even_accs[0][c], even_accs[u][c]);
+                odd_accs[0][c] = F::add(odd_accs[0][c], odd_accs[u][c]);
+            }
+        }
+
+        // Tail: remaining pairs (< unroll)
+        while pair < n_pairs {
+            let even_off = pair * pair_stride;
+            let odd_off = even_off + elem_stride;
+            for c in 0..simd_components {
+                unsafe {
+                    even_accs[0][c] =
+                        F::add(even_accs[0][c], F::load(ptr.add(even_off + c * lanes)));
+                    odd_accs[0][c] = F::add(odd_accs[0][c], F::load(ptr.add(odd_off + c * lanes)));
+                }
+            }
+            pair += 1;
+        }
+
+        // Extract SIMD lanes into scalar sums
+        let mut buf = [F::ZERO; 32];
+        for c in 0..simd_components {
+            unsafe { F::store(buf.as_mut_ptr(), even_accs[0][c]) };
+            for l in 0..lanes {
+                even_sums[c * lanes + l] = F::scalar_add(even_sums[c * lanes + l], buf[l]);
+            }
+            unsafe { F::store(buf.as_mut_ptr(), odd_accs[0][c]) };
+            for l in 0..lanes {
+                odd_sums[c * lanes + l] = F::scalar_add(odd_sums[c * lanes + l], buf[l]);
+            }
+        }
+
+        // Tail components (ext_degree not divisible by lanes)
+        let tail_start = simd_components * lanes;
+        for p in 0..n_pairs {
+            let even_off = p * pair_stride;
+            let odd_off = even_off + elem_stride;
+            for c in tail_start..ext_degree {
+                even_sums[c] = F::scalar_add(even_sums[c], src[even_off + c]);
+                odd_sums[c] = F::scalar_add(odd_sums[c], src[odd_off + c]);
+            }
+        }
+    } else {
+        // ext_degree < LANES (e.g., degree-2 with AVX-512 LANES=8):
+        // Multiple extension elements fit in one SIMD vector.
+        // Scalar accumulation — still fast for small n.
+        let _ = vecs_per_elem;
+        for p in 0..n_pairs {
+            let even_off = p * pair_stride;
+            let odd_off = even_off + elem_stride;
+            for c in 0..ext_degree {
+                even_sums[c] = F::scalar_add(even_sums[c], src[even_off + c]);
+                odd_sums[c] = F::scalar_add(odd_sums[c], src[odd_off + c]);
+            }
+        }
+    }
+
+    (even_sums, odd_sums)
+}
+
+/// Parallel extension evaluate with chunking for large arrays.
+#[cfg(feature = "parallel")]
+pub fn ext_evaluate_parallel<F: SimdBaseField>(
+    src: &[F::Scalar],
+    ext_degree: usize,
+) -> (Vec<F::Scalar>, Vec<F::Scalar>) {
+    use rayon::prelude::*;
+
+    let n_elems = src.len() / ext_degree;
+    let pair_stride = 2 * ext_degree;
+    let chunk_pairs = 8192_usize;
+    let chunk_u64s = chunk_pairs * pair_stride;
+    let n_pairs = n_elems / 2;
+
+    if n_pairs <= chunk_pairs {
+        return ext_evaluate::<F>(src, ext_degree);
+    }
+
+    src.par_chunks(chunk_u64s)
+        .map(|chunk| ext_evaluate::<F>(chunk, ext_degree))
+        .reduce(
+            || (vec![F::ZERO; ext_degree], vec![F::ZERO; ext_degree]),
+            |(mut e1, mut o1), (e2, o2)| {
+                for i in 0..ext_degree {
+                    e1[i] = F::scalar_add(e1[i], e2[i]);
+                    o1[i] = F::scalar_add(o1[i], o2[i]);
+                }
+                (e1, o1)
+            },
+        )
+}
+
+/// Non-parallel fallback.
+#[cfg(not(feature = "parallel"))]
+pub fn ext_evaluate_parallel<F: SimdBaseField>(
+    src: &[F::Scalar],
+    ext_degree: usize,
+) -> (Vec<F::Scalar>, Vec<F::Scalar>) {
+    ext_evaluate::<F>(src, ext_degree)
+}
+
+// Note: Extension field REDUCE (multiply by challenge) stays in the generic
+// arkworks path. The extension multiply is complex (Karatsuba with base muls)
+// and on NEON the base mul is scalar anyway. The SIMD win for extensions is
+// in the EVALUATE (addition only). For AVX-512 where base mul is truly
+// vectorized, a SIMD extension reduce would help — future work.
 
 #[cfg(test)]
 #[cfg(any(

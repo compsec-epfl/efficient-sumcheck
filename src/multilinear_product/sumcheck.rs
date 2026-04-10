@@ -81,7 +81,26 @@ mod tests {
     #[test]
     fn algorithm_consistency() {
         consistency_test::<F64, BenchStream<F64>, TimeProductProver<F64, BenchStream<F64>>>();
-        // should take ordering of the stream
-        // consistency_test::<F64, BenchStream<F64>, BlendyProductProver<F64, BenchStream<F64>>>();
+    }
+
+    #[test]
+    fn test_evaluate_round_poly() {
+        use super::ProductSumcheck;
+        use ark_ff::UniformRand;
+        use ark_std::test_rng;
+
+        let mut rng = test_rng();
+        for _ in 0..1000 {
+            let a = F64::rand(&mut rng);
+            let b = F64::rand(&mut rng);
+            let c = F64::rand(&mut rng);
+            let r = F64::rand(&mut rng);
+
+            // claim = q(0) + q(1) = a + (a + b + c) = 2a + b + c
+            let claim = a + a + b + c;
+            let expected = a + b * r + c * r * r;
+            let got = ProductSumcheck::<F64>::evaluate_round_poly(r, a, b, claim);
+            assert_eq!(expected, got);
+        }
     }
 }
