@@ -513,31 +513,46 @@ fn ext2_reduce_chunk(src: &[u64], challenge: [u64; 2], w: u64) -> Vec<u64> {
 
     #[cfg(not(target_arch = "aarch64"))]
     {
-        use crate::simd_fields::SimdBaseField;
-        type F = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+        use crate::simd_fields::goldilocks::avx512::{
+            ext2_reduce_8pairs, ext2_scalar_mul, GoldilocksAvx512,
+        };
 
-        for i in 0..n_pairs {
+        let challenge_c0 = GoldilocksAvx512::splat(challenge[0]);
+        let challenge_c1 = GoldilocksAvx512::splat(challenge[1]);
+        let w_vec = GoldilocksAvx512::splat(w);
+
+        // Process 8 pairs at a time (32 input u64s → 16 output u64s)
+        let simd_pairs = (n_pairs / 8) * 8;
+        let mut i = 0;
+        while i < simd_pairs {
+            let src_off = (2 * i) * ext_deg; // 4 u64s per pair, 8 pairs = 32 u64s
+            let out_off = i * ext_deg;        // 2 u64s per result, 8 results = 16 u64s
+            unsafe {
+                ext2_reduce_8pairs(
+                    src.as_ptr().add(src_off),
+                    out.as_mut_ptr().add(out_off),
+                    challenge_c0,
+                    challenge_c1,
+                    w_vec,
+                );
+            }
+            i += 8;
+        }
+
+        // Scalar tail for remaining pairs
+        while i < n_pairs {
             let a_off = (2 * i) * ext_deg;
             let b_off = (2 * i + 1) * ext_deg;
             let out_off = i * ext_deg;
 
             let diff = [
-                F::scalar_sub(src[b_off], src[a_off]),
-                F::scalar_sub(src[b_off + 1], src[a_off + 1]),
+                GoldilocksAvx512::scalar_sub(src[b_off], src[a_off]),
+                GoldilocksAvx512::scalar_sub(src[b_off + 1], src[a_off + 1]),
             ];
-            // Schoolbook ext2 mul for scalar fallback
-            let prod = [
-                F::scalar_add(
-                    F::scalar_mul(challenge[0], diff[0]),
-                    F::scalar_mul(w, F::scalar_mul(challenge[1], diff[1])),
-                ),
-                F::scalar_add(
-                    F::scalar_mul(challenge[0], diff[1]),
-                    F::scalar_mul(challenge[1], diff[0]),
-                ),
-            ];
-            out[out_off] = F::scalar_add(src[a_off], prod[0]);
-            out[out_off + 1] = F::scalar_add(src[a_off + 1], prod[1]);
+            let prod = ext2_scalar_mul(diff, challenge, w);
+            out[out_off] = GoldilocksAvx512::scalar_add(src[a_off], prod[0]);
+            out[out_off + 1] = GoldilocksAvx512::scalar_add(src[a_off + 1], prod[1]);
+            i += 1;
         }
     }
 
@@ -605,31 +620,247 @@ pub fn ext2_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
 
     #[cfg(not(target_arch = "aarch64"))]
     {
-        // Scalar fallback
+        use crate::simd_fields::goldilocks::avx512::{
+            ext2_reduce_8pairs, ext2_scalar_mul, GoldilocksAvx512,
+        };
+
+        let challenge_c0 = GoldilocksAvx512::splat(challenge[0]);
+        let challenge_c1 = GoldilocksAvx512::splat(challenge[1]);
+        let w_vec = GoldilocksAvx512::splat(w);
+
+        let ptr = src.as_mut_ptr();
+        let simd_pairs = (n_pairs / 8) * 8;
+        let mut i = 0;
+
+        // Safe in-place: ext2_reduce_8pairs loads all 32 u64s into registers
+        // before writing 16 u64s, and output region is always <= input region.
+        while i < simd_pairs {
+            let src_off = (2 * i) * ext_deg;
+            let out_off = i * ext_deg;
+            unsafe {
+                ext2_reduce_8pairs(
+                    ptr.add(src_off) as *const u64,
+                    ptr.add(out_off),
+                    challenge_c0,
+                    challenge_c1,
+                    w_vec,
+                );
+            }
+            i += 8;
+        }
+
+        while i < n_pairs {
+            let a_off = (2 * i) * ext_deg;
+            let b_off = (2 * i + 1) * ext_deg;
+            let out_off = i * ext_deg;
+
+            let diff = [
+                GoldilocksAvx512::scalar_sub(src[b_off], src[a_off]),
+                GoldilocksAvx512::scalar_sub(src[b_off + 1], src[a_off + 1]),
+            ];
+            let prod = ext2_scalar_mul(diff, challenge, w);
+
+            src[out_off] = GoldilocksAvx512::scalar_add(src[a_off], prod[0]);
+            src[out_off + 1] = GoldilocksAvx512::scalar_add(src[a_off + 1], prod[1]);
+            i += 1;
+        }
+    }
+
+    n_pairs * ext_deg
+}
+
+// ── Degree-3 extension field reduce ────────────────────────────────────────
+
+/// Degree-3 extension reduce, producing a new Vec (parallel-friendly).
+///
+/// Each pair of adjacent extension elements `(a, b)` is folded:
+/// `result = a + challenge * (b - a)` using degree-3 Karatsuba.
+///
+/// `src` is `n_elems * 3` u64s in AoS layout. Returns `n_elems/2 * 3` u64s.
+#[cfg(feature = "parallel")]
+pub fn ext3_reduce_parallel(src: &[u64], challenge: [u64; 3], w: u64) -> Vec<u64> {
+    use rayon::prelude::*;
+
+    let ext_deg = 3;
+    let pair_u64s = 2 * ext_deg; // 6 u64s per pair (even + odd element)
+    let n_pairs = src.len() / pair_u64s;
+    let chunk_pairs = 16_384_usize;
+    let chunk_u64s = chunk_pairs * pair_u64s;
+
+    if n_pairs <= chunk_pairs {
+        return ext3_reduce_chunk(src, challenge, w);
+    }
+
+    src.par_chunks(chunk_u64s)
+        .flat_map(|chunk| ext3_reduce_chunk(chunk, challenge, w))
+        .collect()
+}
+
+#[cfg(not(feature = "parallel"))]
+pub fn ext3_reduce_parallel(src: &[u64], challenge: [u64; 3], w: u64) -> Vec<u64> {
+    ext3_reduce_chunk(src, challenge, w)
+}
+
+/// Process a chunk of pairs for ext3 reduce.
+fn ext3_reduce_chunk(src: &[u64], challenge: [u64; 3], w: u64) -> Vec<u64> {
+    let ext_deg = 3;
+    let n_elems = src.len() / ext_deg;
+    let n_pairs = n_elems / 2;
+    let mut out = vec![0u64; n_pairs * ext_deg];
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        use crate::simd_fields::goldilocks::neon::{ext3_scalar_mul, GoldilocksNeon};
+
         for i in 0..n_pairs {
             let a_off = (2 * i) * ext_deg;
             let b_off = (2 * i + 1) * ext_deg;
             let out_off = i * ext_deg;
 
             let diff = [
-                F::scalar_sub(src[b_off], src[a_off]),
-                F::scalar_sub(src[b_off + 1], src[a_off + 1]),
+                GoldilocksNeon::scalar_sub(src[b_off], src[a_off]),
+                GoldilocksNeon::scalar_sub(src[b_off + 1], src[a_off + 1]),
+                GoldilocksNeon::scalar_sub(src[b_off + 2], src[a_off + 2]),
             ];
+            let prod = ext3_scalar_mul(diff, challenge, w);
+            out[out_off] = GoldilocksNeon::scalar_add(src[a_off], prod[0]);
+            out[out_off + 1] = GoldilocksNeon::scalar_add(src[a_off + 1], prod[1]);
+            out[out_off + 2] = GoldilocksNeon::scalar_add(src[a_off + 2], prod[2]);
+        }
+    }
 
-            // Use the scalar ext2 mul from whichever backend is available
-            let prod = [
-                F::scalar_add(
-                    F::scalar_mul(challenge[0], diff[0]),
-                    F::scalar_mul(w, F::scalar_mul(challenge[1], diff[1])),
-                ),
-                F::scalar_add(
-                    F::scalar_mul(challenge[0], diff[1]),
-                    F::scalar_mul(challenge[1], diff[0]),
-                ),
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        use crate::simd_fields::goldilocks::avx512::{
+            ext3_reduce_8pairs, ext3_scalar_mul, GoldilocksAvx512,
+        };
+
+        let challenge_v = [
+            GoldilocksAvx512::splat(challenge[0]),
+            GoldilocksAvx512::splat(challenge[1]),
+            GoldilocksAvx512::splat(challenge[2]),
+        ];
+        let w_vec = GoldilocksAvx512::splat(w);
+
+        // Process 8 pairs at a time (48 input u64s → 24 output u64s)
+        let simd_pairs = (n_pairs / 8) * 8;
+        let mut i = 0;
+        while i < simd_pairs {
+            let src_off = (2 * i) * ext_deg;
+            let out_off = i * ext_deg;
+            unsafe {
+                ext3_reduce_8pairs(
+                    src.as_ptr().add(src_off),
+                    out.as_mut_ptr().add(out_off),
+                    challenge_v,
+                    w_vec,
+                );
+            }
+            i += 8;
+        }
+
+        // Scalar tail for remaining pairs
+        while i < n_pairs {
+            let a_off = (2 * i) * ext_deg;
+            let b_off = (2 * i + 1) * ext_deg;
+            let out_off = i * ext_deg;
+
+            let diff = [
+                GoldilocksAvx512::scalar_sub(src[b_off], src[a_off]),
+                GoldilocksAvx512::scalar_sub(src[b_off + 1], src[a_off + 1]),
+                GoldilocksAvx512::scalar_sub(src[b_off + 2], src[a_off + 2]),
             ];
+            let prod = ext3_scalar_mul(diff, challenge, w);
+            out[out_off] = GoldilocksAvx512::scalar_add(src[a_off], prod[0]);
+            out[out_off + 1] = GoldilocksAvx512::scalar_add(src[a_off + 1], prod[1]);
+            out[out_off + 2] = GoldilocksAvx512::scalar_add(src[a_off + 2], prod[2]);
+            i += 1;
+        }
+    }
 
-            src[out_off] = F::scalar_add(src[a_off], prod[0]);
-            src[out_off + 1] = F::scalar_add(src[a_off + 1], prod[1]);
+    out
+}
+
+/// Degree-3 extension reduce in-place (single-threaded, for small inputs).
+#[allow(dead_code)]
+pub fn ext3_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
+    src: &mut [u64],
+    challenge: [u64; 3],
+    w: u64,
+) -> usize {
+    let ext_deg = 3;
+    let n_elems = src.len() / ext_deg;
+    let n_pairs = n_elems / 2;
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        use crate::simd_fields::goldilocks::neon::{ext3_scalar_mul, GoldilocksNeon};
+
+        for i in 0..n_pairs {
+            let a_off = (2 * i) * ext_deg;
+            let b_off = (2 * i + 1) * ext_deg;
+            let out_off = i * ext_deg;
+
+            let diff = [
+                GoldilocksNeon::scalar_sub(src[b_off], src[a_off]),
+                GoldilocksNeon::scalar_sub(src[b_off + 1], src[a_off + 1]),
+                GoldilocksNeon::scalar_sub(src[b_off + 2], src[a_off + 2]),
+            ];
+            let prod = ext3_scalar_mul(diff, challenge, w);
+            src[out_off] = GoldilocksNeon::scalar_add(src[a_off], prod[0]);
+            src[out_off + 1] = GoldilocksNeon::scalar_add(src[a_off + 1], prod[1]);
+            src[out_off + 2] = GoldilocksNeon::scalar_add(src[a_off + 2], prod[2]);
+        }
+    }
+
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        use crate::simd_fields::goldilocks::avx512::{
+            ext3_reduce_8pairs, ext3_scalar_mul, GoldilocksAvx512,
+        };
+
+        let challenge_v = [
+            GoldilocksAvx512::splat(challenge[0]),
+            GoldilocksAvx512::splat(challenge[1]),
+            GoldilocksAvx512::splat(challenge[2]),
+        ];
+        let w_vec = GoldilocksAvx512::splat(w);
+
+        let ptr = src.as_mut_ptr();
+        let simd_pairs = (n_pairs / 8) * 8;
+        let mut i = 0;
+
+        // Safe in-place: ext3_reduce_8pairs gathers all 48 u64s into registers
+        // before scattering 24 u64s, and output region is always <= input region.
+        while i < simd_pairs {
+            let src_off = (2 * i) * ext_deg;
+            let out_off = i * ext_deg;
+            unsafe {
+                ext3_reduce_8pairs(
+                    ptr.add(src_off) as *const u64,
+                    ptr.add(out_off),
+                    challenge_v,
+                    w_vec,
+                );
+            }
+            i += 8;
+        }
+
+        while i < n_pairs {
+            let a_off = (2 * i) * ext_deg;
+            let b_off = (2 * i + 1) * ext_deg;
+            let out_off = i * ext_deg;
+
+            let diff = [
+                GoldilocksAvx512::scalar_sub(src[b_off], src[a_off]),
+                GoldilocksAvx512::scalar_sub(src[b_off + 1], src[a_off + 1]),
+                GoldilocksAvx512::scalar_sub(src[b_off + 2], src[a_off + 2]),
+            ];
+            let prod = ext3_scalar_mul(diff, challenge, w);
+            src[out_off] = GoldilocksAvx512::scalar_add(src[a_off], prod[0]);
+            src[out_off + 1] = GoldilocksAvx512::scalar_add(src[a_off + 1], prod[1]);
+            src[out_off + 2] = GoldilocksAvx512::scalar_add(src[a_off + 2], prod[2]);
+            i += 1;
         }
     }
 
