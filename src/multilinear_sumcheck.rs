@@ -61,10 +61,22 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
         target_arch = "aarch64",
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     ))]
-    if let Some(result) =
-        crate::simd_sumcheck::dispatch::try_simd_dispatch::<BF, EF>(evaluations, transcript)
     {
-        return result;
+        // Base field dispatch (BF == EF == Goldilocks base)
+        if let Some(result) =
+            crate::simd_sumcheck::dispatch::try_simd_dispatch::<BF, EF>(evaluations, transcript)
+        {
+            return result;
+        }
+        // Extension field dispatch (BF == EF == Goldilocks ext2/ext3)
+        if let Some(result) =
+            crate::simd_sumcheck::dispatch::try_simd_ext_dispatch::<BF, EF>(
+                evaluations,
+                transcript,
+            )
+        {
+            return result;
+        }
     }
 
     let num_rounds = evaluations.len().trailing_zeros() as usize;
@@ -109,6 +121,26 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
             let chg = transcript.read();
             verifier_messages.push(chg);
 
+            // Try SIMD extension reduce (accelerates when EF is Goldilocks-based)
+            #[cfg(any(
+                target_arch = "aarch64",
+                all(target_arch = "x86_64", target_feature = "avx512ifma")
+            ))]
+            let reduced =
+                crate::simd_sumcheck::dispatch::try_simd_ext_reduce(&mut ef_evals, chg);
+
+            #[cfg(any(
+                target_arch = "aarch64",
+                all(target_arch = "x86_64", target_feature = "avx512ifma")
+            ))]
+            if !reduced {
+                pairwise::reduce_evaluations(&mut ef_evals, chg);
+            }
+
+            #[cfg(not(any(
+                target_arch = "aarch64",
+                all(target_arch = "x86_64", target_feature = "avx512ifma")
+            )))]
             pairwise::reduce_evaluations(&mut ef_evals, chg);
         }
     }
@@ -243,7 +275,10 @@ mod tests {
         let n = 1 << 8;
         let mut evals: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
 
-        // Run the sumcheck (SIMD extension evaluate dispatched for Goldilocks Ext2)
+        // Compute expected sum before sumcheck (which may modify evals in-place)
+        let claimed_sum: F64Ext2 = evals.iter().copied().sum();
+
+        // Run the sumcheck (SIMD extension dispatch for Goldilocks Ext2)
         let mut transcript = SanityTranscript::new(&mut rng);
         let result = multilinear_sumcheck::<F64Ext2, F64Ext2>(&mut evals, &mut transcript);
 
@@ -251,7 +286,6 @@ mod tests {
         assert_eq!(result.verifier_messages.len(), 8);
 
         // Verify round 0: s(0) + s(1) == sum of all evaluations
-        let claimed_sum: F64Ext2 = evals.iter().copied().sum();
         let (s0, s1) = result.prover_messages[0];
         assert_eq!(s0 + s1, claimed_sum, "round 0 sum mismatch");
     }

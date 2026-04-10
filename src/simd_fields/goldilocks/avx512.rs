@@ -250,6 +250,275 @@ unsafe fn avx512_mont_mul(a: __m512i, b: __m512i) -> __m512i {
     _mm512_mask_sub_epi64(r2, need_sub, r2, p_vec)
 }
 
+// ── Extension field arithmetic ──
+//
+// Extension field SIMD multiplication is not part of the SimdBaseField trait —
+// it's implemented as free functions because the nonresidue `w` is a runtime
+// value (extracted from the arkworks extension field config during dispatch).
+
+/// Degree-2 Karatsuba: (a0 + a1·X)(b0 + b1·X) mod (X² - w)
+/// 3 base muls + 1 mul-by-w + adds.
+#[inline(always)]
+pub fn ext2_mul(a: [__m512i; 2], b: [__m512i; 2], w: __m512i) -> [__m512i; 2] {
+    let v0 = GoldilocksAvx512::mul(a[0], b[0]);
+    let v1 = GoldilocksAvx512::mul(a[1], b[1]);
+    let c0 = GoldilocksAvx512::add(v0, GoldilocksAvx512::mul(w, v1));
+    let a_sum = GoldilocksAvx512::add(a[0], a[1]);
+    let b_sum = GoldilocksAvx512::add(b[0], b[1]);
+    let c1 = GoldilocksAvx512::sub(
+        GoldilocksAvx512::sub(GoldilocksAvx512::mul(a_sum, b_sum), v0),
+        v1,
+    );
+    [c0, c1]
+}
+
+/// Degree-2 Karatsuba (scalar version for tail processing).
+#[inline(always)]
+pub fn ext2_scalar_mul(a: [u64; 2], b: [u64; 2], w: u64) -> [u64; 2] {
+    let v0 = mont_mul(a[0], b[0]);
+    let v1 = mont_mul(a[1], b[1]);
+    let c0 = GoldilocksAvx512::scalar_add(v0, mont_mul(w, v1));
+    let a_sum = GoldilocksAvx512::scalar_add(a[0], a[1]);
+    let b_sum = GoldilocksAvx512::scalar_add(b[0], b[1]);
+    let c1 = GoldilocksAvx512::scalar_sub(
+        GoldilocksAvx512::scalar_sub(mont_mul(a_sum, b_sum), v0),
+        v1,
+    );
+    [c0, c1]
+}
+
+/// Degree-3 Karatsuba: (a0 + a1·X + a2·X²)(b0 + b1·X + b2·X²) mod (X³ - w)
+/// 6 base muls + 2 mul-by-w + adds.
+#[inline(always)]
+pub fn ext3_mul(a: [__m512i; 3], b: [__m512i; 3], w: __m512i) -> [__m512i; 3] {
+    let ad = GoldilocksAvx512::mul(a[0], b[0]);
+    let be = GoldilocksAvx512::mul(a[1], b[1]);
+    let cf = GoldilocksAvx512::mul(a[2], b[2]);
+
+    let x = GoldilocksAvx512::sub(
+        GoldilocksAvx512::sub(
+            GoldilocksAvx512::mul(
+                GoldilocksAvx512::add(a[1], a[2]),
+                GoldilocksAvx512::add(b[1], b[2]),
+            ),
+            be,
+        ),
+        cf,
+    );
+    let y = GoldilocksAvx512::sub(
+        GoldilocksAvx512::sub(
+            GoldilocksAvx512::mul(
+                GoldilocksAvx512::add(a[0], a[1]),
+                GoldilocksAvx512::add(b[0], b[1]),
+            ),
+            ad,
+        ),
+        be,
+    );
+    let z = GoldilocksAvx512::add(
+        GoldilocksAvx512::sub(
+            GoldilocksAvx512::sub(
+                GoldilocksAvx512::mul(
+                    GoldilocksAvx512::add(a[0], a[2]),
+                    GoldilocksAvx512::add(b[0], b[2]),
+                ),
+                ad,
+            ),
+            cf,
+        ),
+        be,
+    );
+
+    [
+        GoldilocksAvx512::add(ad, GoldilocksAvx512::mul(w, x)),
+        GoldilocksAvx512::add(y, GoldilocksAvx512::mul(w, cf)),
+        z,
+    ]
+}
+
+/// Degree-3 Karatsuba (scalar version).
+#[inline(always)]
+pub fn ext3_scalar_mul(a: [u64; 3], b: [u64; 3], w: u64) -> [u64; 3] {
+    let ad = mont_mul(a[0], b[0]);
+    let be = mont_mul(a[1], b[1]);
+    let cf = mont_mul(a[2], b[2]);
+
+    let x = GoldilocksAvx512::scalar_sub(
+        GoldilocksAvx512::scalar_sub(
+            mont_mul(
+                GoldilocksAvx512::scalar_add(a[1], a[2]),
+                GoldilocksAvx512::scalar_add(b[1], b[2]),
+            ),
+            be,
+        ),
+        cf,
+    );
+    let y = GoldilocksAvx512::scalar_sub(
+        GoldilocksAvx512::scalar_sub(
+            mont_mul(
+                GoldilocksAvx512::scalar_add(a[0], a[1]),
+                GoldilocksAvx512::scalar_add(b[0], b[1]),
+            ),
+            ad,
+        ),
+        be,
+    );
+    let z = GoldilocksAvx512::scalar_add(
+        GoldilocksAvx512::scalar_sub(
+            GoldilocksAvx512::scalar_sub(
+                mont_mul(
+                    GoldilocksAvx512::scalar_add(a[0], a[2]),
+                    GoldilocksAvx512::scalar_add(b[0], b[2]),
+                ),
+                ad,
+            ),
+            cf,
+        ),
+        be,
+    );
+
+    [
+        GoldilocksAvx512::scalar_add(ad, mont_mul(w, x)),
+        GoldilocksAvx512::scalar_add(y, mont_mul(w, cf)),
+        z,
+    ]
+}
+
+/// Vectorized ext2 reduce: processes 8 pairs of degree-2 extension elements.
+///
+/// Input: 32 u64s in AoS layout: `[a0_c0, a0_c1, b0_c0, b0_c1, a1_c0, ...]`
+/// Each group of 4 u64s is one pair `(a_i, b_i)` where a,b are ext2 elements.
+/// Computes `result_i = a_i + challenge * (b_i - a_i)` for 8 pairs simultaneously.
+/// Output: 16 u64s in AoS layout: `[r0_c0, r0_c1, r1_c0, r1_c1, ...]`
+#[inline(always)]
+pub unsafe fn ext2_reduce_8pairs(
+    src: *const u64,
+    dst: *mut u64,
+    challenge_c0: __m512i,
+    challenge_c1: __m512i,
+    w_vec: __m512i,
+) {
+    // Load 32 u64s (4 cache lines worth)
+    let v0 = _mm512_loadu_si512(src.cast());          // pairs 0-1: [a0c0,a0c1,b0c0,b0c1, a1c0,a1c1,b1c0,b1c1]
+    let v1 = _mm512_loadu_si512(src.add(8).cast());   // pairs 2-3
+    let v2 = _mm512_loadu_si512(src.add(16).cast());  // pairs 4-5
+    let v3 = _mm512_loadu_si512(src.add(24).cast());  // pairs 6-7
+
+    // Deinterleave: extract a_c0, a_c1, b_c0, b_c1 each as 8-wide vectors.
+    // Within each 512-bit register, stride is 4: positions 0,4 are a_c0; 1,5 are a_c1; etc.
+    // Across 4 registers: we gather element [k] from register [k/2], lane [4*(k%2) + component].
+    //
+    // a_c0: from (v0 lane 0), (v0 lane 4), (v1 lane 0), (v1 lane 4), (v2 lane 0), (v2 lane 4), (v3 lane 0), (v3 lane 4)
+    // This requires cross-register shuffles. Use permutex2var for pairs of registers,
+    // then a second round.
+
+    // First round: extract even-pair and odd-pair components from adjacent register pairs
+    // From v0,v1: gather a_c0 at indices 0,4 from v0 (=lanes 0,4) and 0,4 from v1 (=lanes 8,12)
+    // permutex2var across v0,v1 gives us 8 values; we want the lower 4 from v0 and lower 4 from v1
+    // permutex2var treats v0 as indices 0-7 and v1 as indices 8-15
+    let a_c0_lo = _mm512_permutex2var_epi64(v0, _mm512_set_epi64(12, 8, 4, 0, 12, 8, 4, 0), v1);
+    let a_c1_lo = _mm512_permutex2var_epi64(v0, _mm512_set_epi64(13, 9, 5, 1, 13, 9, 5, 1), v1);
+    let b_c0_lo = _mm512_permutex2var_epi64(v0, _mm512_set_epi64(14, 10, 6, 2, 14, 10, 6, 2), v1);
+    let b_c1_lo = _mm512_permutex2var_epi64(v0, _mm512_set_epi64(15, 11, 7, 3, 15, 11, 7, 3), v1);
+
+    let a_c0_hi = _mm512_permutex2var_epi64(v2, _mm512_set_epi64(12, 8, 4, 0, 12, 8, 4, 0), v3);
+    let a_c1_hi = _mm512_permutex2var_epi64(v2, _mm512_set_epi64(13, 9, 5, 1, 13, 9, 5, 1), v3);
+    let b_c0_hi = _mm512_permutex2var_epi64(v2, _mm512_set_epi64(14, 10, 6, 2, 14, 10, 6, 2), v3);
+    let b_c1_hi = _mm512_permutex2var_epi64(v2, _mm512_set_epi64(15, 11, 7, 3, 15, 11, 7, 3), v3);
+
+    // Second round: merge lo (pairs 0-3 in lanes 0-3) and hi (pairs 4-7 in lanes 0-3)
+    // into final 8-wide vectors.
+    // lo has useful data in lanes 0-3, hi has useful data in lanes 0-3.
+    // Use permutex2var: take lanes 0-3 from lo (indices 0-3) and lanes 0-3 from hi (indices 8-11).
+    let idx_merge = _mm512_set_epi64(11, 10, 9, 8, 3, 2, 1, 0);
+
+    let a_c0 = _mm512_permutex2var_epi64(a_c0_lo, idx_merge, a_c0_hi);
+    let a_c1 = _mm512_permutex2var_epi64(a_c1_lo, idx_merge, a_c1_hi);
+    let b_c0 = _mm512_permutex2var_epi64(b_c0_lo, idx_merge, b_c0_hi);
+    let b_c1 = _mm512_permutex2var_epi64(b_c1_lo, idx_merge, b_c1_hi);
+
+    // Compute diff = b - a (component-wise)
+    let diff_c0 = GoldilocksAvx512::sub(b_c0, a_c0);
+    let diff_c1 = GoldilocksAvx512::sub(b_c1, a_c1);
+
+    // prod = challenge * diff (ext2 Karatsuba)
+    let prod = ext2_mul([diff_c0, diff_c1], [challenge_c0, challenge_c1], w_vec);
+
+    // result = a + prod
+    let r_c0 = GoldilocksAvx512::add(a_c0, prod[0]);
+    let r_c1 = GoldilocksAvx512::add(a_c1, prod[1]);
+
+    // Interleave back to AoS: [r0_c0, r0_c1, r1_c0, r1_c1, ...]
+    // 8 results → 16 u64s in 2 registers
+    // r_c0 = [r0, r1, r2, r3, r4, r5, r6, r7] (component 0)
+    // r_c1 = [r0, r1, r2, r3, r4, r5, r6, r7] (component 1)
+    // Want: out0 = [r0c0,r0c1,r1c0,r1c1,r2c0,r2c1,r3c0,r3c1]
+    //       out1 = [r4c0,r4c1,r5c0,r5c1,r6c0,r6c1,r7c0,r7c1]
+    let idx_interleave_lo = _mm512_set_epi64(11, 3, 10, 2, 9, 1, 8, 0);
+    let idx_interleave_hi = _mm512_set_epi64(15, 7, 14, 6, 13, 5, 12, 4);
+    let out0 = _mm512_permutex2var_epi64(r_c0, idx_interleave_lo, r_c1);
+    let out1 = _mm512_permutex2var_epi64(r_c0, idx_interleave_hi, r_c1);
+
+    _mm512_storeu_si512(dst.cast(), out0);
+    _mm512_storeu_si512(dst.add(8).cast(), out1);
+}
+
+/// Vectorized ext3 reduce: processes 8 pairs of degree-3 extension elements.
+///
+/// Input: 48 u64s in AoS layout: `[a0_c0, a0_c1, a0_c2, b0_c0, b0_c1, b0_c2, a1_c0, ...]`
+/// Each group of 6 u64s is one pair `(a_i, b_i)` where a,b are ext3 elements.
+/// Computes `result_i = a_i + challenge * (b_i - a_i)` for 8 pairs simultaneously.
+/// Output: 24 u64s in AoS layout: `[r0_c0, r0_c1, r0_c2, r1_c0, r1_c1, r1_c2, ...]`
+///
+/// Uses AVX-512 gather/scatter for the stride-6 deinterleave/interleave.
+#[inline(always)]
+pub unsafe fn ext3_reduce_8pairs(
+    src: *const u64,
+    dst: *mut u64,
+    challenge: [__m512i; 3],
+    w_vec: __m512i,
+) {
+    // Gather 6 components from AoS layout (stride 6 per pair)
+    // Pair i: a at offset 6i, b at offset 6i+3
+    let idx_a_c0 = _mm512_set_epi64(42, 36, 30, 24, 18, 12, 6, 0);
+    let idx_a_c1 = _mm512_set_epi64(43, 37, 31, 25, 19, 13, 7, 1);
+    let idx_a_c2 = _mm512_set_epi64(44, 38, 32, 26, 20, 14, 8, 2);
+    let idx_b_c0 = _mm512_set_epi64(45, 39, 33, 27, 21, 15, 9, 3);
+    let idx_b_c1 = _mm512_set_epi64(46, 40, 34, 28, 22, 16, 10, 4);
+    let idx_b_c2 = _mm512_set_epi64(47, 41, 35, 29, 23, 17, 11, 5);
+
+    let base = src as *const i64;
+    let a_c0 = _mm512_i64gather_epi64::<8>(idx_a_c0, base);
+    let a_c1 = _mm512_i64gather_epi64::<8>(idx_a_c1, base);
+    let a_c2 = _mm512_i64gather_epi64::<8>(idx_a_c2, base);
+    let b_c0 = _mm512_i64gather_epi64::<8>(idx_b_c0, base);
+    let b_c1 = _mm512_i64gather_epi64::<8>(idx_b_c1, base);
+    let b_c2 = _mm512_i64gather_epi64::<8>(idx_b_c2, base);
+
+    // diff = b - a (component-wise)
+    let diff_c0 = GoldilocksAvx512::sub(b_c0, a_c0);
+    let diff_c1 = GoldilocksAvx512::sub(b_c1, a_c1);
+    let diff_c2 = GoldilocksAvx512::sub(b_c2, a_c2);
+
+    // prod = challenge * diff (ext3 Karatsuba)
+    let prod = ext3_mul([diff_c0, diff_c1, diff_c2], challenge, w_vec);
+
+    // result = a + prod
+    let r_c0 = GoldilocksAvx512::add(a_c0, prod[0]);
+    let r_c1 = GoldilocksAvx512::add(a_c1, prod[1]);
+    let r_c2 = GoldilocksAvx512::add(a_c2, prod[2]);
+
+    // Scatter back to AoS (stride 3 per result element)
+    let idx_r_c0 = _mm512_set_epi64(21, 18, 15, 12, 9, 6, 3, 0);
+    let idx_r_c1 = _mm512_set_epi64(22, 19, 16, 13, 10, 7, 4, 1);
+    let idx_r_c2 = _mm512_set_epi64(23, 20, 17, 14, 11, 8, 5, 2);
+
+    let base_out = dst as *mut i64;
+    _mm512_i64scatter_epi64::<8>(base_out, idx_r_c0, r_c0);
+    _mm512_i64scatter_epi64::<8>(base_out, idx_r_c1, r_c1);
+    _mm512_i64scatter_epi64::<8>(base_out, idx_r_c2, r_c2);
+}
+
 /// Montgomery multiplication for single-limb Goldilocks (scalar).
 ///
 /// Computes `mont_mul(a, b) = a * b * R^{-1} mod P` where R = 2^64.
@@ -448,6 +717,259 @@ mod tests {
                 expected[i],
                 "edge case lane {i} mismatch"
             );
+        }
+    }
+
+    #[test]
+    fn test_ext2_scalar_mul() {
+        let mut rng = test_rng();
+        let w_mont = to_mont(F64::from(7u64));
+
+        for _ in 0..10_000 {
+            let a0 = F64::rand(&mut rng);
+            let a1 = F64::rand(&mut rng);
+            let b0 = F64::rand(&mut rng);
+            let b1 = F64::rand(&mut rng);
+
+            let a = [to_mont(a0), to_mont(a1)];
+            let b = [to_mont(b0), to_mont(b1)];
+            let result = ext2_scalar_mul(a, b, w_mont);
+
+            // Naive: c0 = a0*b0 + 7*a1*b1, c1 = a0*b1 + a1*b0
+            let expected_c0 = a0 * b0 + F64::from(7u64) * a1 * b1;
+            let expected_c1 = a0 * b1 + a1 * b0;
+
+            assert_eq!(from_mont(result[0]), expected_c0, "ext2 c0 mismatch");
+            assert_eq!(from_mont(result[1]), expected_c1, "ext2 c1 mismatch");
+        }
+    }
+
+    #[test]
+    fn test_ext3_scalar_mul() {
+        let mut rng = test_rng();
+        let w_mont = to_mont(F64::from(7u64));
+        let w = F64::from(7u64);
+
+        for _ in 0..10_000 {
+            let a0 = F64::rand(&mut rng);
+            let a1 = F64::rand(&mut rng);
+            let a2 = F64::rand(&mut rng);
+            let b0 = F64::rand(&mut rng);
+            let b1 = F64::rand(&mut rng);
+            let b2 = F64::rand(&mut rng);
+
+            let a = [to_mont(a0), to_mont(a1), to_mont(a2)];
+            let b = [to_mont(b0), to_mont(b1), to_mont(b2)];
+            let result = ext3_scalar_mul(a, b, w_mont);
+
+            // Naive schoolbook mod (X³ - w):
+            let expected_c0 = a0 * b0 + w * (a1 * b2 + a2 * b1);
+            let expected_c1 = a0 * b1 + a1 * b0 + w * a2 * b2;
+            let expected_c2 = a0 * b2 + a1 * b1 + a2 * b0;
+
+            assert_eq!(from_mont(result[0]), expected_c0, "ext3 c0 mismatch");
+            assert_eq!(from_mont(result[1]), expected_c1, "ext3 c1 mismatch");
+            assert_eq!(from_mont(result[2]), expected_c2, "ext3 c2 mismatch");
+        }
+    }
+
+    #[test]
+    fn test_ext2_avx512_matches_scalar() {
+        let mut rng = test_rng();
+        let w_mont = to_mont(F64::from(7u64));
+        let w_vec = GoldilocksAvx512::splat(w_mont);
+
+        for _ in 0..10_000 {
+            let a0 = F64::rand(&mut rng);
+            let a1 = F64::rand(&mut rng);
+            let b0 = F64::rand(&mut rng);
+            let b1 = F64::rand(&mut rng);
+
+            // Broadcast same values across all 8 lanes
+            let a_v = [
+                GoldilocksAvx512::splat(to_mont(a0)),
+                GoldilocksAvx512::splat(to_mont(a1)),
+            ];
+            let b_v = [
+                GoldilocksAvx512::splat(to_mont(b0)),
+                GoldilocksAvx512::splat(to_mont(b1)),
+            ];
+
+            let r_v = ext2_mul(a_v, b_v, w_vec);
+
+            let mut r_out = [[0u64; 8]; 2];
+            unsafe {
+                GoldilocksAvx512::store(r_out[0].as_mut_ptr(), r_v[0]);
+                GoldilocksAvx512::store(r_out[1].as_mut_ptr(), r_v[1]);
+            }
+
+            let scalar_result = ext2_scalar_mul(
+                [to_mont(a0), to_mont(a1)],
+                [to_mont(b0), to_mont(b1)],
+                w_mont,
+            );
+
+            for lane in 0..8 {
+                assert_eq!(
+                    r_out[0][lane], scalar_result[0],
+                    "ext2 AVX-512 c0 lane {lane} mismatch"
+                );
+                assert_eq!(
+                    r_out[1][lane], scalar_result[1],
+                    "ext2 AVX-512 c1 lane {lane} mismatch"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_ext3_avx512_matches_scalar() {
+        let mut rng = test_rng();
+        let w_mont = to_mont(F64::from(7u64));
+        let w_vec = GoldilocksAvx512::splat(w_mont);
+
+        for _ in 0..10_000 {
+            let a0 = F64::rand(&mut rng);
+            let a1 = F64::rand(&mut rng);
+            let a2 = F64::rand(&mut rng);
+            let b0 = F64::rand(&mut rng);
+            let b1 = F64::rand(&mut rng);
+            let b2 = F64::rand(&mut rng);
+
+            let a_v = [
+                GoldilocksAvx512::splat(to_mont(a0)),
+                GoldilocksAvx512::splat(to_mont(a1)),
+                GoldilocksAvx512::splat(to_mont(a2)),
+            ];
+            let b_v = [
+                GoldilocksAvx512::splat(to_mont(b0)),
+                GoldilocksAvx512::splat(to_mont(b1)),
+                GoldilocksAvx512::splat(to_mont(b2)),
+            ];
+
+            let r_v = ext3_mul(a_v, b_v, w_vec);
+
+            let mut r_out = [[0u64; 8]; 3];
+            unsafe {
+                GoldilocksAvx512::store(r_out[0].as_mut_ptr(), r_v[0]);
+                GoldilocksAvx512::store(r_out[1].as_mut_ptr(), r_v[1]);
+                GoldilocksAvx512::store(r_out[2].as_mut_ptr(), r_v[2]);
+            }
+
+            let scalar_result = ext3_scalar_mul(
+                [to_mont(a0), to_mont(a1), to_mont(a2)],
+                [to_mont(b0), to_mont(b1), to_mont(b2)],
+                w_mont,
+            );
+
+            for lane in 0..8 {
+                assert_eq!(
+                    r_out[0][lane], scalar_result[0],
+                    "ext3 AVX-512 c0 lane {lane} mismatch"
+                );
+                assert_eq!(
+                    r_out[1][lane], scalar_result[1],
+                    "ext3 AVX-512 c1 lane {lane} mismatch"
+                );
+                assert_eq!(
+                    r_out[2][lane], scalar_result[2],
+                    "ext3 AVX-512 c2 lane {lane} mismatch"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_ext2_reduce_8pairs() {
+        let mut rng = test_rng();
+        let w_mont = to_mont(F64::from(7u64));
+
+        for _ in 0..1_000 {
+            // Generate 8 pairs of ext2 elements in AoS layout (32 u64s)
+            let src: Vec<u64> = (0..32).map(|_| to_mont(F64::rand(&mut rng))).collect();
+            let challenge = [to_mont(F64::rand(&mut rng)), to_mont(F64::rand(&mut rng))];
+
+            // Reference: scalar reduce
+            let mut expected = vec![0u64; 16];
+            for i in 0..8 {
+                let a = [src[4 * i], src[4 * i + 1]];
+                let b = [src[4 * i + 2], src[4 * i + 3]];
+                let diff = [
+                    GoldilocksAvx512::scalar_sub(b[0], a[0]),
+                    GoldilocksAvx512::scalar_sub(b[1], a[1]),
+                ];
+                let prod = ext2_scalar_mul(diff, challenge, w_mont);
+                expected[2 * i] = GoldilocksAvx512::scalar_add(a[0], prod[0]);
+                expected[2 * i + 1] = GoldilocksAvx512::scalar_add(a[1], prod[1]);
+            }
+
+            // Vectorized
+            let mut actual = vec![0u64; 16];
+            let challenge_c0 = GoldilocksAvx512::splat(challenge[0]);
+            let challenge_c1 = GoldilocksAvx512::splat(challenge[1]);
+            let w_vec = GoldilocksAvx512::splat(w_mont);
+            unsafe {
+                ext2_reduce_8pairs(
+                    src.as_ptr(),
+                    actual.as_mut_ptr(),
+                    challenge_c0,
+                    challenge_c1,
+                    w_vec,
+                );
+            }
+
+            assert_eq!(expected, actual, "ext2_reduce_8pairs mismatch");
+        }
+    }
+
+    #[test]
+    fn test_ext3_reduce_8pairs() {
+        let mut rng = test_rng();
+        let w_mont = to_mont(F64::from(7u64));
+
+        for _ in 0..1_000 {
+            // Generate 8 pairs of ext3 elements in AoS layout (48 u64s)
+            let src: Vec<u64> = (0..48).map(|_| to_mont(F64::rand(&mut rng))).collect();
+            let challenge = [
+                to_mont(F64::rand(&mut rng)),
+                to_mont(F64::rand(&mut rng)),
+                to_mont(F64::rand(&mut rng)),
+            ];
+
+            // Reference: scalar reduce
+            let mut expected = vec![0u64; 24];
+            for i in 0..8 {
+                let a = [src[6 * i], src[6 * i + 1], src[6 * i + 2]];
+                let b = [src[6 * i + 3], src[6 * i + 4], src[6 * i + 5]];
+                let diff = [
+                    GoldilocksAvx512::scalar_sub(b[0], a[0]),
+                    GoldilocksAvx512::scalar_sub(b[1], a[1]),
+                    GoldilocksAvx512::scalar_sub(b[2], a[2]),
+                ];
+                let prod = ext3_scalar_mul(diff, challenge, w_mont);
+                expected[3 * i] = GoldilocksAvx512::scalar_add(a[0], prod[0]);
+                expected[3 * i + 1] = GoldilocksAvx512::scalar_add(a[1], prod[1]);
+                expected[3 * i + 2] = GoldilocksAvx512::scalar_add(a[2], prod[2]);
+            }
+
+            // Vectorized
+            let mut actual = vec![0u64; 24];
+            let challenge_v = [
+                GoldilocksAvx512::splat(challenge[0]),
+                GoldilocksAvx512::splat(challenge[1]),
+                GoldilocksAvx512::splat(challenge[2]),
+            ];
+            let w_vec = GoldilocksAvx512::splat(w_mont);
+            unsafe {
+                ext3_reduce_8pairs(
+                    src.as_ptr(),
+                    actual.as_mut_ptr(),
+                    challenge_v,
+                    w_vec,
+                );
+            }
+
+            assert_eq!(expected, actual, "ext3_reduce_8pairs mismatch");
         }
     }
 }

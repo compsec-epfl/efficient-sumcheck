@@ -111,6 +111,44 @@ fn is_goldilocks_based<F: Field>() -> bool {
     limbs[0] == GOLDILOCKS_P && limbs[1..].iter().all(|&x| x == 0)
 }
 
+/// Extract the degree-2 nonresidue `w` from the extension field config.
+/// Computes `(0, 1) * (0, 1) = (w, 0)` so `w` is at component 0.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+#[inline]
+fn extract_nonresidue_ext2<EF: Field, S: crate::simd_fields::SimdBaseField<Scalar = u64>>(
+) -> u64 {
+    let one_x = unsafe {
+        let mut tmp = [0u64; 2];
+        tmp[1] = S::ONE;
+        let one_x: EF = core::mem::transmute_copy(&tmp);
+        one_x
+    };
+    let nr = one_x * one_x;
+    unsafe { *((&nr) as *const EF as *const u64) }
+}
+
+/// Extract the degree-3 nonresidue `w` from the extension field config.
+/// Computes `(0, 1, 0)^3 = X^3 = w` so `w` is at component 0.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+#[inline]
+fn extract_nonresidue_ext3<EF: Field, S: crate::simd_fields::SimdBaseField<Scalar = u64>>(
+) -> u64 {
+    let one_x = unsafe {
+        let mut tmp = [0u64; 3];
+        tmp[1] = S::ONE;
+        let one_x: EF = core::mem::transmute_copy(&tmp);
+        one_x
+    };
+    let nr = one_x * one_x * one_x;
+    unsafe { *((&nr) as *const EF as *const u64) }
+}
+
 // ─── Auto-dispatch ──────────────────────────────────────────────────────────
 
 /// Try to run the multilinear sumcheck on the SIMD backend.
@@ -197,6 +235,124 @@ pub(crate) fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
             &mut prover_messages,
             &mut verifier_messages,
         );
+    }
+
+    Some(Sumcheck {
+        verifier_messages,
+        prover_messages,
+    })
+}
+
+/// Try to run the multilinear sumcheck on the SIMD backend for extension fields.
+///
+/// Handles the case where BF == EF and EF is a Goldilocks extension (degree 2 or 3).
+/// All rounds are done in-place with SIMD evaluate + SIMD ext reduce, avoiding the
+/// generic path's wasteful cross_field_reduce on round 0 (which is a no-op when BF==EF).
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
+    evaluations: &mut [BF],
+    transcript: &mut impl Transcript<EF>,
+) -> Option<Sumcheck<EF>> {
+    if !is_goldilocks_based::<BF>() {
+        return None;
+    }
+
+    let d = BF::extension_degree() as usize;
+    if d < 2 || d > 3 {
+        return None;
+    }
+
+    // BF must be the same as EF (both are ext fields with same layout)
+    if core::mem::size_of::<BF>() != core::mem::size_of::<EF>() {
+        return None;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+    let n = evaluations.len();
+    let num_rounds = n.trailing_zeros() as usize;
+    let mut prover_messages: Vec<(EF, EF)> = Vec::with_capacity(num_rounds);
+    let mut verifier_messages: Vec<EF> = Vec::with_capacity(num_rounds);
+
+    let n_u64 = n * d;
+    let current: &mut [u64] = unsafe {
+        core::slice::from_raw_parts_mut(evaluations.as_mut_ptr() as *mut u64, n_u64)
+    };
+
+    let mut len_u64 = n_u64;
+
+    if d == 2 {
+        let w = extract_nonresidue_ext2::<EF, Backend>();
+
+        for round in 0..num_rounds {
+            // Evaluate: component-wise SIMD sums
+            let (even_comps, odd_comps) =
+                crate::simd_sumcheck::evaluate::ext_evaluate_parallel::<Backend>(
+                    &current[..len_u64],
+                    d,
+                );
+            let even: EF = unsafe { ext_components_to_field(&even_comps) };
+            let odd: EF = unsafe { ext_components_to_field(&odd_comps) };
+            let msg = (even, odd);
+
+            prover_messages.push(msg);
+            transcript.write(msg.0);
+            transcript.write(msg.1);
+
+            let chg: EF = transcript.read();
+            verifier_messages.push(chg);
+
+            if round < num_rounds - 1 {
+                let chg_raw: [u64; 2] = unsafe {
+                    let ptr = &chg as *const EF as *const u64;
+                    [*ptr, *ptr.add(1)]
+                };
+                len_u64 = crate::simd_sumcheck::reduce::ext2_reduce_in_place::<Backend>(
+                    &mut current[..len_u64],
+                    chg_raw,
+                    w,
+                );
+            }
+        }
+    } else {
+        // d == 3
+        let w = extract_nonresidue_ext3::<EF, Backend>();
+
+        for round in 0..num_rounds {
+            let (even_comps, odd_comps) =
+                crate::simd_sumcheck::evaluate::ext_evaluate_parallel::<Backend>(
+                    &current[..len_u64],
+                    d,
+                );
+            let even: EF = unsafe { ext_components_to_field(&even_comps) };
+            let odd: EF = unsafe { ext_components_to_field(&odd_comps) };
+            let msg = (even, odd);
+
+            prover_messages.push(msg);
+            transcript.write(msg.0);
+            transcript.write(msg.1);
+
+            let chg: EF = transcript.read();
+            verifier_messages.push(chg);
+
+            if round < num_rounds - 1 {
+                let chg_raw: [u64; 3] = unsafe {
+                    let ptr = &chg as *const EF as *const u64;
+                    [*ptr, *ptr.add(1), *ptr.add(2)]
+                };
+                len_u64 = crate::simd_sumcheck::reduce::ext3_reduce_in_place::<Backend>(
+                    &mut current[..len_u64],
+                    chg_raw,
+                    w,
+                );
+            }
+        }
     }
 
     Some(Sumcheck {
@@ -556,41 +712,46 @@ pub(crate) fn try_simd_ext_reduce<EF: Field>(evals: &mut Vec<EF>, challenge: EF)
         #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
         type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
 
-        let n_u64 = evals.len() * d;
-        let buf: &[u64] =
-            unsafe { core::slice::from_raw_parts(evals.as_ptr() as *const u64, n_u64) };
-
-        // Extract challenge components as raw u64
         let chg_raw: [u64; 2] = unsafe {
             let ptr = &challenge as *const EF as *const u64;
             [*ptr, *ptr.add(1)]
         };
+        let w = extract_nonresidue_ext2::<EF, Backend>();
 
-        // Extract nonresidue from the extension field config.
-        // We compute (0, 1) * (0, 1) = (NONRESIDUE, 0) to get it at runtime.
-        let one_x = unsafe {
-            use crate::simd_fields::SimdBaseField;
-            let mut tmp = [0u64; 2];
-            tmp[1] = Backend::ONE; // c1 = 1 (in Montgomery form)
-            let one_x: EF = core::mem::transmute_copy(&tmp);
-            one_x
+        // In-place reduce: first half gets results, then truncate.
+        let n_u64 = evals.len() * d;
+        let buf: &mut [u64] = unsafe {
+            core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, n_u64)
         };
-        let nr = one_x * one_x;
-        let w: u64 = unsafe { *((&nr) as *const EF as *const u64) };
-
-        let result_u64 = crate::simd_sumcheck::reduce::ext2_reduce_parallel(buf, chg_raw, w);
-
-        // Reinterpret result u64s as EF elements
-        let new_len = result_u64.len() / d;
-        let result_ef: Vec<EF> = unsafe {
-            let mut v = core::mem::ManuallyDrop::new(result_u64);
-            Vec::from_raw_parts(v.as_mut_ptr() as *mut EF, new_len, v.capacity() / d)
-        };
-        *evals = result_ef;
+        crate::simd_sumcheck::reduce::ext2_reduce_in_place::<Backend>(buf, chg_raw, w);
+        let new_len = evals.len() / 2;
+        evals.truncate(new_len);
         return true;
     }
 
-    // degree 3, 4, etc. — fall through to generic
+    if d == 3 {
+        #[cfg(target_arch = "aarch64")]
+        type Backend3 = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+        type Backend3 = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+        let chg_raw: [u64; 3] = unsafe {
+            let ptr = &challenge as *const EF as *const u64;
+            [*ptr, *ptr.add(1), *ptr.add(2)]
+        };
+        let w = extract_nonresidue_ext3::<EF, Backend3>();
+
+        let n_u64 = evals.len() * d;
+        let buf: &mut [u64] = unsafe {
+            core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, n_u64)
+        };
+        crate::simd_sumcheck::reduce::ext3_reduce_in_place::<Backend3>(buf, chg_raw, w);
+        let new_len = evals.len() / 2;
+        evals.truncate(new_len);
+        return true;
+    }
+
+    // degree 4+: fall through to generic
     false
 }
 
