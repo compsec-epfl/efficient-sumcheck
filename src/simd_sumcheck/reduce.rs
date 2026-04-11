@@ -486,6 +486,9 @@ pub fn ext2_reduce_parallel(src: &[u64], challenge: [u64; 2], w: u64) -> Vec<u64
 }
 
 /// Process a chunk of pairs for ext2 reduce.
+///
+/// Uses precomputed `c1w = c1 * w` for the "mul-by-constant matrix" approach:
+/// 4 base muls + 2 adds instead of Karatsuba's 3 muls + 5 adds.
 fn ext2_reduce_chunk(src: &[u64], challenge: [u64; 2], w: u64) -> Vec<u64> {
     let ext_deg = 2;
     let n_elems = src.len() / ext_deg;
@@ -494,20 +497,36 @@ fn ext2_reduce_chunk(src: &[u64], challenge: [u64; 2], w: u64) -> Vec<u64> {
 
     #[cfg(target_arch = "aarch64")]
     {
-        use crate::simd_fields::goldilocks::neon::{ext2_scalar_mul, GoldilocksNeon};
+        use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+        use crate::simd_fields::SimdBaseField;
+
+        // Precompute c1*w once for this chunk (same challenge for all pairs)
+        let c0 = challenge[0];
+        let c1 = challenge[1];
+        let c1w = GoldilocksNeon::scalar_mul(c1, w);
 
         for i in 0..n_pairs {
             let a_off = (2 * i) * ext_deg;
             let b_off = (2 * i + 1) * ext_deg;
             let out_off = i * ext_deg;
 
-            let diff = [
-                GoldilocksNeon::scalar_sub(src[b_off], src[a_off]),
-                GoldilocksNeon::scalar_sub(src[b_off + 1], src[a_off + 1]),
-            ];
-            let prod = ext2_scalar_mul(diff, challenge, w);
-            out[out_off] = GoldilocksNeon::scalar_add(src[a_off], prod[0]);
-            out[out_off + 1] = GoldilocksNeon::scalar_add(src[a_off + 1], prod[1]);
+            let d0 = GoldilocksNeon::scalar_sub(src[b_off], src[a_off]);
+            let d1 = GoldilocksNeon::scalar_sub(src[b_off + 1], src[a_off + 1]);
+
+            // (c0, c1) * (d0, d1) mod (X² - w) using precomputed c1w:
+            //   prod0 = c0*d0 + c1w*d1
+            //   prod1 = c0*d1 + c1*d0
+            let prod0 = GoldilocksNeon::scalar_add(
+                GoldilocksNeon::scalar_mul(c0, d0),
+                GoldilocksNeon::scalar_mul(c1w, d1),
+            );
+            let prod1 = GoldilocksNeon::scalar_add(
+                GoldilocksNeon::scalar_mul(c0, d1),
+                GoldilocksNeon::scalar_mul(c1, d0),
+            );
+
+            out[out_off] = GoldilocksNeon::scalar_add(src[a_off], prod0);
+            out[out_off + 1] = GoldilocksNeon::scalar_add(src[a_off + 1], prod1);
         }
     }
 
@@ -560,6 +579,227 @@ fn ext2_reduce_chunk(src: &[u64], challenge: [u64; 2], w: u64) -> Vec<u64> {
 }
 
 /// Degree-2 extension reduce in-place (single-threaded, for small inputs).
+/// Fused ext2 reduce + next-round evaluate.
+///
+/// In one pass over the data:
+/// 1. Reduces each pair (a, b) → result = a + challenge * (b - a) using ext2 Karatsuba
+/// 2. Accumulates even/odd sums of the reduced output (next round's evaluate)
+/// 3. Stores reduced data in-place (front half of src)
+///
+/// Returns `(even_components, odd_components, new_length_u64)` where
+/// even/odd are `[c0, c1]` raw u64 component sums.
+///
+/// This eliminates one full data pass per round vs separate reduce + evaluate.
+#[cfg(target_arch = "aarch64")]
+pub fn ext2_reduce_and_evaluate(
+    src: &mut [u64],
+    challenge: [u64; 2],
+    w: u64,
+) -> ([u64; 2], [u64; 2], usize) {
+    use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+
+    let ext_deg = 2;
+    let n_elems = src.len() / ext_deg;
+    let n_pairs = n_elems / 2;
+    let n_out_elems = n_pairs;
+
+    // Precompute c1*w once
+    let c0 = challenge[0];
+    let c1 = challenge[1];
+    let c1w = GoldilocksNeon::scalar_mul(c1, w);
+
+    let mut even_c0: u64 = 0;
+    let mut even_c1: u64 = 0;
+    let mut odd_c0: u64 = 0;
+    let mut odd_c1: u64 = 0;
+
+    for i in 0..n_pairs {
+        let a_off = (2 * i) * ext_deg;
+        let b_off = (2 * i + 1) * ext_deg;
+        let out_off = i * ext_deg;
+
+        let a = [src[a_off], src[a_off + 1]];
+        let b = [src[b_off], src[b_off + 1]];
+
+        let d0 = GoldilocksNeon::scalar_sub(b[0], a[0]);
+        let d1 = GoldilocksNeon::scalar_sub(b[1], a[1]);
+
+        // Precomputed mul-by-constant: 4 base muls + 2 adds
+        let prod0 = GoldilocksNeon::scalar_add(
+            GoldilocksNeon::scalar_mul(c0, d0),
+            GoldilocksNeon::scalar_mul(c1w, d1),
+        );
+        let prod1 = GoldilocksNeon::scalar_add(
+            GoldilocksNeon::scalar_mul(c0, d1),
+            GoldilocksNeon::scalar_mul(c1, d0),
+        );
+        let prod = [prod0, prod1];
+
+        // result = a + product
+        let r0 = GoldilocksNeon::scalar_add(a[0], prod[0]);
+        let r1 = GoldilocksNeon::scalar_add(a[1], prod[1]);
+
+        // Store reduced result
+        src[out_off] = r0;
+        src[out_off + 1] = r1;
+
+        // Accumulate into even/odd based on output extension element index
+        if i % 2 == 0 {
+            even_c0 = GoldilocksNeon::scalar_add(even_c0, r0);
+            even_c1 = GoldilocksNeon::scalar_add(even_c1, r1);
+        } else {
+            odd_c0 = GoldilocksNeon::scalar_add(odd_c0, r0);
+            odd_c1 = GoldilocksNeon::scalar_add(odd_c1, r1);
+        }
+    }
+
+    ([even_c0, even_c1], [odd_c0, odd_c1], n_out_elems * ext_deg)
+}
+
+/// Fused ext3 reduce + next-round evaluate.
+///
+/// Same concept as ext2 but for degree-3 extensions (6 Karatsuba base muls).
+#[cfg(target_arch = "aarch64")]
+pub fn ext3_reduce_and_evaluate(
+    src: &mut [u64],
+    challenge: [u64; 3],
+    w: u64,
+) -> ([u64; 3], [u64; 3], usize) {
+    use crate::simd_fields::goldilocks::neon::{ext3_scalar_mul, GoldilocksNeon};
+
+    let ext_deg = 3;
+    let n_elems = src.len() / ext_deg;
+    let n_pairs = n_elems / 2;
+    let n_out_elems = n_pairs;
+
+    let mut even = [0u64; 3];
+    let mut odd = [0u64; 3];
+
+    for i in 0..n_pairs {
+        let a_off = (2 * i) * ext_deg;
+        let b_off = (2 * i + 1) * ext_deg;
+        let out_off = i * ext_deg;
+
+        let a = [src[a_off], src[a_off + 1], src[a_off + 2]];
+        let b = [src[b_off], src[b_off + 1], src[b_off + 2]];
+
+        let diff = [
+            GoldilocksNeon::scalar_sub(b[0], a[0]),
+            GoldilocksNeon::scalar_sub(b[1], a[1]),
+            GoldilocksNeon::scalar_sub(b[2], a[2]),
+        ];
+
+        let prod = ext3_scalar_mul(diff, challenge, w);
+
+        let r = [
+            GoldilocksNeon::scalar_add(a[0], prod[0]),
+            GoldilocksNeon::scalar_add(a[1], prod[1]),
+            GoldilocksNeon::scalar_add(a[2], prod[2]),
+        ];
+
+        src[out_off] = r[0];
+        src[out_off + 1] = r[1];
+        src[out_off + 2] = r[2];
+
+        if i % 2 == 0 {
+            for c in 0..3 {
+                even[c] = GoldilocksNeon::scalar_add(even[c], r[c]);
+            }
+        } else {
+            for c in 0..3 {
+                odd[c] = GoldilocksNeon::scalar_add(odd[c], r[c]);
+            }
+        }
+    }
+
+    (even, odd, n_out_elems * ext_deg)
+}
+
+/// Fused inner-product round: evaluate (a, b) + reduce both f and g in one pass.
+///
+/// In a single streaming pass over f and g:
+/// 1. Loads (f0,f1) and (g0,g1) pairs via deinterleaved reads
+/// 2. Accumulates a += f0*g0, b += f0*g1 + f1*g0 (product evaluate)
+/// 3. Stores f' = f0 + r*(f1-f0) and g' = g0 + r*(g1-g0) in front halves
+///
+/// Returns (a, b, new_len) where a,b are the prover message coefficients.
+pub fn product_reduce_and_evaluate<F: SimdBaseField>(
+    f: &mut [F::Scalar],
+    g: &mut [F::Scalar],
+    challenge: F::Scalar,
+) -> (F::Scalar, F::Scalar, usize) {
+    let n = f.len() / 2;
+    let lanes = F::LANES;
+    let challenge_v = F::splat(challenge);
+
+    let mut acc_a = F::splat(F::ZERO); // Σ f_even * g_even
+    let mut acc_b = F::splat(F::ZERO); // Σ (f_even*g_odd + f_odd*g_even)
+
+    let f_ptr = f.as_ptr();
+    let g_ptr = g.as_ptr();
+    let f_out = f.as_mut_ptr();
+    let g_out = g.as_mut_ptr();
+
+    let step = 4 * lanes;
+    let aligned = (n / step) * step;
+
+    let mut i = 0;
+    while i < aligned {
+        unsafe {
+            for u in 0..4 {
+                let off = i + u * lanes;
+                let (fe, fo) = F::load_deinterleaved(f_ptr.add(2 * off));
+                let (ge, go) = F::load_deinterleaved(g_ptr.add(2 * off));
+
+                // Accumulate product evaluate
+                acc_a = F::add(acc_a, F::mul(fe, ge));
+                acc_b = F::add(acc_b, F::add(F::mul(fe, go), F::mul(fo, ge)));
+
+                // Reduce: f' = fe + r*(fo - fe), g' = ge + r*(go - ge)
+                let f_red = F::add(fe, F::mul(challenge_v, F::sub(fo, fe)));
+                let g_red = F::add(ge, F::mul(challenge_v, F::sub(go, ge)));
+                F::store(f_out.add(off), f_red);
+                F::store(g_out.add(off), g_red);
+            }
+        }
+        i += step;
+    }
+
+    // Horizontal sum of SIMD accumulators
+    let mut buf = [F::ZERO; 32];
+    let mut a_sum = F::ZERO;
+    let mut b_sum = F::ZERO;
+    unsafe { F::store(buf.as_mut_ptr(), acc_a) };
+    for &v in buf.iter().take(lanes) {
+        a_sum = F::scalar_add(a_sum, v);
+    }
+    unsafe { F::store(buf.as_mut_ptr(), acc_b) };
+    for &v in buf.iter().take(lanes) {
+        b_sum = F::scalar_add(b_sum, v);
+    }
+
+    // Scalar tail: evaluate + reduce for remaining pairs
+    while i < n {
+        let fe = f[2 * i];
+        let fo = f[2 * i + 1];
+        let ge = g[2 * i];
+        let go = g[2 * i + 1];
+
+        a_sum = F::scalar_add(a_sum, F::scalar_mul(fe, ge));
+        b_sum = F::scalar_add(
+            b_sum,
+            F::scalar_add(F::scalar_mul(fe, go), F::scalar_mul(fo, ge)),
+        );
+
+        f[i] = F::scalar_add(fe, F::scalar_mul(challenge, F::scalar_sub(fo, fe)));
+        g[i] = F::scalar_add(ge, F::scalar_mul(challenge, F::scalar_sub(go, ge)));
+
+        i += 1;
+    }
+
+    (a_sum, b_sum, n)
+}
+
 #[allow(dead_code)]
 pub fn ext2_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
     src: &mut [u64],

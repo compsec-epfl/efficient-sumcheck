@@ -515,8 +515,6 @@ pub(crate) fn try_simd_product_dispatch<BF: Field, EF: Field + From<BF>>(
     let mut verifier_messages: Vec<EF> = Vec::with_capacity(num_rounds);
 
     if num_rounds > 0 {
-        // BF == EF (both Goldilocks): work in-place on the original buffers.
-        // No cross_field_reduce allocation needed.
         let f_raw: &mut [u64] =
             unsafe { core::slice::from_raw_parts_mut(f.as_mut_ptr() as *mut u64, n) };
         let g_raw: &mut [u64] =
@@ -693,6 +691,116 @@ unsafe fn ext_components_to_field<F: Field>(components: &[u64]) -> F {
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
+/// Fused extension reduce + next-round evaluate.
+///
+/// Reduces `evals` in-place and returns `Some((next_even, next_odd))` for the
+/// next round's prover message. Returns `None` for unsupported fields.
+/// This eliminates one full data pass per round.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+pub(crate) fn try_simd_ext_fused_reduce_evaluate<EF: Field>(
+    evals: &mut Vec<EF>,
+    challenge: EF,
+) -> Option<(EF, EF)> {
+    if !is_goldilocks_based::<EF>() {
+        return None;
+    }
+
+    let d = EF::extension_degree() as usize;
+
+    if d == 1 {
+        // Base field: use existing fused reduce_and_evaluate
+        #[cfg(target_arch = "aarch64")]
+        type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+        type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+        let buf: &mut [u64] =
+            unsafe { core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, evals.len()) };
+        let chg: u64 = field_to_u64(challenge);
+        let (s0, s1, new_len) =
+            crate::simd_sumcheck::reduce::reduce_and_evaluate::<Backend>(buf, chg);
+        evals.truncate(new_len);
+        return Some((u64_to_field(s0), u64_to_field(s1)));
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        if d == 2 {
+            let n_u64 = evals.len() * d;
+            let buf: &mut [u64] =
+                unsafe { core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, n_u64) };
+
+            let chg_raw: [u64; 2] = unsafe {
+                let ptr = &challenge as *const EF as *const u64;
+                [*ptr, *ptr.add(1)]
+            };
+
+            // Extract nonresidue
+            let w = extract_ext2_nonresidue::<EF>();
+
+            let (even_comps, odd_comps, new_len_u64) =
+                crate::simd_sumcheck::reduce::ext2_reduce_and_evaluate(buf, chg_raw, w);
+            evals.truncate(new_len_u64 / d);
+
+            let even: EF = unsafe { ext_components_to_field(&even_comps) };
+            let odd: EF = unsafe { ext_components_to_field(&odd_comps) };
+            return Some((even, odd));
+        }
+
+        if d == 3 {
+            let n_u64 = evals.len() * d;
+            let buf: &mut [u64] =
+                unsafe { core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, n_u64) };
+
+            let chg_raw: [u64; 3] = unsafe {
+                let ptr = &challenge as *const EF as *const u64;
+                [*ptr, *ptr.add(1), *ptr.add(2)]
+            };
+
+            let w = extract_ext2_nonresidue::<EF>(); // same trick works for ext3
+
+            let (even_comps, odd_comps, new_len_u64) =
+                crate::simd_sumcheck::reduce::ext3_reduce_and_evaluate(buf, chg_raw, w);
+            evals.truncate(new_len_u64 / d);
+
+            let even: EF = unsafe { ext_components_to_field(&even_comps) };
+            let odd: EF = unsafe { ext_components_to_field(&odd_comps) };
+            return Some((even, odd));
+        }
+    }
+
+    None
+}
+
+/// Extract the nonresidue w from an extension field at runtime.
+/// Computes (0, 1, 0...) * (0, 1, 0...) = (w, 0, 0...) and extracts the first component.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+fn extract_ext2_nonresidue<EF: Field>() -> u64 {
+    #[cfg(target_arch = "aarch64")]
+    type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+    use crate::simd_fields::SimdBaseField;
+
+    let d = EF::extension_degree() as usize;
+    let one_x: EF = unsafe {
+        let mut tmp = vec![0u64; d];
+        tmp[1] = Backend::ONE;
+        let mut val = core::mem::MaybeUninit::<EF>::uninit();
+        core::ptr::copy_nonoverlapping(tmp.as_ptr(), val.as_mut_ptr() as *mut u64, d);
+        val.assume_init()
+    };
+    let nr = one_x * one_x;
+    unsafe { *((&nr) as *const EF as *const u64) }
+}
+
 #[allow(dead_code)]
 pub(crate) fn try_simd_ext_reduce<EF: Field>(evals: &mut Vec<EF>, challenge: EF) -> bool {
     if !is_goldilocks_based::<EF>() {

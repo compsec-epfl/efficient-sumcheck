@@ -7,7 +7,7 @@ use criterion::{
 use efficient_sumcheck::{
     multilinear::reductions::pairwise,
     multilinear_sumcheck,
-    tests::{F64, F64Ext2, F64Ext3},
+    tests::{F64Ext2, F64Ext3, F64},
     transcript::{SanityTranscript, Transcript},
 };
 

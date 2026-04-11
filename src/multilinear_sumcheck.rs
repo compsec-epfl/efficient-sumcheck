@@ -98,21 +98,32 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
         // Cross-field reduce: BF evaluations + EF challenge → Vec<EF>
         let mut ef_evals = pairwise::cross_field_reduce(evaluations, chg);
 
-        // Remaining rounds work in EF
-        for _ in 1..num_rounds {
-            // Try SIMD extension evaluate (accelerates when EF is Goldilocks-based)
-            #[cfg(any(
-                target_arch = "aarch64",
-                all(target_arch = "x86_64", target_feature = "avx512ifma")
-            ))]
-            let msg = crate::simd_sumcheck::dispatch::try_simd_ext_evaluate(&ef_evals)
-                .unwrap_or_else(|| pairwise::evaluate(&ef_evals));
+        // Remaining rounds work in EF.
+        // Use fused reduce+evaluate when available: reduces data AND computes
+        // next round's (s0, s1) in a single pass, eliminating one full read.
+        let mut pending_eval: Option<(EF, EF)> = None;
 
-            #[cfg(not(any(
-                target_arch = "aarch64",
-                all(target_arch = "x86_64", target_feature = "avx512ifma")
-            )))]
-            let msg = pairwise::evaluate(&ef_evals);
+        for _ in 1..num_rounds {
+            // Get this round's evaluate — either from the previous fused pass
+            // or by computing it now.
+            let msg = if let Some(cached) = pending_eval.take() {
+                cached
+            } else {
+                #[cfg(any(
+                    target_arch = "aarch64",
+                    all(target_arch = "x86_64", target_feature = "avx512ifma")
+                ))]
+                let result = crate::simd_sumcheck::dispatch::try_simd_ext_evaluate(&ef_evals)
+                    .unwrap_or_else(|| pairwise::evaluate(&ef_evals));
+
+                #[cfg(not(any(
+                    target_arch = "aarch64",
+                    all(target_arch = "x86_64", target_feature = "avx512ifma")
+                )))]
+                let result = pairwise::evaluate(&ef_evals);
+
+                result
+            };
 
             prover_messages.push(msg);
             transcript.write(msg.0);
@@ -121,26 +132,32 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
             let chg = transcript.read();
             verifier_messages.push(chg);
 
-            // Try SIMD extension reduce (accelerates when EF is Goldilocks-based)
+            // SIMD extension reduce strategies (best picked by size):
+            // 1. Small (≤ 2^17): fused reduce+evaluate in single pass
+            // 2. Any size: SIMD ext reduce (uses ext2/ext3 Karatsuba)
+            // 3. Fallback: generic arkworks Field reduce
             #[cfg(any(
                 target_arch = "aarch64",
                 all(target_arch = "x86_64", target_feature = "avx512ifma")
             ))]
-            let reduced =
-                crate::simd_sumcheck::dispatch::try_simd_ext_reduce(&mut ef_evals, chg);
-
-            #[cfg(any(
-                target_arch = "aarch64",
-                all(target_arch = "x86_64", target_feature = "avx512ifma")
-            ))]
-            if !reduced {
-                pairwise::reduce_evaluations(&mut ef_evals, chg);
+            {
+                // Try fused for small inputs first
+                if ef_evals.len() <= (1 << 17) {
+                    if let Some(next_msg) =
+                        crate::simd_sumcheck::dispatch::try_simd_ext_fused_reduce_evaluate(
+                            &mut ef_evals,
+                            chg,
+                        )
+                    {
+                        pending_eval = Some(next_msg);
+                        continue;
+                    }
+                }
+                // Try SIMD ext reduce for larger inputs
+                if crate::simd_sumcheck::dispatch::try_simd_ext_reduce(&mut ef_evals, chg) {
+                    continue;
+                }
             }
-
-            #[cfg(not(any(
-                target_arch = "aarch64",
-                all(target_arch = "x86_64", target_feature = "avx512ifma")
-            )))]
             pairwise::reduce_evaluations(&mut ef_evals, chg);
         }
     }
