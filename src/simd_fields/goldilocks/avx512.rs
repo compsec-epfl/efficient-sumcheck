@@ -280,10 +280,8 @@ pub fn ext2_scalar_mul(a: [u64; 2], b: [u64; 2], w: u64) -> [u64; 2] {
     let c0 = GoldilocksAvx512::scalar_add(v0, mont_mul(w, v1));
     let a_sum = GoldilocksAvx512::scalar_add(a[0], a[1]);
     let b_sum = GoldilocksAvx512::scalar_add(b[0], b[1]);
-    let c1 = GoldilocksAvx512::scalar_sub(
-        GoldilocksAvx512::scalar_sub(mont_mul(a_sum, b_sum), v0),
-        v1,
-    );
+    let c1 =
+        GoldilocksAvx512::scalar_sub(GoldilocksAvx512::scalar_sub(mont_mul(a_sum, b_sum), v0), v1);
     [c0, c1]
 }
 
@@ -399,10 +397,10 @@ pub unsafe fn ext2_reduce_8pairs(
     w_vec: __m512i,
 ) {
     // Load 32 u64s (4 cache lines worth)
-    let v0 = _mm512_loadu_si512(src.cast());          // pairs 0-1: [a0c0,a0c1,b0c0,b0c1, a1c0,a1c1,b1c0,b1c1]
-    let v1 = _mm512_loadu_si512(src.add(8).cast());   // pairs 2-3
-    let v2 = _mm512_loadu_si512(src.add(16).cast());  // pairs 4-5
-    let v3 = _mm512_loadu_si512(src.add(24).cast());  // pairs 6-7
+    let v0 = _mm512_loadu_si512(src.cast()); // pairs 0-1: [a0c0,a0c1,b0c0,b0c1, a1c0,a1c1,b1c0,b1c1]
+    let v1 = _mm512_loadu_si512(src.add(8).cast()); // pairs 2-3
+    let v2 = _mm512_loadu_si512(src.add(16).cast()); // pairs 4-5
+    let v3 = _mm512_loadu_si512(src.add(24).cast()); // pairs 6-7
 
     // Deinterleave: extract a_c0, a_c1, b_c0, b_c1 each as 8-wide vectors.
     // Within each 512-bit register, stride is 4: positions 0,4 are a_c0; 1,5 are a_c1; etc.
@@ -961,12 +959,7 @@ mod tests {
             ];
             let w_vec = GoldilocksAvx512::splat(w_mont);
             unsafe {
-                ext3_reduce_8pairs(
-                    src.as_ptr(),
-                    actual.as_mut_ptr(),
-                    challenge_v,
-                    w_vec,
-                );
+                ext3_reduce_8pairs(src.as_ptr(), actual.as_mut_ptr(), challenge_v, w_vec);
             }
 
             assert_eq!(expected, actual, "ext3_reduce_8pairs mismatch");

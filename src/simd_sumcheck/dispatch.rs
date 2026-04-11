@@ -118,8 +118,7 @@ fn is_goldilocks_based<F: Field>() -> bool {
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[inline]
-fn extract_nonresidue_ext2<EF: Field, S: crate::simd_fields::SimdBaseField<Scalar = u64>>(
-) -> u64 {
+fn extract_nonresidue_ext2<EF: Field, S: crate::simd_fields::SimdBaseField<Scalar = u64>>() -> u64 {
     let one_x = unsafe {
         let mut tmp = [0u64; 2];
         tmp[1] = S::ONE;
@@ -137,8 +136,7 @@ fn extract_nonresidue_ext2<EF: Field, S: crate::simd_fields::SimdBaseField<Scala
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[inline]
-fn extract_nonresidue_ext3<EF: Field, S: crate::simd_fields::SimdBaseField<Scalar = u64>>(
-) -> u64 {
+fn extract_nonresidue_ext3<EF: Field, S: crate::simd_fields::SimdBaseField<Scalar = u64>>() -> u64 {
     let one_x = unsafe {
         let mut tmp = [0u64; 3];
         tmp[1] = S::ONE;
@@ -261,7 +259,7 @@ pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
     }
 
     let d = BF::extension_degree() as usize;
-    if d < 2 || d > 3 {
+    if !(2..=3).contains(&d) {
         return None;
     }
 
@@ -281,9 +279,8 @@ pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
     let mut verifier_messages: Vec<EF> = Vec::with_capacity(num_rounds);
 
     let n_u64 = n * d;
-    let current: &mut [u64] = unsafe {
-        core::slice::from_raw_parts_mut(evaluations.as_mut_ptr() as *mut u64, n_u64)
-    };
+    let current: &mut [u64] =
+        unsafe { core::slice::from_raw_parts_mut(evaluations.as_mut_ptr() as *mut u64, n_u64) };
 
     let mut len_u64 = n_u64;
 
@@ -292,11 +289,9 @@ pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
 
         for round in 0..num_rounds {
             // Evaluate: component-wise SIMD sums
-            let (even_comps, odd_comps) =
-                crate::simd_sumcheck::evaluate::ext_evaluate_parallel::<Backend>(
-                    &current[..len_u64],
-                    d,
-                );
+            let (even_comps, odd_comps) = crate::simd_sumcheck::evaluate::ext_evaluate_parallel::<
+                Backend,
+            >(&current[..len_u64], d);
             let even: EF = unsafe { ext_components_to_field(&even_comps) };
             let odd: EF = unsafe { ext_components_to_field(&odd_comps) };
             let msg = (even, odd);
@@ -325,11 +320,9 @@ pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
         let w = extract_nonresidue_ext3::<EF, Backend>();
 
         for round in 0..num_rounds {
-            let (even_comps, odd_comps) =
-                crate::simd_sumcheck::evaluate::ext_evaluate_parallel::<Backend>(
-                    &current[..len_u64],
-                    d,
-                );
+            let (even_comps, odd_comps) = crate::simd_sumcheck::evaluate::ext_evaluate_parallel::<
+                Backend,
+            >(&current[..len_u64], d);
             let even: EF = unsafe { ext_components_to_field(&even_comps) };
             let odd: EF = unsafe { ext_components_to_field(&odd_comps) };
             let msg = (even, odd);
@@ -828,9 +821,8 @@ pub(crate) fn try_simd_ext_reduce<EF: Field>(evals: &mut Vec<EF>, challenge: EF)
 
         // In-place reduce: first half gets results, then truncate.
         let n_u64 = evals.len() * d;
-        let buf: &mut [u64] = unsafe {
-            core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, n_u64)
-        };
+        let buf: &mut [u64] =
+            unsafe { core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, n_u64) };
         crate::simd_sumcheck::reduce::ext2_reduce_in_place::<Backend>(buf, chg_raw, w);
         let new_len = evals.len() / 2;
         evals.truncate(new_len);
@@ -850,9 +842,8 @@ pub(crate) fn try_simd_ext_reduce<EF: Field>(evals: &mut Vec<EF>, challenge: EF)
         let w = extract_nonresidue_ext3::<EF, Backend3>();
 
         let n_u64 = evals.len() * d;
-        let buf: &mut [u64] = unsafe {
-            core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, n_u64)
-        };
+        let buf: &mut [u64] =
+            unsafe { core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, n_u64) };
         crate::simd_sumcheck::reduce::ext3_reduce_in_place::<Backend3>(buf, chg_raw, w);
         let new_len = evals.len() / 2;
         evals.truncate(new_len);

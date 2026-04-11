@@ -70,10 +70,7 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
         }
         // Extension field dispatch (BF == EF == Goldilocks ext2/ext3)
         if let Some(result) =
-            crate::simd_sumcheck::dispatch::try_simd_ext_dispatch::<BF, EF>(
-                evaluations,
-                transcript,
-            )
+            crate::simd_sumcheck::dispatch::try_simd_ext_dispatch::<BF, EF>(evaluations, transcript)
         {
             return result;
         }
