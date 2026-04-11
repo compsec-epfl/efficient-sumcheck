@@ -147,18 +147,13 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
         let mut ef_f = pairwise::cross_field_reduce(f, chg);
         let mut ef_g = pairwise::cross_field_reduce(g, chg);
 
-        // Remaining rounds work in EF
+        // Remaining rounds work in EF.
+        // Call pairwise_product_evaluate directly instead of constructing
+        // a TimeProductProver each round (avoids MemoryStream allocation).
         for _ in 1..num_rounds {
-            let mut prover = TimeProductProver::new(TimeProductProverConfig::new(
-                ef_f.len().trailing_zeros() as usize,
-                vec![
-                    MemoryStream::new(ef_f.to_vec()),
-                    MemoryStream::new(ef_g.to_vec()),
-                ],
-                ReduceMode::Pairwise,
-            ));
-
-            let msg = prover.next_message(None).unwrap();
+            let msg = crate::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate(
+                &[ef_f.clone(), ef_g.clone()],
+            );
 
             prover_messages.push(msg);
             transcript.write(msg.0);
@@ -288,5 +283,23 @@ mod tests {
 
         assert_eq!(result.prover_messages.len(), NUM_VARS);
         assert_eq!(result.verifier_messages.len(), NUM_VARS);
+    }
+
+    #[test]
+    fn test_inner_product_extension_field() {
+        // Test inner product sumcheck with BF = EF = F64Ext2.
+        use crate::tests::F64Ext2;
+        use crate::transcript::SanityTranscript;
+
+        let mut rng = test_rng();
+        let n = 1 << 6;
+        let mut f: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+        let mut g: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+
+        let mut transcript = SanityTranscript::new(&mut rng);
+        let result = inner_product_sumcheck::<F64Ext2, F64Ext2>(&mut f, &mut g, &mut transcript);
+
+        assert_eq!(result.prover_messages.len(), 6);
+        assert_eq!(result.verifier_messages.len(), 6);
     }
 }

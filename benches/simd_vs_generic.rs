@@ -5,6 +5,7 @@ use criterion::{
 };
 
 use efficient_sumcheck::{
+    inner_product_sumcheck,
     multilinear::reductions::pairwise,
     multilinear_sumcheck,
     tests::{F64Ext2, F64Ext3, F64},
@@ -745,6 +746,70 @@ fn extension_field_sumcheck_bench(c: &mut Criterion) {
     group.finish();
 }
 
+// ── Inner product with extension fields ─────────────────────────────────────
+
+fn inner_product_extension_bench(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ip_extension");
+    group
+        .sample_size(10)
+        .warm_up_time(Duration::from_secs(2))
+        .measurement_time(Duration::from_secs(5));
+
+    for num_vars in [16, 20] {
+        let n = 1usize << num_vars;
+
+        group.bench_with_input(
+            BenchmarkId::new("ext2", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        let f: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+                        let g: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+                        (f, g)
+                    },
+                    |(mut f, mut g)| {
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        black_box(inner_product_sumcheck::<F64Ext2, F64Ext2>(
+                            &mut f,
+                            &mut g,
+                            &mut transcript,
+                        ));
+                    },
+                )
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("base", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        let f: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+                        let g: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+                        (f, g)
+                    },
+                    |(mut f, mut g)| {
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        black_box(inner_product_sumcheck::<F64, F64>(
+                            &mut f,
+                            &mut g,
+                            &mut transcript,
+                        ));
+                    },
+                )
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     simd_vs_generic_sumcheck,
@@ -753,6 +818,7 @@ criterion_group!(
     bench_eval_reduce_loop,
     inner_product_sumcheck_bench,
     coefficient_sumcheck_bench,
-    extension_field_sumcheck_bench
+    extension_field_sumcheck_bench,
+    inner_product_extension_bench
 );
 criterion_main!(benches);

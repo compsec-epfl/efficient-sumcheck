@@ -545,7 +545,7 @@ fn ext2_reduce_chunk(src: &[u64], challenge: [u64; 2], w: u64) -> Vec<u64> {
         let mut i = 0;
         while i < simd_pairs {
             let src_off = (2 * i) * ext_deg; // 4 u64s per pair, 8 pairs = 32 u64s
-            let out_off = i * ext_deg;        // 2 u64s per result, 8 results = 16 u64s
+            let out_off = i * ext_deg; // 2 u64s per result, 8 results = 16 u64s
             unsafe {
                 ext2_reduce_8pairs(
                     src.as_ptr().add(src_off),
