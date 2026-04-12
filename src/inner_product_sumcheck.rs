@@ -108,10 +108,21 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
         target_arch = "aarch64",
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     ))]
-    if let Some(result) =
-        crate::simd_sumcheck::dispatch::try_simd_product_dispatch::<BF, EF>(f, g, transcript)
     {
-        return result;
+        // Try base-field dispatch first (BF == EF == Goldilocks base)
+        if let Some(result) =
+            crate::simd_sumcheck::dispatch::try_simd_product_dispatch::<BF, EF>(f, g, transcript)
+        {
+            return result;
+        }
+        // Try extension-field dispatch (BF == EF == Goldilocks ext2)
+        if let Some(result) =
+            crate::simd_sumcheck::dispatch::try_simd_ext_product_dispatch::<BF, EF>(
+                f, g, transcript,
+            )
+        {
+            return result;
+        }
     }
 
     let num_rounds = f.len().trailing_zeros() as usize;
@@ -287,5 +298,150 @@ mod tests {
 
         assert_eq!(result.prover_messages.len(), 6);
         assert_eq!(result.verifier_messages.len(), 6);
+    }
+
+    /// Sanity check for the ext2 IP SIMD dispatch path at a small size (below the
+    /// parallel threshold). Pre-existing test_inner_product_extension_field only
+    /// checks message counts, so this catches round-0 evaluate mismatches too.
+    #[test]
+    fn test_ip_ext2_small_matches_reference() {
+        use crate::multilinear::reductions::pairwise;
+        use crate::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate;
+        use crate::tests::F64Ext2;
+        use crate::transcript::SanityTranscript;
+
+        let mut rng = test_rng();
+        let n: usize = 1 << 8;
+        let f: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+        let g: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+
+        let mut rng1 = test_rng();
+        let mut f1 = f.clone();
+        let mut g1 = g.clone();
+        let mut t1 = SanityTranscript::new(&mut rng1);
+        let simd_result =
+            inner_product_sumcheck::<F64Ext2, F64Ext2>(&mut f1, &mut g1, &mut t1);
+
+        let mut rng2 = test_rng();
+        let mut t2 = SanityTranscript::new(&mut rng2);
+        let num_rounds = n.trailing_zeros() as usize;
+        let mut ref_msgs = Vec::with_capacity(num_rounds);
+        let mut ef_f = f;
+        let mut ef_g = g;
+        for _ in 0..num_rounds {
+            let msg = pairwise_product_evaluate(&[ef_f.clone(), ef_g.clone()]);
+            ref_msgs.push(msg);
+            t2.write(msg.0);
+            t2.write(msg.1);
+            let chg: F64Ext2 = t2.read();
+            pairwise::reduce_evaluations(&mut ef_f, chg);
+            pairwise::reduce_evaluations(&mut ef_g, chg);
+        }
+
+        for (i, (s, r)) in simd_result
+            .prover_messages
+            .iter()
+            .zip(ref_msgs.iter())
+            .enumerate()
+        {
+            assert_eq!(s.0, r.0, "a mismatch at round {i}");
+            assert_eq!(s.1, r.1, "b mismatch at round {i}");
+        }
+    }
+
+    /// Exercises the rayon-parallel SoA product reduce path (n > 2^17 threshold).
+    #[test]
+    fn test_ip_ext2_parallel_path_matches_reference() {
+        use crate::multilinear::reductions::pairwise;
+        use crate::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate;
+        use crate::tests::F64Ext2;
+        use crate::transcript::SanityTranscript;
+
+        let mut rng = test_rng();
+        let n: usize = 1 << 18;
+        let f: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+        let g: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+
+        // SIMD path (hits parallel dispatch above threshold)
+        let mut rng1 = test_rng();
+        let mut f1 = f.clone();
+        let mut g1 = g.clone();
+        let mut t1 = SanityTranscript::new(&mut rng1);
+        let parallel_result =
+            inner_product_sumcheck::<F64Ext2, F64Ext2>(&mut f1, &mut g1, &mut t1);
+
+        // Reference: generic pairwise evaluate+reduce loop
+        let mut rng2 = test_rng();
+        let mut t2 = SanityTranscript::new(&mut rng2);
+        let num_rounds = n.trailing_zeros() as usize;
+        let mut ref_msgs = Vec::with_capacity(num_rounds);
+        let mut ef_f = f;
+        let mut ef_g = g;
+        for _ in 0..num_rounds {
+            let msg = pairwise_product_evaluate(&[ef_f.clone(), ef_g.clone()]);
+            ref_msgs.push(msg);
+            t2.write(msg.0);
+            t2.write(msg.1);
+            let chg: F64Ext2 = t2.read();
+            pairwise::reduce_evaluations(&mut ef_f, chg);
+            pairwise::reduce_evaluations(&mut ef_g, chg);
+        }
+
+        assert_eq!(parallel_result.prover_messages.len(), ref_msgs.len());
+        for (i, (s, ref_msg)) in parallel_result
+            .prover_messages
+            .iter()
+            .zip(ref_msgs.iter())
+            .enumerate()
+        {
+            assert_eq!(s.0, ref_msg.0, "a mismatch at round {i}");
+            assert_eq!(s.1, ref_msg.1, "b mismatch at round {i}");
+        }
+    }
+
+    #[test]
+    fn test_ip_ext3_parallel_path_matches_reference() {
+        use crate::multilinear::reductions::pairwise;
+        use crate::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate;
+        use crate::tests::F64Ext3;
+        use crate::transcript::SanityTranscript;
+
+        let mut rng = test_rng();
+        let n: usize = 1 << 18;
+        let f: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
+        let g: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
+
+        let mut rng1 = test_rng();
+        let mut f1 = f.clone();
+        let mut g1 = g.clone();
+        let mut t1 = SanityTranscript::new(&mut rng1);
+        let parallel_result =
+            inner_product_sumcheck::<F64Ext3, F64Ext3>(&mut f1, &mut g1, &mut t1);
+
+        let mut rng2 = test_rng();
+        let mut t2 = SanityTranscript::new(&mut rng2);
+        let num_rounds = n.trailing_zeros() as usize;
+        let mut ref_msgs = Vec::with_capacity(num_rounds);
+        let mut ef_f = f;
+        let mut ef_g = g;
+        for _ in 0..num_rounds {
+            let msg = pairwise_product_evaluate(&[ef_f.clone(), ef_g.clone()]);
+            ref_msgs.push(msg);
+            t2.write(msg.0);
+            t2.write(msg.1);
+            let chg: F64Ext3 = t2.read();
+            pairwise::reduce_evaluations(&mut ef_f, chg);
+            pairwise::reduce_evaluations(&mut ef_g, chg);
+        }
+
+        for (i, (s, ref_msg)) in parallel_result
+            .prover_messages
+            .iter()
+            .zip(ref_msgs.iter())
+            .enumerate()
+        {
+            assert_eq!(s.0, ref_msg.0, "a mismatch at round {i}");
+            assert_eq!(s.1, ref_msg.1, "b mismatch at round {i}");
+        }
     }
 }

@@ -309,4 +309,78 @@ mod tests {
         let (s0, s1) = result.prover_messages[0];
         assert_eq!(s0 + s1, claimed_sum, "round 0 sum mismatch");
     }
+
+    /// Exercises the rayon-parallel SoA reduce path (n > 2^17 threshold in dispatch).
+    #[test]
+    fn test_ext2_sumcheck_parallel_path_matches_generic() {
+        use crate::multilinear::reductions::pairwise;
+        use crate::tests::F64Ext2;
+        use crate::transcript::SanityTranscript;
+
+        let mut rng = test_rng();
+        let n = 1 << 18; // above EXT_PARALLEL_THRESHOLD
+        let evals: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+
+        // Generic reference: run the pairwise evaluate+reduce loop directly.
+        let mut rng1 = test_rng();
+        let mut t1 = SanityTranscript::new(&mut rng1);
+        let num_rounds = (n as u64).trailing_zeros() as usize;
+        let mut ef = evals.clone();
+        let mut expected_msgs = Vec::with_capacity(num_rounds);
+        for _ in 0..num_rounds {
+            let (e, o) = pairwise::evaluate(&ef);
+            expected_msgs.push((e, o));
+            t1.write(e);
+            t1.write(o);
+            let chg: F64Ext2 = t1.read();
+            pairwise::reduce_evaluations(&mut ef, chg);
+        }
+
+        // SIMD path (will hit the parallel ext2 SoA kernel).
+        let mut rng2 = test_rng();
+        let mut t2 = SanityTranscript::new(&mut rng2);
+        let mut simd_evals = evals;
+        let simd_result = multilinear_sumcheck::<F64Ext2, F64Ext2>(&mut simd_evals, &mut t2);
+
+        assert_eq!(simd_result.prover_messages.len(), expected_msgs.len());
+        for (i, (exp, got)) in expected_msgs.iter().zip(simd_result.prover_messages.iter()).enumerate() {
+            assert_eq!(exp.0, got.0, "s0 mismatch at round {}", i);
+            assert_eq!(exp.1, got.1, "s1 mismatch at round {}", i);
+        }
+    }
+
+    #[test]
+    fn test_ext3_sumcheck_parallel_path_matches_generic() {
+        use crate::multilinear::reductions::pairwise;
+        use crate::tests::F64Ext3;
+        use crate::transcript::SanityTranscript;
+
+        let mut rng = test_rng();
+        let n = 1 << 18;
+        let evals: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
+
+        let mut rng1 = test_rng();
+        let mut t1 = SanityTranscript::new(&mut rng1);
+        let num_rounds = (n as u64).trailing_zeros() as usize;
+        let mut ef = evals.clone();
+        let mut expected_msgs = Vec::with_capacity(num_rounds);
+        for _ in 0..num_rounds {
+            let (e, o) = pairwise::evaluate(&ef);
+            expected_msgs.push((e, o));
+            t1.write(e);
+            t1.write(o);
+            let chg: F64Ext3 = t1.read();
+            pairwise::reduce_evaluations(&mut ef, chg);
+        }
+
+        let mut rng2 = test_rng();
+        let mut t2 = SanityTranscript::new(&mut rng2);
+        let mut simd_evals = evals;
+        let simd_result = multilinear_sumcheck::<F64Ext3, F64Ext3>(&mut simd_evals, &mut t2);
+
+        for (i, (exp, got)) in expected_msgs.iter().zip(simd_result.prover_messages.iter()).enumerate() {
+            assert_eq!(exp.0, got.0, "s0 mismatch at round {}", i);
+            assert_eq!(exp.1, got.1, "s1 mismatch at round {}", i);
+        }
+    }
 }
