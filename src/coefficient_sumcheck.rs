@@ -182,22 +182,34 @@ fn parallel_evaluate<F: Field>(
     n_pairs: usize,
     n_coeffs: usize,
 ) -> Vec<F> {
-    sequential_evaluate(
-        evaluator, tablewise, pairwise, n_tw, n_pw, n_pairs, n_coeffs,
-    )
+    let mut coeffs = vec![F::ZERO; n_coeffs];
+    sequential_evaluate_into(
+        evaluator,
+        tablewise,
+        pairwise,
+        n_tw,
+        n_pw,
+        n_pairs,
+        &mut coeffs,
+    );
+    coeffs
 }
 
 /// Sequential evaluate (for trivial evaluators where rayon overhead dominates).
-fn sequential_evaluate<F: Field>(
+///
+/// Fills `coeffs_out` with accumulated coefficients (zeroes it first).
+fn sequential_evaluate_into<F: Field>(
     evaluator: &impl RoundPolyEvaluator<F>,
     tablewise: &[Vec<Vec<F>>],
     pairwise: &[Vec<F>],
     n_tw: usize,
     n_pw: usize,
     n_pairs: usize,
-    n_coeffs: usize,
-) -> Vec<F> {
-    let mut coeffs = vec![F::ZERO; n_coeffs];
+    coeffs_out: &mut [F],
+) {
+    for c in coeffs_out.iter_mut() {
+        *c = F::ZERO;
+    }
     let mut tw_buf: [(&[F], &[F]); 16] = [(&[], &[]); 16];
     let mut pw_buf: [(F, F); 16] = [(F::ZERO, F::ZERO); 16];
     debug_assert!(n_tw <= 16 && n_pw <= 16);
@@ -209,9 +221,8 @@ fn sequential_evaluate<F: Field>(
         for (i, table) in pairwise.iter().enumerate() {
             pw_buf[i] = (table[2 * pair_idx], table[2 * pair_idx + 1]);
         }
-        evaluator.accumulate_pair(&mut coeffs, &tw_buf[..n_tw], &pw_buf[..n_pw]);
+        evaluator.accumulate_pair(coeffs_out, &tw_buf[..n_tw], &pw_buf[..n_pw]);
     }
-    coeffs
 }
 
 /// Sumcheck prover for arbitrary-degree round polynomials in coefficient form.
@@ -241,10 +252,10 @@ pub fn coefficient_sumcheck<F: Field>(
     let use_parallel = evaluator.parallelize();
     let is_degree1_simd_path = deg == 1 && n_pw == 1 && n_tw == 0;
 
-    // For the degree-1 SIMD fast path, we can fuse reduce+evaluate into
-    // a single data pass after the first round. This halves memory traffic
-    // for the dominant early rounds.
     let mut pending_degree1_eval: Option<Vec<F>> = None;
+
+    // Pre-allocate coefficient buffer — reused across rounds for sequential path.
+    let mut coeffs_buf = vec![F::ZERO; n_coeffs];
 
     for round in 0..n_rounds {
         let n_pairs = if n_tw > 0 {
@@ -271,9 +282,18 @@ pub fn coefficient_sumcheck<F: Field>(
                 evaluator, tablewise, pairwise, n_tw, n_pw, n_pairs, n_coeffs,
             )
         } else {
-            sequential_evaluate(
-                evaluator, tablewise, pairwise, n_tw, n_pw, n_pairs, n_coeffs,
-            )
+            // Fill pre-allocated buffer (no allocation), then clone the
+            // small coefficient vec (d+1 elements, typically 2-3).
+            sequential_evaluate_into(
+                evaluator,
+                tablewise,
+                pairwise,
+                n_tw,
+                n_pw,
+                n_pairs,
+                &mut coeffs_buf,
+            );
+            coeffs_buf.clone()
         };
 
         let round_poly = DensePolynomial { coeffs };

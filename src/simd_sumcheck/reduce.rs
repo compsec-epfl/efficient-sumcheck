@@ -67,6 +67,61 @@ fn reduce_into<F: SimdBaseField>(src: &[F::Scalar], out: &mut [F::Scalar], chall
     }
 }
 
+/// Reduce both f and g in-place in a single interleaved streaming pass.
+///
+/// Instead of two separate `reduce_in_place` calls (2 full data passes),
+/// this reads f and g pairs together, saving cache/bandwidth.
+/// Returns the output length `n`.
+pub fn reduce_both_in_place<F: SimdBaseField>(
+    f: &mut [F::Scalar],
+    g: &mut [F::Scalar],
+    challenge: F::Scalar,
+) -> usize {
+    let n = f.len() / 2;
+    debug_assert_eq!(f.len(), g.len());
+    let lanes = F::LANES;
+    let challenge_v = F::splat(challenge);
+    let step = 4 * lanes;
+    let aligned = (n / step) * step;
+
+    let f_ptr = f.as_ptr();
+    let g_ptr = g.as_ptr();
+    let f_out = f.as_mut_ptr();
+    let g_out = g.as_mut_ptr();
+
+    let mut i = 0;
+    while i < aligned {
+        unsafe {
+            for u in 0..4 {
+                let off = i + u * lanes;
+
+                let (fv_a, fv_b) = F::load_deinterleaved(f_ptr.add(2 * off));
+                let f_red = F::add(fv_a, F::mul(challenge_v, F::sub(fv_b, fv_a)));
+                F::store(f_out.add(off), f_red);
+
+                let (gv_a, gv_b) = F::load_deinterleaved(g_ptr.add(2 * off));
+                let g_red = F::add(gv_a, F::mul(challenge_v, F::sub(gv_b, gv_a)));
+                F::store(g_out.add(off), g_red);
+            }
+        }
+        i += step;
+    }
+
+    while i < n {
+        let fa = f[2 * i];
+        let fb = f[2 * i + 1];
+        f[i] = F::scalar_add(fa, F::scalar_mul(challenge, F::scalar_sub(fb, fa)));
+
+        let ga = g[2 * i];
+        let gb = g[2 * i + 1];
+        g[i] = F::scalar_add(ga, F::scalar_mul(challenge, F::scalar_sub(gb, ga)));
+
+        i += 1;
+    }
+
+    n
+}
+
 /// SIMD-vectorized pairwise reduce, in-place.
 ///
 /// Reads pairs from the first `2*n` positions, writes results to `src[0..n]`.

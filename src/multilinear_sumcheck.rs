@@ -68,7 +68,11 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
         {
             return result;
         }
-        // Extension field dispatch (BF == EF == Goldilocks ext2/ext3)
+        // Extension field dispatch (BF == EF == Goldilocks ext2/ext3).
+        // On AVX-512: use full SIMD dispatch (8-wide mul makes reduce fast).
+        // On NEON: skip — the single-threaded ext reduce is slower than the
+        // generic path with SIMD evaluate + rayon-parallel arkworks reduce.
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
         if let Some(result) =
             crate::simd_sumcheck::dispatch::try_simd_ext_dispatch::<BF, EF>(evaluations, transcript)
         {
@@ -82,7 +86,7 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
 
     // ── Round 0: evaluate in BF, lift to EF, cross-field reduce ──
     if num_rounds > 0 {
-        let msg_bf = pairwise::evaluate(evaluations);
+        let msg_bf = crate::simd_ops::pairwise_sum(evaluations);
         let msg = (EF::from(msg_bf.0), EF::from(msg_bf.1));
 
         prover_messages.push(msg);
@@ -150,7 +154,9 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
                         continue;
                     }
                 }
-                // Try SIMD ext reduce for larger inputs
+                // Try SIMD ext reduce — on AVX-512 always, on NEON only for small inputs
+                // (NEON ext reduce is scalar, so rayon-parallel generic reduce is faster at scale)
+                #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
                 if crate::simd_sumcheck::dispatch::try_simd_ext_reduce(&mut ef_evals, chg) {
                     continue;
                 }

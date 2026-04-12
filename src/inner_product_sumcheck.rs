@@ -29,13 +29,6 @@ use nohash_hasher::BuildNoHashHasher;
 
 use ark_ff::Field;
 
-use crate::{
-    multilinear::{reductions::pairwise, ReduceMode},
-    multilinear_product::{TimeProductProver, TimeProductProverConfig},
-    prover::Prover,
-    streams::MemoryStream,
-};
-
 use crate::transcript::Transcript;
 
 pub use crate::multilinear_product::ProductSumcheck;
@@ -127,13 +120,8 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
 
     // ── Round 0: evaluate in BF, lift to EF, cross-field reduce ──
     if num_rounds > 0 {
-        let mut prover = TimeProductProver::new(TimeProductProverConfig::new(
-            f.len().trailing_zeros() as usize,
-            vec![MemoryStream::new(f.to_vec()), MemoryStream::new(g.to_vec())],
-            ReduceMode::Pairwise,
-        ));
-
-        let msg_bf = prover.next_message(None).unwrap();
+        // Use simd_ops for round 0 evaluate (SIMD-accelerated for Goldilocks)
+        let msg_bf = crate::simd_ops::pairwise_product_sum(f, g);
         let msg = (EF::from(msg_bf.0), EF::from(msg_bf.1));
 
         prover_messages.push(msg);
@@ -144,16 +132,13 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
         verifier_messages.push(chg);
 
         // Cross-field reduce: BF evaluations + EF challenge → Vec<EF>
-        let mut ef_f = pairwise::cross_field_reduce(f, chg);
-        let mut ef_g = pairwise::cross_field_reduce(g, chg);
+        let mut ef_f = crate::simd_ops::cross_field_fold(f, chg);
+        let mut ef_g = crate::simd_ops::cross_field_fold(g, chg);
 
         // Remaining rounds work in EF.
-        // Call pairwise_product_evaluate directly instead of constructing
-        // a TimeProductProver each round (avoids MemoryStream allocation).
         for _ in 1..num_rounds {
-            let msg = crate::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate(
-                &[ef_f.clone(), ef_g.clone()],
-            );
+            // SIMD-accelerated product evaluate (dispatches for Goldilocks base)
+            let msg = crate::simd_ops::pairwise_product_sum(&ef_f, &ef_g);
 
             prover_messages.push(msg);
             transcript.write(msg.0);
@@ -162,8 +147,9 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
             let chg = transcript.read();
             verifier_messages.push(chg);
 
-            pairwise::reduce_evaluations(&mut ef_f, chg);
-            pairwise::reduce_evaluations(&mut ef_g, chg);
+            // SIMD-accelerated fold (dispatches for Goldilocks base + extensions)
+            crate::simd_ops::fold(&mut ef_f, chg);
+            crate::simd_ops::fold(&mut ef_g, chg);
         }
     }
 

@@ -31,6 +31,27 @@ pub fn pairwise_product_evaluate<F: Field>(src: &[Vec<F>]) -> (F, F) {
     (a, b)
 }
 
+/// Slice-based variant that avoids requiring owned `Vec<F>`.
+///
+/// Takes two slices `f` and `g` directly — no allocation needed.
+pub fn pairwise_product_evaluate_slices<F: Field>(f: &[F], g: &[F]) -> (F, F) {
+    let half_len = f.len() / 2;
+    let a: F = cfg_into_iter!(0..half_len)
+        .map(|k| {
+            let i = 2 * k;
+            f[i] * g[i]
+        })
+        .sum();
+
+    let b: F = cfg_into_iter!(0..half_len)
+        .map(|k| {
+            let i = 2 * k;
+            f[i] * g[i + 1] + f[i + 1] * g[i]
+        })
+        .sum();
+    (a, b)
+}
+
 /// Stream variant of [`pairwise_product_evaluate`].
 pub fn pairwise_product_evaluate_from_stream<F: Field, S: Stream<F>>(src: &[S]) -> (F, F) {
     let len = 1usize << src[0].num_variables();

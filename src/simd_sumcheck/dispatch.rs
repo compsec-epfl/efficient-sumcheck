@@ -250,6 +250,7 @@ pub(crate) fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
+#[allow(dead_code)] // Used on AVX-512; on NEON, generic path with rayon is faster
 pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
     evaluations: &mut [BF],
     transcript: &mut impl Transcript<EF>,
@@ -500,7 +501,7 @@ pub(crate) fn try_simd_product_dispatch<BF: Field, EF: Field + From<BF>>(
     type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
 
     use crate::simd_sumcheck::evaluate::product_evaluate_parallel;
-    use crate::simd_sumcheck::reduce::reduce_in_place;
+    use crate::simd_sumcheck::reduce::reduce_both_in_place;
 
     let n = f.len();
     let num_rounds = n.trailing_zeros() as usize;
@@ -513,11 +514,10 @@ pub(crate) fn try_simd_product_dispatch<BF: Field, EF: Field + From<BF>>(
         let g_raw: &mut [u64] =
             unsafe { core::slice::from_raw_parts_mut(g.as_mut_ptr() as *mut u64, n) };
 
-        let mut f_len = n;
-        let mut g_len = n;
+        let mut len = n;
 
         for round in 0..num_rounds {
-            let (a, b) = product_evaluate_parallel::<Backend>(&f_raw[..f_len], &g_raw[..g_len]);
+            let (a, b) = product_evaluate_parallel::<Backend>(&f_raw[..len], &g_raw[..len]);
 
             let msg = (u64_to_field::<EF>(a), u64_to_field::<EF>(b));
             prover_messages.push(msg);
@@ -529,8 +529,8 @@ pub(crate) fn try_simd_product_dispatch<BF: Field, EF: Field + From<BF>>(
 
             if round < num_rounds - 1 {
                 let chg: u64 = field_to_u64(chg_ef);
-                f_len = reduce_in_place::<Backend>(&mut f_raw[..f_len], chg);
-                g_len = reduce_in_place::<Backend>(&mut g_raw[..g_len], chg);
+                // Reduce both f and g in one interleaved pass (saves one full data read)
+                len = reduce_both_in_place::<Backend>(&mut f_raw[..len], &mut g_raw[..len], chg);
             }
         }
     }
@@ -644,6 +644,7 @@ pub(crate) fn try_simd_ext_evaluate<EF: Field>(evals: &[EF]) -> Option<(EF, EF)>
     // Extension field: view as flat u64 buffer and run ext_evaluate
     let n_u64 = evals.len() * d;
     let buf: &[u64] = unsafe { core::slice::from_raw_parts(evals.as_ptr() as *const u64, n_u64) };
+
     let (even_comps, odd_comps) =
         crate::simd_sumcheck::evaluate::ext_evaluate_parallel::<Backend>(buf, d);
 
@@ -908,4 +909,36 @@ fn u64_to_field<F: Field>(raw: u64) -> F {
 fn field_to_u64<F: Field>(val: F) -> u64 {
     debug_assert_eq!(core::mem::size_of::<F>(), 8);
     unsafe { core::mem::transmute_copy(&val) }
+}
+
+// ─── Public helpers for simd_ops ────────────────────────────────────────────
+
+/// Check if `F` is a Goldilocks prime field (degree 1, size 8, matching modulus).
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+#[inline(always)]
+pub fn is_goldilocks_pub<F: Field>() -> bool {
+    is_goldilocks::<F>()
+}
+
+/// Reinterpret a Montgomery-form `u64` as a field element (public wrapper).
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+#[inline(always)]
+pub fn u64_to_field_pub<F: Field>(raw: u64) -> F {
+    u64_to_field(raw)
+}
+
+/// Reinterpret a field element as its Montgomery-form `u64` (public wrapper).
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+#[inline(always)]
+pub fn field_to_u64_pub<F: Field>(val: F) -> u64 {
+    field_to_u64(val)
 }
