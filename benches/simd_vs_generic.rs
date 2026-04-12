@@ -30,7 +30,7 @@ fn get_bench_group(c: &mut Criterion) -> BenchmarkGroup<'_, WallTime> {
 fn simd_vs_generic_sumcheck(c: &mut Criterion) {
     let mut group = get_bench_group(c);
 
-    for num_vars in [16, 18, 20, 24] {
+    for num_vars in [16, 18, 20, 22, 24] {
         let n = 1usize << num_vars;
 
         // ── multilinear_sumcheck (auto-dispatches to SIMD for Goldilocks) ──
@@ -103,7 +103,7 @@ fn bench_evaluate_isolated(c: &mut Criterion) {
         .warm_up_time(Duration::from_secs(1))
         .measurement_time(Duration::from_secs(3));
 
-    for num_vars in [16, 20, 24] {
+    for num_vars in [16, 18, 20, 22, 24] {
         let n = 1usize << num_vars;
 
         group.bench_with_input(
@@ -149,7 +149,7 @@ fn bench_reduce_isolated(c: &mut Criterion) {
         .warm_up_time(Duration::from_secs(1))
         .measurement_time(Duration::from_secs(3));
 
-    for num_vars in [16, 20, 24] {
+    for num_vars in [16, 18, 20, 22, 24] {
         let n = 1usize << num_vars;
 
         group.bench_with_input(
@@ -217,7 +217,7 @@ fn bench_eval_reduce_loop(c: &mut Criterion) {
         .warm_up_time(Duration::from_secs(2))
         .measurement_time(Duration::from_secs(5));
 
-    for num_vars in [16, 20, 24] {
+    for num_vars in [16, 18, 20, 22, 24] {
         let n = 1usize << num_vars;
 
         // Minimal loop with per-round random challenge (no copy overhead)
@@ -461,7 +461,7 @@ fn coefficient_sumcheck_bench(c: &mut Criterion) {
         .warm_up_time(Duration::from_secs(2))
         .measurement_time(Duration::from_secs(5));
 
-    for num_vars in [16, 20, 24] {
+    for num_vars in [16, 18, 20, 22, 24] {
         let n = 1usize << num_vars;
 
         // ── Pairwise reduce only (isolate reduce cost) ──
@@ -627,7 +627,7 @@ fn extension_field_sumcheck_bench(c: &mut Criterion) {
         .warm_up_time(Duration::from_secs(2))
         .measurement_time(Duration::from_secs(5));
 
-    for num_vars in [16, 18, 20, 24] {
+    for num_vars in [16, 18, 20, 22, 24] {
         let n = 1usize << num_vars;
 
         // ── F64Ext2 (degree-2 extension, SIMD ext evaluate dispatched) ──
@@ -755,7 +755,7 @@ fn inner_product_extension_bench(c: &mut Criterion) {
         .warm_up_time(Duration::from_secs(2))
         .measurement_time(Duration::from_secs(5));
 
-    for num_vars in [16, 20, 24] {
+    for num_vars in [16, 18, 20, 22, 24] {
         let n = 1usize << num_vars;
 
         group.bench_with_input(
@@ -777,6 +777,96 @@ fn inner_product_extension_bench(c: &mut Criterion) {
                             &mut g,
                             &mut transcript,
                         ));
+                    },
+                )
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("ext2_generic", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        let f: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+                        let g: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+                        (f, g)
+                    },
+                    |(f, g)| {
+                        use efficient_sumcheck::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate;
+
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        let num_rounds = f.len().trailing_zeros() as usize;
+                        let mut ef_f = f;
+                        let mut ef_g = g;
+                        for _ in 0..num_rounds {
+                            let msg = pairwise_product_evaluate(&[ef_f.clone(), ef_g.clone()]);
+                            transcript.write(msg.0);
+                            transcript.write(msg.1);
+                            let chg: F64Ext2 = transcript.read();
+                            pairwise::reduce_evaluations(&mut ef_f, chg);
+                            pairwise::reduce_evaluations(&mut ef_g, chg);
+                        }
+                        black_box((ef_f, ef_g));
+                    },
+                )
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("ext3", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        let f: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
+                        let g: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
+                        (f, g)
+                    },
+                    |(mut f, mut g)| {
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        black_box(inner_product_sumcheck::<F64Ext3, F64Ext3>(
+                            &mut f,
+                            &mut g,
+                            &mut transcript,
+                        ));
+                    },
+                )
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("ext3_generic", format!("2^{}", num_vars)),
+            &num_vars,
+            |bencher, _| {
+                bencher.iter_with_setup(
+                    || {
+                        let mut rng = ark_std::test_rng();
+                        let f: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
+                        let g: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
+                        (f, g)
+                    },
+                    |(f, g)| {
+                        use efficient_sumcheck::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate;
+
+                        let mut rng = ark_std::test_rng();
+                        let mut transcript = SanityTranscript::new(&mut rng);
+                        let num_rounds = f.len().trailing_zeros() as usize;
+                        let mut ef_f = f;
+                        let mut ef_g = g;
+                        for _ in 0..num_rounds {
+                            let msg = pairwise_product_evaluate(&[ef_f.clone(), ef_g.clone()]);
+                            transcript.write(msg.0);
+                            transcript.write(msg.1);
+                            let chg: F64Ext3 = transcript.read();
+                            pairwise::reduce_evaluations(&mut ef_f, chg);
+                            pairwise::reduce_evaluations(&mut ef_g, chg);
+                        }
+                        black_box((ef_f, ef_g));
                     },
                 )
             },

@@ -244,8 +244,12 @@ pub(crate) fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
 /// Try to run the multilinear sumcheck on the SIMD backend for extension fields.
 ///
 /// Handles the case where BF == EF and EF is a Goldilocks extension (degree 2 or 3).
-/// All rounds are done in-place with SIMD evaluate + SIMD ext reduce, avoiding the
-/// generic path's wasteful cross_field_reduce on round 0 (which is a no-op when BF==EF).
+/// Uses SoA (Struct-of-Arrays) layout: converts AoS to SoA once at entry, then
+/// all rounds operate on contiguous component arrays. This eliminates all shuffle
+/// overhead (permutex2var, gather/scatter) from the AoS reduce path.
+///
+/// Evaluate becomes per-component `evaluate_parallel` (fully SIMD, ~6x over generic).
+/// Reduce uses contiguous loads with `load_deinterleaved` (no shuffles).
 #[cfg(any(
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
@@ -279,20 +283,42 @@ pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
     let mut prover_messages: Vec<(EF, EF)> = Vec::with_capacity(num_rounds);
     let mut verifier_messages: Vec<EF> = Vec::with_capacity(num_rounds);
 
+    // View evaluations as flat u64 buffer
     let n_u64 = n * d;
-    let current: &mut [u64] =
-        unsafe { core::slice::from_raw_parts_mut(evaluations.as_mut_ptr() as *mut u64, n_u64) };
+    let src: &[u64] =
+        unsafe { core::slice::from_raw_parts(evaluations.as_ptr() as *const u64, n_u64) };
 
-    let mut len_u64 = n_u64;
+    // Above this input size, switch to rayon-parallel SoA reduce. Below it,
+    // the in-place single-threaded kernel wins (thread scheduling overhead
+    // dominates the small chunk work).
+    const EXT_PARALLEL_THRESHOLD: usize = 1 << 17;
 
     if d == 2 {
         let w = extract_nonresidue_ext2::<EF, Backend>();
 
+        // Convert AoS → SoA once (one-time O(n) cost, eliminates per-round shuffles)
+        let (mut c0, mut c1) = aos_to_soa_ext2(src);
+        let mut len = n; // number of extension elements
+
+        // Scratch for parallel ping-pong (read from c*, write to scratch_*, swap).
+        // Size n/2 is enough for the first parallel round; subsequent rounds write
+        // smaller outputs.
+        let use_parallel = n > EXT_PARALLEL_THRESHOLD;
+        let mut scratch_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut scratch_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+
+        // Fused reduce+evaluate: rounds 1+ get evaluate results from the prior
+        // round's fused kernel, eliminating one full data pass per round.
+        let mut pending_eval: Option<([u64; 2], [u64; 2])> = None;
+
         for round in 0..num_rounds {
-            // Evaluate: component-wise SIMD sums
-            let (even_comps, odd_comps) = crate::simd_sumcheck::evaluate::ext_evaluate_parallel::<
-                Backend,
-            >(&current[..len_u64], d);
+            let (even_comps, odd_comps) = pending_eval.unwrap_or_else(|| {
+                use crate::simd_sumcheck::evaluate::evaluate_parallel;
+                let (e0, o0) = evaluate_parallel::<Backend>(&c0[..len]);
+                let (e1, o1) = evaluate_parallel::<Backend>(&c1[..len]);
+                ([e0, e1], [o0, o1])
+            });
+
             let even: EF = unsafe { ext_components_to_field(&even_comps) };
             let odd: EF = unsafe { ext_components_to_field(&odd_comps) };
             let msg = (even, odd);
@@ -309,21 +335,49 @@ pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
                     let ptr = &chg as *const EF as *const u64;
                     [*ptr, *ptr.add(1)]
                 };
-                len_u64 = crate::simd_sumcheck::reduce::ext2_reduce_in_place::<Backend>(
-                    &mut current[..len_u64],
-                    chg_raw,
-                    w,
-                );
+                if len > EXT_PARALLEL_THRESHOLD {
+                    let new_len = len / 2;
+                    let (next_even, next_odd) =
+                        crate::simd_sumcheck::reduce::ext2_soa_reduce_and_evaluate_parallel::<Backend>(
+                            &c0[..len], &c1[..len],
+                            &mut scratch_c0[..new_len], &mut scratch_c1[..new_len],
+                            chg_raw, w,
+                        );
+                    core::mem::swap(&mut c0, &mut scratch_c0);
+                    core::mem::swap(&mut c1, &mut scratch_c1);
+                    len = new_len;
+                    pending_eval = Some((next_even, next_odd));
+                } else {
+                    let (next_even, next_odd, new_len) =
+                        crate::simd_sumcheck::reduce::ext2_soa_reduce_and_evaluate::<Backend>(
+                            &mut c0[..len], &mut c1[..len], chg_raw, w,
+                        );
+                    len = new_len;
+                    pending_eval = Some((next_even, next_odd));
+                }
             }
         }
     } else {
         // d == 3
         let w = extract_nonresidue_ext3::<EF, Backend>();
 
+        let (mut c0, mut c1, mut c2) = aos_to_soa_ext3(src);
+        let mut len = n;
+        let use_parallel = n > EXT_PARALLEL_THRESHOLD;
+        let mut scratch_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut scratch_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut scratch_c2: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut pending_eval: Option<([u64; 3], [u64; 3])> = None;
+
         for round in 0..num_rounds {
-            let (even_comps, odd_comps) = crate::simd_sumcheck::evaluate::ext_evaluate_parallel::<
-                Backend,
-            >(&current[..len_u64], d);
+            let (even_comps, odd_comps) = pending_eval.unwrap_or_else(|| {
+                use crate::simd_sumcheck::evaluate::evaluate_parallel;
+                let (e0, o0) = evaluate_parallel::<Backend>(&c0[..len]);
+                let (e1, o1) = evaluate_parallel::<Backend>(&c1[..len]);
+                let (e2, o2) = evaluate_parallel::<Backend>(&c2[..len]);
+                ([e0, e1, e2], [o0, o1, o2])
+            });
+
             let even: EF = unsafe { ext_components_to_field(&even_comps) };
             let odd: EF = unsafe { ext_components_to_field(&odd_comps) };
             let msg = (even, odd);
@@ -340,11 +394,27 @@ pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
                     let ptr = &chg as *const EF as *const u64;
                     [*ptr, *ptr.add(1), *ptr.add(2)]
                 };
-                len_u64 = crate::simd_sumcheck::reduce::ext3_reduce_in_place::<Backend>(
-                    &mut current[..len_u64],
-                    chg_raw,
-                    w,
-                );
+                if len > EXT_PARALLEL_THRESHOLD {
+                    let new_len = len / 2;
+                    let (next_even, next_odd) =
+                        crate::simd_sumcheck::reduce::ext3_soa_reduce_and_evaluate_parallel::<Backend>(
+                            &c0[..len], &c1[..len], &c2[..len],
+                            &mut scratch_c0[..new_len], &mut scratch_c1[..new_len], &mut scratch_c2[..new_len],
+                            chg_raw, w,
+                        );
+                    core::mem::swap(&mut c0, &mut scratch_c0);
+                    core::mem::swap(&mut c1, &mut scratch_c1);
+                    core::mem::swap(&mut c2, &mut scratch_c2);
+                    len = new_len;
+                    pending_eval = Some((next_even, next_odd));
+                } else {
+                    let (next_even, next_odd, new_len) =
+                        crate::simd_sumcheck::reduce::ext3_soa_reduce_and_evaluate::<Backend>(
+                            &mut c0[..len], &mut c1[..len], &mut c2[..len], chg_raw, w,
+                        );
+                    len = new_len;
+                    pending_eval = Some((next_even, next_odd));
+                }
             }
         }
     }
@@ -881,6 +951,233 @@ pub(crate) fn try_simd_evaluate_degree1<F: Field>(pw: &[F]) -> Option<Vec<F>> {
     let s0: F = u64_to_field(s0_raw);
     let s1: F = u64_to_field(s1_raw);
     Some(vec![s0, s1 - s0])
+}
+
+// ─── AoS → SoA conversion ──────────────────────────────────────────────────
+
+/// Convert AoS ext2 layout to SoA: [e0_c0, e0_c1, e1_c0, e1_c1, ...] → (c0[], c1[])
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+fn aos_to_soa_ext2(src: &[u64]) -> (Vec<u64>, Vec<u64>) {
+    let n = src.len() / 2;
+    let mut c0 = Vec::with_capacity(n);
+    let mut c1 = Vec::with_capacity(n);
+    for i in 0..n {
+        c0.push(src[2 * i]);
+        c1.push(src[2 * i + 1]);
+    }
+    (c0, c1)
+}
+
+/// Convert AoS ext3 layout to SoA: [e0_c0, e0_c1, e0_c2, e1_c0, ...] → (c0[], c1[], c2[])
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+fn aos_to_soa_ext3(src: &[u64]) -> (Vec<u64>, Vec<u64>, Vec<u64>) {
+    let n = src.len() / 3;
+    let mut c0 = Vec::with_capacity(n);
+    let mut c1 = Vec::with_capacity(n);
+    let mut c2 = Vec::with_capacity(n);
+    for i in 0..n {
+        c0.push(src[3 * i]);
+        c1.push(src[3 * i + 1]);
+        c2.push(src[3 * i + 2]);
+    }
+    (c0, c1, c2)
+}
+
+// ─── Inner product extension dispatch ──────────────────────────────────────
+
+/// Try to run the inner product sumcheck on the SIMD backend for extension fields.
+///
+/// Handles BF == EF == Goldilocks ext2 (degree-2 extension).
+/// Uses SoA layout for both f and g, with SIMD product evaluate + SoA reduce.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+pub(crate) fn try_simd_ext_product_dispatch<BF: Field, EF: Field + From<BF>>(
+    f: &mut [BF],
+    g: &mut [BF],
+    transcript: &mut impl Transcript<EF>,
+) -> Option<crate::multilinear_product::ProductSumcheck<EF>> {
+    if !is_goldilocks_based::<BF>() {
+        return None;
+    }
+
+    let d = BF::extension_degree() as usize;
+    if !(2..=3).contains(&d) {
+        return None;
+    }
+
+    if core::mem::size_of::<BF>() != core::mem::size_of::<EF>() {
+        return None;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+    let n = f.len();
+    let num_rounds = n.trailing_zeros() as usize;
+    let mut prover_messages: Vec<(EF, EF)> = Vec::with_capacity(num_rounds);
+    let mut verifier_messages: Vec<EF> = Vec::with_capacity(num_rounds);
+
+    // Convert both f and g from AoS → SoA
+    let f_u64: &[u64] =
+        unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n * d) };
+    let g_u64: &[u64] =
+        unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n * d) };
+
+    const EXT_PARALLEL_THRESHOLD: usize = 1 << 17;
+
+    // NOTE on fusion: unlike the non-product SoA dispatch, we don't use a
+    // pending_eval optimization here. The product evaluate requires Σ f'[2m']·g'[2m']
+    // on the *reduced* values, which needs lane-deinterleaving + Karatsuba across
+    // the two halves of each SIMD register — more complex than the non-product
+    // case (which just sums even/odd lanes). Call product_evaluate per round
+    // and reduce separately; the correct fusion is a future optimization.
+    if d == 2 {
+        let w = extract_nonresidue_ext2::<EF, Backend>();
+
+        let (mut f_c0, mut f_c1) = aos_to_soa_ext2(f_u64);
+        let (mut g_c0, mut g_c1) = aos_to_soa_ext2(g_u64);
+        let mut len = n;
+
+        let use_parallel = n > EXT_PARALLEL_THRESHOLD;
+        let mut sf_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sf_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sg_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sg_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+
+        for round in 0..num_rounds {
+            let (a_raw, b_raw) =
+                crate::simd_sumcheck::reduce::ext2_soa_product_evaluate::<Backend>(
+                    &f_c0[..len], &f_c1[..len],
+                    &g_c0[..len], &g_c1[..len],
+                    w,
+                );
+
+            let a: EF = unsafe { ext_components_to_field(&a_raw) };
+            let b: EF = unsafe { ext_components_to_field(&b_raw) };
+            let msg = (a, b);
+
+            prover_messages.push(msg);
+            transcript.write(msg.0);
+            transcript.write(msg.1);
+
+            let chg: EF = transcript.read();
+            verifier_messages.push(chg);
+
+            if round < num_rounds - 1 {
+                let chg_raw: [u64; 2] = unsafe {
+                    let ptr = &chg as *const EF as *const u64;
+                    [*ptr, *ptr.add(1)]
+                };
+                if len > EXT_PARALLEL_THRESHOLD {
+                    let new_len = len / 2;
+                    // Discard the (wrong) evaluate return; we recompute it at next
+                    // round's start.
+                    let _ = crate::simd_sumcheck::reduce::ext2_soa_product_reduce_and_evaluate_parallel::<Backend>(
+                        &f_c0[..len], &f_c1[..len],
+                        &g_c0[..len], &g_c1[..len],
+                        &mut sf_c0[..new_len], &mut sf_c1[..new_len],
+                        &mut sg_c0[..new_len], &mut sg_c1[..new_len],
+                        chg_raw, w,
+                    );
+                    core::mem::swap(&mut f_c0, &mut sf_c0);
+                    core::mem::swap(&mut f_c1, &mut sf_c1);
+                    core::mem::swap(&mut g_c0, &mut sg_c0);
+                    core::mem::swap(&mut g_c1, &mut sg_c1);
+                    len = new_len;
+                } else {
+                    let (_, _, new_len) =
+                        crate::simd_sumcheck::reduce::ext2_soa_product_reduce_and_evaluate::<Backend>(
+                            &mut f_c0[..len], &mut f_c1[..len],
+                            &mut g_c0[..len], &mut g_c1[..len],
+                            chg_raw, w,
+                        );
+                    len = new_len;
+                }
+            }
+        }
+    } else {
+        // d == 3
+        let w = extract_nonresidue_ext3::<EF, Backend>();
+
+        let (mut f_c0, mut f_c1, mut f_c2) = aos_to_soa_ext3(f_u64);
+        let (mut g_c0, mut g_c1, mut g_c2) = aos_to_soa_ext3(g_u64);
+        let mut len = n;
+
+        let use_parallel = n > EXT_PARALLEL_THRESHOLD;
+        let mut sf_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sf_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sf_c2: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sg_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sg_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sg_c2: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+
+        for round in 0..num_rounds {
+            let (a_raw, b_raw) =
+                crate::simd_sumcheck::reduce::ext3_soa_product_evaluate::<Backend>(
+                    &f_c0[..len], &f_c1[..len], &f_c2[..len],
+                    &g_c0[..len], &g_c1[..len], &g_c2[..len],
+                    w,
+                );
+
+            let a: EF = unsafe { ext_components_to_field(&a_raw) };
+            let b: EF = unsafe { ext_components_to_field(&b_raw) };
+            let msg = (a, b);
+
+            prover_messages.push(msg);
+            transcript.write(msg.0);
+            transcript.write(msg.1);
+
+            let chg: EF = transcript.read();
+            verifier_messages.push(chg);
+
+            if round < num_rounds - 1 {
+                let chg_raw: [u64; 3] = unsafe {
+                    let ptr = &chg as *const EF as *const u64;
+                    [*ptr, *ptr.add(1), *ptr.add(2)]
+                };
+                if len > EXT_PARALLEL_THRESHOLD {
+                    let new_len = len / 2;
+                    let _ = crate::simd_sumcheck::reduce::ext3_soa_product_reduce_and_evaluate_parallel::<Backend>(
+                        &f_c0[..len], &f_c1[..len], &f_c2[..len],
+                        &g_c0[..len], &g_c1[..len], &g_c2[..len],
+                        &mut sf_c0[..new_len], &mut sf_c1[..new_len], &mut sf_c2[..new_len],
+                        &mut sg_c0[..new_len], &mut sg_c1[..new_len], &mut sg_c2[..new_len],
+                        chg_raw, w,
+                    );
+                    core::mem::swap(&mut f_c0, &mut sf_c0);
+                    core::mem::swap(&mut f_c1, &mut sf_c1);
+                    core::mem::swap(&mut f_c2, &mut sf_c2);
+                    core::mem::swap(&mut g_c0, &mut sg_c0);
+                    core::mem::swap(&mut g_c1, &mut sg_c1);
+                    core::mem::swap(&mut g_c2, &mut sg_c2);
+                    len = new_len;
+                } else {
+                    let (_, _, new_len) =
+                        crate::simd_sumcheck::reduce::ext3_soa_product_reduce_and_evaluate::<Backend>(
+                            &mut f_c0[..len], &mut f_c1[..len], &mut f_c2[..len],
+                            &mut g_c0[..len], &mut g_c1[..len], &mut g_c2[..len],
+                            chg_raw, w,
+                        );
+                    len = new_len;
+                }
+            }
+        }
+    }
+
+    Some(crate::multilinear_product::ProductSumcheck {
+        verifier_messages,
+        prover_messages,
+    })
 }
 
 // ─── Helpers: field ↔ u64 conversion ────────────────────────────────────────
