@@ -51,6 +51,12 @@ impl SimdBaseField for GoldilocksNeon {
         unsafe { vst1q_u64(ptr, v) }
     }
 
+    #[inline(always)]
+    unsafe fn load_deinterleaved(ptr: *const u64) -> (uint64x2_t, uint64x2_t) {
+        let pair = unsafe { vld2q_u64(ptr) };
+        (pair.0, pair.1)
+    }
+
     // Add/sub are identical in canonical and Montgomery domain.
     // mont(a) + mont(b) = mont(a + b), same wrapping/reduction logic.
 

@@ -118,7 +118,7 @@ fn is_goldilocks_based<F: Field>() -> bool {
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[inline]
-fn extract_nonresidue_ext2<EF: Field, S: crate::simd_fields::SimdBaseField<Scalar = u64>>() -> u64 {
+pub(crate) fn extract_nonresidue_ext2<EF: Field, S: crate::simd_fields::SimdBaseField<Scalar = u64>>() -> u64 {
     let one_x = unsafe {
         let mut tmp = [0u64; 2];
         tmp[1] = S::ONE;
@@ -136,7 +136,7 @@ fn extract_nonresidue_ext2<EF: Field, S: crate::simd_fields::SimdBaseField<Scala
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[inline]
-fn extract_nonresidue_ext3<EF: Field, S: crate::simd_fields::SimdBaseField<Scalar = u64>>() -> u64 {
+pub(crate) fn extract_nonresidue_ext3<EF: Field, S: crate::simd_fields::SimdBaseField<Scalar = u64>>() -> u64 {
     let one_x = unsafe {
         let mut tmp = [0u64; 3];
         tmp[1] = S::ONE;
@@ -960,7 +960,7 @@ pub(crate) fn try_simd_evaluate_degree1<F: Field>(pw: &[F]) -> Option<Vec<F>> {
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-fn aos_to_soa_ext2(src: &[u64]) -> (Vec<u64>, Vec<u64>) {
+pub(crate) fn aos_to_soa_ext2(src: &[u64]) -> (Vec<u64>, Vec<u64>) {
     let n = src.len() / 2;
     let mut c0 = Vec::with_capacity(n);
     let mut c1 = Vec::with_capacity(n);
@@ -976,7 +976,7 @@ fn aos_to_soa_ext2(src: &[u64]) -> (Vec<u64>, Vec<u64>) {
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-fn aos_to_soa_ext3(src: &[u64]) -> (Vec<u64>, Vec<u64>, Vec<u64>) {
+pub(crate) fn aos_to_soa_ext3(src: &[u64]) -> (Vec<u64>, Vec<u64>, Vec<u64>) {
     let n = src.len() / 3;
     let mut c0 = Vec::with_capacity(n);
     let mut c1 = Vec::with_capacity(n);
@@ -1218,6 +1218,12 @@ fn field_to_u64<F: Field>(val: F) -> u64 {
 #[inline(always)]
 pub fn is_goldilocks_pub<F: Field>() -> bool {
     is_goldilocks::<F>()
+}
+
+/// Public wrapper — accepts base Goldilocks or any Goldilocks-based extension.
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+pub fn is_goldilocks_based_pub<F: Field>() -> bool {
+    is_goldilocks_based::<F>()
 }
 
 /// Reinterpret a Montgomery-form `u64` as a field element (public wrapper).
