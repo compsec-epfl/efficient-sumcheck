@@ -35,11 +35,9 @@ pub fn evaluate_from_stream<F: Field, S: Stream<F>>(src: &S) -> (F, F) {
 }
 
 pub fn reduce_evaluations<F: Field>(src: &mut Vec<F>, verifier_message: F) {
-    // compute from src
     let out: Vec<F> = cfg_chunks!(src, 2)
         .map(|chunk| chunk[0] + verifier_message * (chunk[1] - chunk[0]))
         .collect();
-    // write back into src
     src[..out.len()].copy_from_slice(&out);
     src.truncate(out.len());
 }

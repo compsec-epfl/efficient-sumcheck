@@ -54,6 +54,7 @@ pub mod folding;
 pub mod poly_ops;
 
 pub mod simd_fields;
+pub mod simd_ops;
 pub mod simd_sumcheck;
 
 #[doc(hidden)]

@@ -438,6 +438,121 @@ pub fn ext_evaluate<F: SimdBaseField>(
     (even_sums, odd_sums)
 }
 
+/// Specialized ext3 evaluate using NEON `vld3q_u64` structured loads.
+///
+/// Loads 2 extension elements (6 u64s) at a time, deinterleaving by stride 3
+/// into per-component vectors. No scalar tail needed — every u64 is SIMD-processed.
+///
+/// 4× unrolled: processes 8 ext3 elements (4 even + 4 odd) per outer iteration.
+#[cfg(target_arch = "aarch64")]
+pub fn ext3_evaluate_neon(src: &[u64]) -> (Vec<u64>, Vec<u64>) {
+    use crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    use crate::simd_fields::SimdBaseField;
+    use core::arch::aarch64::*;
+
+    let ext_deg = 3;
+    let n_elems = src.len() / ext_deg;
+    let n_pairs = n_elems / 2;
+
+    // Each pair = 2 ext3 elements = 6 u64s.
+    // vld3q_u64 loads 6 u64s and deinterleaves into 3 uint64x2_t:
+    //   v[0] = [c0_even, c0_odd], v[1] = [c1_even, c1_odd], v[2] = [c2_even, c2_odd]
+    // Then lane 0 = even element's component, lane 1 = odd element's component.
+
+    let zero = GoldilocksNeon::splat(0);
+    // 4× unrolled accumulators for even (lane 0) and odd (lane 1)
+    let mut acc_c0_0 = zero;
+    let mut acc_c1_0 = zero;
+    let mut acc_c2_0 = zero;
+    let mut acc_c0_1 = zero;
+    let mut acc_c1_1 = zero;
+    let mut acc_c2_1 = zero;
+    let mut acc_c0_2 = zero;
+    let mut acc_c1_2 = zero;
+    let mut acc_c2_2 = zero;
+    let mut acc_c0_3 = zero;
+    let mut acc_c1_3 = zero;
+    let mut acc_c2_3 = zero;
+
+    let unroll = 4;
+    let aligned_pairs = (n_pairs / unroll) * unroll;
+    let ptr = src.as_ptr();
+
+    let mut pair = 0;
+    while pair < aligned_pairs {
+        unsafe {
+            // Group 0
+            let v0 = vld3q_u64(ptr.add((pair) * 6));
+            acc_c0_0 = GoldilocksNeon::add(acc_c0_0, v0.0);
+            acc_c1_0 = GoldilocksNeon::add(acc_c1_0, v0.1);
+            acc_c2_0 = GoldilocksNeon::add(acc_c2_0, v0.2);
+
+            // Group 1
+            let v1 = vld3q_u64(ptr.add((pair + 1) * 6));
+            acc_c0_1 = GoldilocksNeon::add(acc_c0_1, v1.0);
+            acc_c1_1 = GoldilocksNeon::add(acc_c1_1, v1.1);
+            acc_c2_1 = GoldilocksNeon::add(acc_c2_1, v1.2);
+
+            // Group 2
+            let v2 = vld3q_u64(ptr.add((pair + 2) * 6));
+            acc_c0_2 = GoldilocksNeon::add(acc_c0_2, v2.0);
+            acc_c1_2 = GoldilocksNeon::add(acc_c1_2, v2.1);
+            acc_c2_2 = GoldilocksNeon::add(acc_c2_2, v2.2);
+
+            // Group 3
+            let v3 = vld3q_u64(ptr.add((pair + 3) * 6));
+            acc_c0_3 = GoldilocksNeon::add(acc_c0_3, v3.0);
+            acc_c1_3 = GoldilocksNeon::add(acc_c1_3, v3.1);
+            acc_c2_3 = GoldilocksNeon::add(acc_c2_3, v3.2);
+        }
+        pair += unroll;
+    }
+
+    // Combine unrolled accumulators
+    let mut total_c0 = GoldilocksNeon::add(
+        GoldilocksNeon::add(acc_c0_0, acc_c0_1),
+        GoldilocksNeon::add(acc_c0_2, acc_c0_3),
+    );
+    let mut total_c1 = GoldilocksNeon::add(
+        GoldilocksNeon::add(acc_c1_0, acc_c1_1),
+        GoldilocksNeon::add(acc_c1_2, acc_c1_3),
+    );
+    let mut total_c2 = GoldilocksNeon::add(
+        GoldilocksNeon::add(acc_c2_0, acc_c2_1),
+        GoldilocksNeon::add(acc_c2_2, acc_c2_3),
+    );
+
+    // Tail pairs
+    while pair < n_pairs {
+        unsafe {
+            let v = vld3q_u64(ptr.add(pair * 6));
+            total_c0 = GoldilocksNeon::add(total_c0, v.0);
+            total_c1 = GoldilocksNeon::add(total_c1, v.1);
+            total_c2 = GoldilocksNeon::add(total_c2, v.2);
+        }
+        pair += 1;
+    }
+
+    // Extract: lane 0 = even sum, lane 1 = odd sum for each component
+    let mut buf = [0u64; 2];
+    let mut even = vec![0u64; 3];
+    let mut odd = vec![0u64; 3];
+
+    unsafe {
+        GoldilocksNeon::store(buf.as_mut_ptr(), total_c0);
+        even[0] = buf[0];
+        odd[0] = buf[1];
+        GoldilocksNeon::store(buf.as_mut_ptr(), total_c1);
+        even[1] = buf[0];
+        odd[1] = buf[1];
+        GoldilocksNeon::store(buf.as_mut_ptr(), total_c2);
+        even[2] = buf[0];
+        odd[2] = buf[1];
+    }
+
+    (even, odd)
+}
+
 /// Parallel extension evaluate with chunking for large arrays.
 #[cfg(feature = "parallel")]
 pub fn ext_evaluate_parallel<F: SimdBaseField>(
