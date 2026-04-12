@@ -210,25 +210,88 @@ fn try_simd_product_sum<F: Field>(f: &[F], g: &[F]) -> Option<(F, F)> {
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+const EXT_PRODUCT_CHUNK: usize = 1 << 14; // pairs per rayon chunk
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+fn aos_to_soa_ext2_par(src: &[u64]) -> (Vec<u64>, Vec<u64>) {
+    use rayon::prelude::*;
+    let n = src.len() / 2;
+    let mut c0 = vec![0u64; n];
+    let mut c1 = vec![0u64; n];
+    let chunk = EXT_PRODUCT_CHUNK;
+    c0.par_chunks_mut(chunk)
+        .zip(c1.par_chunks_mut(chunk))
+        .enumerate()
+        .for_each(|(i, (c0_chunk, c1_chunk))| {
+            let start = i * chunk;
+            for j in 0..c0_chunk.len() {
+                c0_chunk[j] = src[2 * (start + j)];
+                c1_chunk[j] = src[2 * (start + j) + 1];
+            }
+        });
+    (c0, c1)
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+fn aos_to_soa_ext3_par(src: &[u64]) -> (Vec<u64>, Vec<u64>, Vec<u64>) {
+    use rayon::prelude::*;
+    let n = src.len() / 3;
+    let mut c0 = vec![0u64; n];
+    let mut c1 = vec![0u64; n];
+    let mut c2 = vec![0u64; n];
+    let chunk = EXT_PRODUCT_CHUNK;
+    c0.par_chunks_mut(chunk)
+        .zip(c1.par_chunks_mut(chunk))
+        .zip(c2.par_chunks_mut(chunk))
+        .enumerate()
+        .for_each(|(i, ((c0_chunk, c1_chunk), c2_chunk))| {
+            let start = i * chunk;
+            for j in 0..c0_chunk.len() {
+                c0_chunk[j] = src[3 * (start + j)];
+                c1_chunk[j] = src[3 * (start + j) + 1];
+                c2_chunk[j] = src[3 * (start + j) + 2];
+            }
+        });
+    (c0, c1, c2)
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 fn simd_ext2_product_sum<F: Field, B: crate::simd_fields::SimdBaseField<Scalar = u64>>(
     f: &[F],
     g: &[F],
 ) -> (F, F) {
-    use crate::simd_sumcheck::dispatch::{
-        aos_to_soa_ext2, extract_nonresidue_ext2,
-    };
+    use crate::simd_sumcheck::dispatch::extract_nonresidue_ext2;
+    use rayon::prelude::*;
 
     let n = f.len();
     let f_raw: &[u64] = unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n * 2) };
     let g_raw: &[u64] = unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n * 2) };
 
-    let (f_c0, f_c1) = aos_to_soa_ext2(f_raw);
-    let (g_c0, g_c1) = aos_to_soa_ext2(g_raw);
+    // Parallel AoS → SoA; one pass each for f and g.
+    let ((f_c0, f_c1), (g_c0, g_c1)) =
+        rayon::join(|| aos_to_soa_ext2_par(f_raw), || aos_to_soa_ext2_par(g_raw));
     let w = extract_nonresidue_ext2::<F, B>();
 
-    let (a, b) = crate::simd_sumcheck::reduce::ext2_soa_product_evaluate::<B>(
-        &f_c0, &f_c1, &g_c0, &g_c1, w,
-    );
+    // Chunks must be pair-aligned (even length). The last chunk may be odd
+    // if n is odd, but pairwise_product_sum always receives even n (pairs).
+    let chunk = EXT_PRODUCT_CHUNK;
+    let (a, b) = f_c0
+        .par_chunks(chunk)
+        .zip(f_c1.par_chunks(chunk))
+        .zip(g_c0.par_chunks(chunk))
+        .zip(g_c1.par_chunks(chunk))
+        .map(|(((fc0, fc1), gc0), gc1)| {
+            crate::simd_sumcheck::reduce::ext2_soa_product_evaluate::<B>(fc0, fc1, gc0, gc1, w)
+        })
+        .reduce(
+            || ([0u64; 2], [0u64; 2]),
+            |(a1, b1), (a2, b2)| {
+                (
+                    [B::scalar_add(a1[0], a2[0]), B::scalar_add(a1[1], a2[1])],
+                    [B::scalar_add(b1[0], b2[0]), B::scalar_add(b1[1], b2[1])],
+                )
+            },
+        );
 
     (pack_ext_u64_to_field::<F>(&a), pack_ext_u64_to_field::<F>(&b))
 }
@@ -238,21 +301,47 @@ fn simd_ext3_product_sum<F: Field, B: crate::simd_fields::SimdBaseField<Scalar =
     f: &[F],
     g: &[F],
 ) -> (F, F) {
-    use crate::simd_sumcheck::dispatch::{
-        aos_to_soa_ext3, extract_nonresidue_ext3,
-    };
+    use crate::simd_sumcheck::dispatch::extract_nonresidue_ext3;
+    use rayon::prelude::*;
 
     let n = f.len();
     let f_raw: &[u64] = unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n * 3) };
     let g_raw: &[u64] = unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n * 3) };
 
-    let (f_c0, f_c1, f_c2) = aos_to_soa_ext3(f_raw);
-    let (g_c0, g_c1, g_c2) = aos_to_soa_ext3(g_raw);
+    let ((f_c0, f_c1, f_c2), (g_c0, g_c1, g_c2)) =
+        rayon::join(|| aos_to_soa_ext3_par(f_raw), || aos_to_soa_ext3_par(g_raw));
     let w = extract_nonresidue_ext3::<F, B>();
 
-    let (a, b) = crate::simd_sumcheck::reduce::ext3_soa_product_evaluate::<B>(
-        &f_c0, &f_c1, &f_c2, &g_c0, &g_c1, &g_c2, w,
-    );
+    let chunk = EXT_PRODUCT_CHUNK;
+    let (a, b) = f_c0
+        .par_chunks(chunk)
+        .zip(f_c1.par_chunks(chunk))
+        .zip(f_c2.par_chunks(chunk))
+        .zip(g_c0.par_chunks(chunk))
+        .zip(g_c1.par_chunks(chunk))
+        .zip(g_c2.par_chunks(chunk))
+        .map(|(((((fc0, fc1), fc2), gc0), gc1), gc2)| {
+            crate::simd_sumcheck::reduce::ext3_soa_product_evaluate::<B>(
+                fc0, fc1, fc2, gc0, gc1, gc2, w,
+            )
+        })
+        .reduce(
+            || ([0u64; 3], [0u64; 3]),
+            |(a1, b1), (a2, b2)| {
+                (
+                    [
+                        B::scalar_add(a1[0], a2[0]),
+                        B::scalar_add(a1[1], a2[1]),
+                        B::scalar_add(a1[2], a2[2]),
+                    ],
+                    [
+                        B::scalar_add(b1[0], b2[0]),
+                        B::scalar_add(b1[1], b2[1]),
+                        B::scalar_add(b1[2], b2[2]),
+                    ],
+                )
+            },
+        );
 
     (pack_ext_u64_to_field::<F>(&a), pack_ext_u64_to_field::<F>(&b))
 }
