@@ -169,21 +169,107 @@ pub fn pairwise_product_sum<F: Field>(f: &[F], g: &[F]) -> (F, F) {
 fn try_simd_product_sum<F: Field>(f: &[F], g: &[F]) -> Option<(F, F)> {
     use crate::simd_sumcheck::dispatch::is_goldilocks_pub;
 
-    if !is_goldilocks_pub::<F>() {
-        return None;
-    }
-
     #[cfg(target_arch = "aarch64")]
     type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
     type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
 
-    let f_raw: &[u64] = unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, f.len()) };
-    let g_raw: &[u64] = unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, g.len()) };
-    let (a, b) = crate::simd_sumcheck::evaluate::product_evaluate_parallel::<Backend>(f_raw, g_raw);
+    if is_goldilocks_pub::<F>() {
+        let f_raw: &[u64] =
+            unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, f.len()) };
+        let g_raw: &[u64] =
+            unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, g.len()) };
+        let (a, b) =
+            crate::simd_sumcheck::evaluate::product_evaluate_parallel::<Backend>(f_raw, g_raw);
 
-    use crate::simd_sumcheck::dispatch::u64_to_field_pub;
-    Some((u64_to_field_pub(a), u64_to_field_pub(b)))
+        use crate::simd_sumcheck::dispatch::u64_to_field_pub;
+        return Some((u64_to_field_pub(a), u64_to_field_pub(b)));
+    }
+
+    // Ext2/ext3 path: AVX-512 only for now. NEON regresses on ext3 product
+    // because it has no true vector 64×64 multiply — the SIMD wrapper adds
+    // overhead without compute gain. Re-enable for NEON once a scalar-direct
+    // path exists.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    {
+        use crate::simd_sumcheck::dispatch::is_goldilocks_based_pub;
+        if is_goldilocks_based_pub::<F>()
+            && core::mem::size_of::<F>()
+                == (F::extension_degree() as usize) * core::mem::size_of::<u64>()
+        {
+            let d = F::extension_degree() as usize;
+            if d == 2 {
+                return Some(simd_ext2_product_sum::<F, Backend>(f, g));
+            } else if d == 3 {
+                return Some(simd_ext3_product_sum::<F, Backend>(f, g));
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+fn simd_ext2_product_sum<F: Field, B: crate::simd_fields::SimdBaseField<Scalar = u64>>(
+    f: &[F],
+    g: &[F],
+) -> (F, F) {
+    use crate::simd_sumcheck::dispatch::{
+        aos_to_soa_ext2, extract_nonresidue_ext2,
+    };
+
+    let n = f.len();
+    let f_raw: &[u64] = unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n * 2) };
+    let g_raw: &[u64] = unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n * 2) };
+
+    let (f_c0, f_c1) = aos_to_soa_ext2(f_raw);
+    let (g_c0, g_c1) = aos_to_soa_ext2(g_raw);
+    let w = extract_nonresidue_ext2::<F, B>();
+
+    let (a, b) = crate::simd_sumcheck::reduce::ext2_soa_product_evaluate::<B>(
+        &f_c0, &f_c1, &g_c0, &g_c1, w,
+    );
+
+    (pack_ext_u64_to_field::<F>(&a), pack_ext_u64_to_field::<F>(&b))
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+fn simd_ext3_product_sum<F: Field, B: crate::simd_fields::SimdBaseField<Scalar = u64>>(
+    f: &[F],
+    g: &[F],
+) -> (F, F) {
+    use crate::simd_sumcheck::dispatch::{
+        aos_to_soa_ext3, extract_nonresidue_ext3,
+    };
+
+    let n = f.len();
+    let f_raw: &[u64] = unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n * 3) };
+    let g_raw: &[u64] = unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n * 3) };
+
+    let (f_c0, f_c1, f_c2) = aos_to_soa_ext3(f_raw);
+    let (g_c0, g_c1, g_c2) = aos_to_soa_ext3(g_raw);
+    let w = extract_nonresidue_ext3::<F, B>();
+
+    let (a, b) = crate::simd_sumcheck::reduce::ext3_soa_product_evaluate::<B>(
+        &f_c0, &f_c1, &f_c2, &g_c0, &g_c1, &g_c2, w,
+    );
+
+    (pack_ext_u64_to_field::<F>(&a), pack_ext_u64_to_field::<F>(&b))
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+#[inline]
+fn pack_ext_u64_to_field<F: Field>(limbs: &[u64]) -> F {
+    debug_assert_eq!(core::mem::size_of::<F>(), limbs.len() * core::mem::size_of::<u64>());
+    unsafe {
+        let mut out = core::mem::MaybeUninit::<F>::uninit();
+        core::ptr::copy_nonoverlapping(
+            limbs.as_ptr(),
+            out.as_mut_ptr() as *mut u64,
+            limbs.len(),
+        );
+        out.assume_init()
+    }
 }
 
 // ─── Inner product ──────────────────────────────────────────────────────────
@@ -335,6 +421,42 @@ mod tests {
         // Reference
         let expected_a: F64 = (0..n / 2).map(|k| f[2 * k] * g[2 * k]).sum();
         let expected_b: F64 = (0..n / 2)
+            .map(|k| f[2 * k] * g[2 * k + 1] + f[2 * k + 1] * g[2 * k])
+            .sum();
+
+        assert_eq!(a, expected_a);
+        assert_eq!(b, expected_b);
+    }
+
+    #[test]
+    fn test_pairwise_product_sum_ext2() {
+        let mut rng = test_rng();
+        let n = 1 << 10;
+        let f: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+        let g: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+
+        let (a, b) = pairwise_product_sum(&f, &g);
+
+        let expected_a: F64Ext2 = (0..n / 2).map(|k| f[2 * k] * g[2 * k]).sum();
+        let expected_b: F64Ext2 = (0..n / 2)
+            .map(|k| f[2 * k] * g[2 * k + 1] + f[2 * k + 1] * g[2 * k])
+            .sum();
+
+        assert_eq!(a, expected_a);
+        assert_eq!(b, expected_b);
+    }
+
+    #[test]
+    fn test_pairwise_product_sum_ext3() {
+        let mut rng = test_rng();
+        let n = 1 << 10;
+        let f: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
+        let g: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
+
+        let (a, b) = pairwise_product_sum(&f, &g);
+
+        let expected_a: F64Ext3 = (0..n / 2).map(|k| f[2 * k] * g[2 * k]).sum();
+        let expected_b: F64Ext3 = (0..n / 2)
             .map(|k| f[2 * k] * g[2 * k + 1] + f[2 * k + 1] * g[2 * k])
             .sum();
 

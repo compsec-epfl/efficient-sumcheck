@@ -851,7 +851,7 @@ fn inner_product_extension_bench(c: &mut Criterion) {
                         (f, g)
                     },
                     |(f, g)| {
-                        use efficient_sumcheck::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate;
+                        use efficient_sumcheck::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate_slices;
 
                         let mut rng = ark_std::test_rng();
                         let mut transcript = SanityTranscript::new(&mut rng);
@@ -859,7 +859,7 @@ fn inner_product_extension_bench(c: &mut Criterion) {
                         let mut ef_f = f;
                         let mut ef_g = g;
                         for _ in 0..num_rounds {
-                            let msg = pairwise_product_evaluate(&[ef_f.clone(), ef_g.clone()]);
+                            let msg = pairwise_product_evaluate_slices(&ef_f, &ef_g);
                             transcript.write(msg.0);
                             transcript.write(msg.1);
                             let chg: F64Ext3 = transcript.read();
@@ -887,99 +887,6 @@ fn inner_product_extension_bench(c: &mut Criterion) {
                         let mut rng = ark_std::test_rng();
                         let mut transcript = SanityTranscript::new(&mut rng);
                         black_box(inner_product_sumcheck::<F64, F64>(
-                            &mut f,
-                            &mut g,
-                            &mut transcript,
-                        ));
-                    },
-                )
-            },
-        );
-
-        // ── Generic baselines (no simd_ops, raw arkworks) ──
-        group.bench_with_input(
-            BenchmarkId::new("ext2_generic", format!("2^{}", num_vars)),
-            &num_vars,
-            |bencher, _| {
-                use efficient_sumcheck::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate_slices;
-                bencher.iter_with_setup(
-                    || {
-                        let mut rng = ark_std::test_rng();
-                        let f: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
-                        let g: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
-                        (f, g)
-                    },
-                    |(f, g)| {
-                        let mut rng = ark_std::test_rng();
-                        let mut transcript = SanityTranscript::new(&mut rng);
-                        let num_rounds = f.len().trailing_zeros() as usize;
-                        let mut ef_f = f;
-                        let mut ef_g = g;
-                        let mut msgs = Vec::with_capacity(num_rounds);
-                        for _ in 0..num_rounds {
-                            let msg = pairwise_product_evaluate_slices(&ef_f, &ef_g);
-                            msgs.push(msg);
-                            transcript.write(msg.0);
-                            transcript.write(msg.1);
-                            let chg: F64Ext2 = transcript.read();
-                            pairwise::reduce_evaluations(&mut ef_f, chg);
-                            pairwise::reduce_evaluations(&mut ef_g, chg);
-                        }
-                        black_box(msgs);
-                    },
-                )
-            },
-        );
-
-        group.bench_with_input(
-            BenchmarkId::new("ext3_generic", format!("2^{}", num_vars)),
-            &num_vars,
-            |bencher, _| {
-                use efficient_sumcheck::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate_slices;
-                bencher.iter_with_setup(
-                    || {
-                        let mut rng = ark_std::test_rng();
-                        let f: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
-                        let g: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
-                        (f, g)
-                    },
-                    |(f, g)| {
-                        let mut rng = ark_std::test_rng();
-                        let mut transcript = SanityTranscript::new(&mut rng);
-                        let num_rounds = f.len().trailing_zeros() as usize;
-                        let mut ef_f = f;
-                        let mut ef_g = g;
-                        let mut msgs = Vec::with_capacity(num_rounds);
-                        for _ in 0..num_rounds {
-                            let msg = pairwise_product_evaluate_slices(&ef_f, &ef_g);
-                            msgs.push(msg);
-                            transcript.write(msg.0);
-                            transcript.write(msg.1);
-                            let chg: F64Ext3 = transcript.read();
-                            pairwise::reduce_evaluations(&mut ef_f, chg);
-                            pairwise::reduce_evaluations(&mut ef_g, chg);
-                        }
-                        black_box(msgs);
-                    },
-                )
-            },
-        );
-
-        group.bench_with_input(
-            BenchmarkId::new("ext3", format!("2^{}", num_vars)),
-            &num_vars,
-            |bencher, _| {
-                bencher.iter_with_setup(
-                    || {
-                        let mut rng = ark_std::test_rng();
-                        let f: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
-                        let g: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
-                        (f, g)
-                    },
-                    |(mut f, mut g)| {
-                        let mut rng = ark_std::test_rng();
-                        let mut transcript = SanityTranscript::new(&mut rng);
-                        black_box(inner_product_sumcheck::<F64Ext3, F64Ext3>(
                             &mut f,
                             &mut g,
                             &mut transcript,
