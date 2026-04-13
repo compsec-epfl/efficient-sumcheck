@@ -116,26 +116,92 @@ pub fn fold_both<F: Field>(f: &mut Vec<F>, g: &mut Vec<F>, challenge: F) {
 fn try_simd_fold_both<F: Field>(f: &mut Vec<F>, g: &mut Vec<F>, challenge: F) -> Option<bool> {
     use crate::simd_sumcheck::dispatch::{field_to_u64_pub, is_goldilocks_pub};
 
-    if !is_goldilocks_pub::<F>() {
-        return None;
-    }
-
     #[cfg(target_arch = "aarch64")]
     type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
     type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
 
-    let n = f.len();
-    let f_raw: &mut [u64] =
-        unsafe { core::slice::from_raw_parts_mut(f.as_mut_ptr() as *mut u64, n) };
-    let g_raw: &mut [u64] =
-        unsafe { core::slice::from_raw_parts_mut(g.as_mut_ptr() as *mut u64, n) };
-    let chg: u64 = field_to_u64_pub(challenge);
+    if is_goldilocks_pub::<F>() {
+        // Base field: fused interleaved reduce-both kernel.
+        let n = f.len();
+        let f_raw: &mut [u64] =
+            unsafe { core::slice::from_raw_parts_mut(f.as_mut_ptr() as *mut u64, n) };
+        let g_raw: &mut [u64] =
+            unsafe { core::slice::from_raw_parts_mut(g.as_mut_ptr() as *mut u64, n) };
+        let chg: u64 = field_to_u64_pub(challenge);
 
-    let new_len = crate::simd_sumcheck::reduce::reduce_both_in_place::<Backend>(f_raw, g_raw, chg);
-    f.truncate(new_len);
-    g.truncate(new_len);
-    Some(true)
+        let new_len =
+            crate::simd_sumcheck::reduce::reduce_both_in_place::<Backend>(f_raw, g_raw, chg);
+        f.truncate(new_len);
+        g.truncate(new_len);
+        return Some(true);
+    }
+
+    // Ext2/ext3: call ext in-place reduce on f and g directly, sharing the
+    // challenge/nonresidue setup. Equivalent to `fold(f); fold(g)` but
+    // avoids the re-dispatch through `try_simd_reduce` → `try_simd_ext_reduce`
+    // on each call. On AVX-512 these kernels use 8-wide IFMA.
+    //
+    // NEON note: the existing ext reduce kernels do scalar Karatsuba under
+    // the SIMD wrapper (no true vector 64×64 mul). They still help vs the
+    // generic arkworks reduce for small inputs, but rayon-parallel generic
+    // reduce beats them at scale. Keep AVX-512-only routing here.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    {
+        use crate::simd_sumcheck::dispatch::{
+            extract_nonresidue_ext2, extract_nonresidue_ext3, is_goldilocks_based_pub,
+        };
+        if is_goldilocks_based_pub::<F>()
+            && core::mem::size_of::<F>()
+                == (F::extension_degree() as usize) * core::mem::size_of::<u64>()
+        {
+            let d = F::extension_degree() as usize;
+            if d == 2 {
+                let chg_raw: [u64; 2] = unsafe {
+                    let ptr = &challenge as *const F as *const u64;
+                    [*ptr, *ptr.add(1)]
+                };
+                let w = extract_nonresidue_ext2::<F, Backend>();
+
+                let n_f = f.len() * d;
+                let f_buf: &mut [u64] =
+                    unsafe { core::slice::from_raw_parts_mut(f.as_mut_ptr() as *mut u64, n_f) };
+                crate::simd_sumcheck::reduce::ext2_reduce_in_place::<Backend>(f_buf, chg_raw, w);
+
+                let n_g = g.len() * d;
+                let g_buf: &mut [u64] =
+                    unsafe { core::slice::from_raw_parts_mut(g.as_mut_ptr() as *mut u64, n_g) };
+                crate::simd_sumcheck::reduce::ext2_reduce_in_place::<Backend>(g_buf, chg_raw, w);
+
+                f.truncate(f.len() / 2);
+                g.truncate(g.len() / 2);
+                return Some(true);
+            }
+            if d == 3 {
+                let chg_raw: [u64; 3] = unsafe {
+                    let ptr = &challenge as *const F as *const u64;
+                    [*ptr, *ptr.add(1), *ptr.add(2)]
+                };
+                let w = extract_nonresidue_ext3::<F, Backend>();
+
+                let n_f = f.len() * d;
+                let f_buf: &mut [u64] =
+                    unsafe { core::slice::from_raw_parts_mut(f.as_mut_ptr() as *mut u64, n_f) };
+                crate::simd_sumcheck::reduce::ext3_reduce_in_place::<Backend>(f_buf, chg_raw, w);
+
+                let n_g = g.len() * d;
+                let g_buf: &mut [u64] =
+                    unsafe { core::slice::from_raw_parts_mut(g.as_mut_ptr() as *mut u64, n_g) };
+                crate::simd_sumcheck::reduce::ext3_reduce_in_place::<Backend>(g_buf, chg_raw, w);
+
+                f.truncate(f.len() / 2);
+                g.truncate(g.len() / 2);
+                return Some(true);
+            }
+        }
+    }
+
+    None
 }
 
 // ─── Product evaluate ───────────────────────────────────────────────────────
@@ -212,6 +278,39 @@ fn try_simd_product_sum<F: Field>(f: &[F], g: &[F]) -> Option<(F, F)> {
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 const EXT_PRODUCT_CHUNK: usize = 1 << 14; // pairs per rayon chunk
 
+/// Below this input size, `simd_ext{2,3}_product_sum` skips rayon entirely
+/// and runs sequentially. Rayon's fork/join overhead dominates actual SIMD
+/// compute for small inputs (profiling showed ~70% of short-call samples
+/// in `_lll_lock_wake_private` / `mprotect`).
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+const EXT_PRODUCT_PARALLEL_THRESHOLD: usize = 1 << 17;
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+fn aos_to_soa_ext2_serial(src: &[u64]) -> (Vec<u64>, Vec<u64>) {
+    let n = src.len() / 2;
+    let mut c0 = vec![0u64; n];
+    let mut c1 = vec![0u64; n];
+    for i in 0..n {
+        c0[i] = src[2 * i];
+        c1[i] = src[2 * i + 1];
+    }
+    (c0, c1)
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+fn aos_to_soa_ext3_serial(src: &[u64]) -> (Vec<u64>, Vec<u64>, Vec<u64>) {
+    let n = src.len() / 3;
+    let mut c0 = vec![0u64; n];
+    let mut c1 = vec![0u64; n];
+    let mut c2 = vec![0u64; n];
+    for i in 0..n {
+        c0[i] = src[3 * i];
+        c1[i] = src[3 * i + 1];
+        c2[i] = src[3 * i + 2];
+    }
+    (c0, c1, c2)
+}
+
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 fn aos_to_soa_ext2_par(src: &[u64]) -> (Vec<u64>, Vec<u64>) {
     use rayon::prelude::*;
@@ -266,11 +365,21 @@ fn simd_ext2_product_sum<F: Field, B: crate::simd_fields::SimdBaseField<Scalar =
     let n = f.len();
     let f_raw: &[u64] = unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n * 2) };
     let g_raw: &[u64] = unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n * 2) };
+    let w = extract_nonresidue_ext2::<F, B>();
+
+    // Serial path for small inputs: rayon's fork/join cost would dominate.
+    if n <= EXT_PRODUCT_PARALLEL_THRESHOLD {
+        let (f_c0, f_c1) = aos_to_soa_ext2_serial(f_raw);
+        let (g_c0, g_c1) = aos_to_soa_ext2_serial(g_raw);
+        let (a, b) = crate::simd_sumcheck::reduce::ext2_soa_product_evaluate::<B>(
+            &f_c0, &f_c1, &g_c0, &g_c1, w,
+        );
+        return (pack_ext_u64_to_field::<F>(&a), pack_ext_u64_to_field::<F>(&b));
+    }
 
     // Parallel AoS → SoA; one pass each for f and g.
     let ((f_c0, f_c1), (g_c0, g_c1)) =
         rayon::join(|| aos_to_soa_ext2_par(f_raw), || aos_to_soa_ext2_par(g_raw));
-    let w = extract_nonresidue_ext2::<F, B>();
 
     // Chunks must be pair-aligned (even length). The last chunk may be odd
     // if n is odd, but pairwise_product_sum always receives even n (pairs).
@@ -307,10 +416,20 @@ fn simd_ext3_product_sum<F: Field, B: crate::simd_fields::SimdBaseField<Scalar =
     let n = f.len();
     let f_raw: &[u64] = unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n * 3) };
     let g_raw: &[u64] = unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n * 3) };
+    let w = extract_nonresidue_ext3::<F, B>();
+
+    // Serial path for small inputs: rayon's fork/join cost would dominate.
+    if n <= EXT_PRODUCT_PARALLEL_THRESHOLD {
+        let (f_c0, f_c1, f_c2) = aos_to_soa_ext3_serial(f_raw);
+        let (g_c0, g_c1, g_c2) = aos_to_soa_ext3_serial(g_raw);
+        let (a, b) = crate::simd_sumcheck::reduce::ext3_soa_product_evaluate::<B>(
+            &f_c0, &f_c1, &f_c2, &g_c0, &g_c1, &g_c2, w,
+        );
+        return (pack_ext_u64_to_field::<F>(&a), pack_ext_u64_to_field::<F>(&b));
+    }
 
     let ((f_c0, f_c1, f_c2), (g_c0, g_c1, g_c2)) =
         rayon::join(|| aos_to_soa_ext3_par(f_raw), || aos_to_soa_ext3_par(g_raw));
-    let w = extract_nonresidue_ext3::<F, B>();
 
     let chunk = EXT_PRODUCT_CHUNK;
     let (a, b) = f_c0

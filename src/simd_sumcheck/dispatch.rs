@@ -1293,6 +1293,226 @@ where
     })
 }
 
+// ─── Partial IP extension dispatch (SoA-persistent across rounds) ──────────
+
+/// Run `max_rounds` rounds of inner-product sumcheck over a Goldilocks ext2
+/// or ext3 field, keeping SoA state across rounds (one AoS→SoA at entry, one
+/// SoA→AoS at exit — `max_rounds − 1` round-trips avoided vs the per-round
+/// AoS↔SoA `pairwise_product_sum` + `fold_both` loop).
+///
+/// On success, truncates `f` and `g` to the folded length (`f.len() >> max_rounds`).
+/// Returns `None` if `F` is not Goldilocks ext2 or ext3.
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+pub(crate) fn try_simd_ext_product_partial_dispatch<F, T, H>(
+    f: &mut Vec<F>,
+    g: &mut Vec<F>,
+    transcript: &mut T,
+    max_rounds: usize,
+    hook: &mut H,
+) -> Option<crate::multilinear_product::ProductSumcheck<F>>
+where
+    F: Field,
+    T: Transcript<F>,
+    H: FnMut(usize, &mut T),
+{
+    if !is_goldilocks_based::<F>() {
+        return None;
+    }
+    let d = F::extension_degree() as usize;
+    if !(2..=3).contains(&d) {
+        return None;
+    }
+    if core::mem::size_of::<F>() != d * core::mem::size_of::<u64>() {
+        return None;
+    }
+
+    type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+    let n = f.len();
+    debug_assert_eq!(n, g.len());
+    let total_rounds = n.trailing_zeros() as usize;
+    assert!(max_rounds <= total_rounds);
+
+    let mut prover_messages: Vec<(F, F)> = Vec::with_capacity(max_rounds);
+    let mut verifier_messages: Vec<F> = Vec::with_capacity(max_rounds);
+
+    let f_u64: &[u64] =
+        unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n * d) };
+    let g_u64: &[u64] =
+        unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n * d) };
+
+    const EXT_PARALLEL_THRESHOLD: usize = 1 << 17;
+
+    if d == 2 {
+        let w = extract_nonresidue_ext2::<F, Backend>();
+
+        let (mut f_c0, mut f_c1) = aos_to_soa_ext2(f_u64);
+        let (mut g_c0, mut g_c1) = aos_to_soa_ext2(g_u64);
+        let mut len = n;
+
+        let use_parallel = n > EXT_PARALLEL_THRESHOLD;
+        let mut sf_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sf_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sg_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sg_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+
+        for round in 0..max_rounds {
+            let (a_raw, b_raw) =
+                crate::simd_sumcheck::reduce::ext2_soa_product_evaluate::<Backend>(
+                    &f_c0[..len], &f_c1[..len], &g_c0[..len], &g_c1[..len], w,
+                );
+            let a: F = unsafe { ext_components_to_field(&a_raw) };
+            let b: F = unsafe { ext_components_to_field(&b_raw) };
+            let msg = (a, b);
+
+            prover_messages.push(msg);
+            transcript.write(msg.0);
+            transcript.write(msg.1);
+            hook(round, transcript);
+            let chg: F = transcript.read();
+            verifier_messages.push(chg);
+
+            let chg_raw: [u64; 2] = unsafe {
+                let ptr = &chg as *const F as *const u64;
+                [*ptr, *ptr.add(1)]
+            };
+
+            if len > EXT_PARALLEL_THRESHOLD {
+                let new_len = len / 2;
+                let _ = crate::simd_sumcheck::reduce::ext2_soa_product_reduce_and_evaluate_parallel::<Backend>(
+                    &f_c0[..len], &f_c1[..len],
+                    &g_c0[..len], &g_c1[..len],
+                    &mut sf_c0[..new_len], &mut sf_c1[..new_len],
+                    &mut sg_c0[..new_len], &mut sg_c1[..new_len],
+                    chg_raw, w,
+                );
+                core::mem::swap(&mut f_c0, &mut sf_c0);
+                core::mem::swap(&mut f_c1, &mut sf_c1);
+                core::mem::swap(&mut g_c0, &mut sg_c0);
+                core::mem::swap(&mut g_c1, &mut sg_c1);
+                len = new_len;
+            } else {
+                let (_, _, new_len) =
+                    crate::simd_sumcheck::reduce::ext2_soa_product_reduce_and_evaluate::<Backend>(
+                        &mut f_c0[..len], &mut f_c1[..len],
+                        &mut g_c0[..len], &mut g_c1[..len],
+                        chg_raw, w,
+                    );
+                len = new_len;
+            }
+        }
+
+        // SoA → AoS writeback into f and g, then truncate.
+        let f_out: &mut [u64] = unsafe {
+            core::slice::from_raw_parts_mut(f.as_mut_ptr() as *mut u64, len * d)
+        };
+        let g_out: &mut [u64] = unsafe {
+            core::slice::from_raw_parts_mut(g.as_mut_ptr() as *mut u64, len * d)
+        };
+        for i in 0..len {
+            f_out[2 * i] = f_c0[i];
+            f_out[2 * i + 1] = f_c1[i];
+            g_out[2 * i] = g_c0[i];
+            g_out[2 * i + 1] = g_c1[i];
+        }
+        f.truncate(len);
+        g.truncate(len);
+    } else {
+        // d == 3
+        let w = extract_nonresidue_ext3::<F, Backend>();
+
+        let (mut f_c0, mut f_c1, mut f_c2) = aos_to_soa_ext3(f_u64);
+        let (mut g_c0, mut g_c1, mut g_c2) = aos_to_soa_ext3(g_u64);
+        let mut len = n;
+
+        let use_parallel = n > EXT_PARALLEL_THRESHOLD;
+        let mut sf_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sf_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sf_c2: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sg_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sg_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sg_c2: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+
+        for round in 0..max_rounds {
+            let (a_raw, b_raw) =
+                crate::simd_sumcheck::reduce::ext3_soa_product_evaluate::<Backend>(
+                    &f_c0[..len], &f_c1[..len], &f_c2[..len],
+                    &g_c0[..len], &g_c1[..len], &g_c2[..len], w,
+                );
+            let a: F = unsafe { ext_components_to_field(&a_raw) };
+            let b: F = unsafe { ext_components_to_field(&b_raw) };
+            let msg = (a, b);
+
+            prover_messages.push(msg);
+            transcript.write(msg.0);
+            transcript.write(msg.1);
+            hook(round, transcript);
+            let chg: F = transcript.read();
+            verifier_messages.push(chg);
+
+            let chg_raw: [u64; 3] = unsafe {
+                let ptr = &chg as *const F as *const u64;
+                [*ptr, *ptr.add(1), *ptr.add(2)]
+            };
+
+            if len > EXT_PARALLEL_THRESHOLD {
+                let new_len = len / 2;
+                let _ = crate::simd_sumcheck::reduce::ext3_soa_product_reduce_and_evaluate_parallel::<Backend>(
+                    &f_c0[..len], &f_c1[..len], &f_c2[..len],
+                    &g_c0[..len], &g_c1[..len], &g_c2[..len],
+                    &mut sf_c0[..new_len], &mut sf_c1[..new_len], &mut sf_c2[..new_len],
+                    &mut sg_c0[..new_len], &mut sg_c1[..new_len], &mut sg_c2[..new_len],
+                    chg_raw, w,
+                );
+                core::mem::swap(&mut f_c0, &mut sf_c0);
+                core::mem::swap(&mut f_c1, &mut sf_c1);
+                core::mem::swap(&mut f_c2, &mut sf_c2);
+                core::mem::swap(&mut g_c0, &mut sg_c0);
+                core::mem::swap(&mut g_c1, &mut sg_c1);
+                core::mem::swap(&mut g_c2, &mut sg_c2);
+                len = new_len;
+            } else {
+                let (_, _, new_len) =
+                    crate::simd_sumcheck::reduce::ext3_soa_product_reduce_and_evaluate::<Backend>(
+                        &mut f_c0[..len], &mut f_c1[..len], &mut f_c2[..len],
+                        &mut g_c0[..len], &mut g_c1[..len], &mut g_c2[..len],
+                        chg_raw, w,
+                    );
+                len = new_len;
+            }
+        }
+
+        let f_out: &mut [u64] = unsafe {
+            core::slice::from_raw_parts_mut(f.as_mut_ptr() as *mut u64, len * d)
+        };
+        let g_out: &mut [u64] = unsafe {
+            core::slice::from_raw_parts_mut(g.as_mut_ptr() as *mut u64, len * d)
+        };
+        for i in 0..len {
+            f_out[3 * i] = f_c0[i];
+            f_out[3 * i + 1] = f_c1[i];
+            f_out[3 * i + 2] = f_c2[i];
+            g_out[3 * i] = g_c0[i];
+            g_out[3 * i + 1] = g_c1[i];
+            g_out[3 * i + 2] = g_c2[i];
+        }
+        f.truncate(len);
+        g.truncate(len);
+    }
+
+    let final_evaluations = if f.len() == 1 {
+        (f[0], g[0])
+    } else {
+        (F::ZERO, F::ZERO)
+    };
+
+    Some(crate::multilinear_product::ProductSumcheck {
+        prover_messages,
+        verifier_messages,
+        final_evaluations,
+    })
+}
+
 // ─── Helpers: field ↔ u64 conversion ────────────────────────────────────────
 
 /// Reinterpret a Montgomery-form `u64` as a field element.

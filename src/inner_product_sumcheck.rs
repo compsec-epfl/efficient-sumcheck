@@ -147,6 +147,19 @@ where
         "max_rounds ({max_rounds}) exceeds available rounds ({total_rounds})"
     );
 
+    // Fast path: SoA-persistent SIMD dispatch for Goldilocks ext2/ext3 on
+    // AVX-512. Keeps SoA state across all `max_rounds` rounds — one
+    // AoS→SoA conversion at entry, one SoA→AoS at exit (vs the per-round
+    // round-trip of the fallback loop).
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    {
+        if let Some(result) = crate::simd_sumcheck::dispatch::try_simd_ext_product_partial_dispatch(
+            f, g, transcript, max_rounds, &mut hook,
+        ) {
+            return result;
+        }
+    }
+
     let mut prover_messages: Vec<(F, F)> = Vec::with_capacity(max_rounds);
     let mut verifier_messages: Vec<F> = Vec::with_capacity(max_rounds);
 
