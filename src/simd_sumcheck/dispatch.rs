@@ -224,7 +224,7 @@ where
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
     const HYBRID_THRESHOLD: usize = 1 << 30;
 
-    if n <= HYBRID_THRESHOLD {
+    let final_evaluation = if n <= HYBRID_THRESHOLD {
         dispatch_all_simd::<BF, EF, T, H, Backend>(
             evaluations,
             transcript,
@@ -232,7 +232,7 @@ where
             num_rounds,
             &mut prover_messages,
             &mut verifier_messages,
-        );
+        )
     } else {
         dispatch_hybrid::<BF, EF, T, H, Backend>(
             evaluations,
@@ -241,12 +241,13 @@ where
             num_rounds,
             &mut prover_messages,
             &mut verifier_messages,
-        );
-    }
+        )
+    };
 
     Some(Sumcheck {
         verifier_messages,
         prover_messages,
+        final_evaluation,
     })
 }
 
@@ -298,6 +299,7 @@ where
     let num_rounds = n.trailing_zeros() as usize;
     let mut prover_messages: Vec<(EF, EF)> = Vec::with_capacity(num_rounds);
     let mut verifier_messages: Vec<EF> = Vec::with_capacity(num_rounds);
+    let mut final_evaluation = EF::ZERO;
 
     // View evaluations as flat u64 buffer
     let n_u64 = n * d;
@@ -373,6 +375,13 @@ where
                     len = new_len;
                     pending_eval = Some((next_even, next_odd));
                 }
+            } else {
+                // Last round: fold the surviving pair with the final challenge
+                // (in EF arithmetic — independent of `w`).
+                debug_assert_eq!(len, 2);
+                let v0: EF = unsafe { ext_components_to_field(&[c0[0], c1[0]]) };
+                let v1: EF = unsafe { ext_components_to_field(&[c0[1], c1[1]]) };
+                final_evaluation = v0 + chg * (v1 - v0);
             }
         }
     } else {
@@ -435,6 +444,11 @@ where
                     len = new_len;
                     pending_eval = Some((next_even, next_odd));
                 }
+            } else {
+                debug_assert_eq!(len, 2);
+                let v0: EF = unsafe { ext_components_to_field(&[c0[0], c1[0], c2[0]]) };
+                let v1: EF = unsafe { ext_components_to_field(&[c0[1], c1[1], c2[1]]) };
+                final_evaluation = v0 + chg * (v1 - v0);
             }
         }
     }
@@ -442,6 +456,7 @@ where
     Some(Sumcheck {
         verifier_messages,
         prover_messages,
+        final_evaluation,
     })
 }
 
@@ -458,7 +473,8 @@ fn dispatch_all_simd<BF, EF, T, H, S>(
     num_rounds: usize,
     prover_messages: &mut Vec<(EF, EF)>,
     verifier_messages: &mut Vec<EF>,
-) where
+) -> EF
+where
     BF: Field,
     EF: Field + From<BF>,
     T: Transcript<EF>,
@@ -505,8 +521,15 @@ fn dispatch_all_simd<BF, EF, T, H, S>(
                 len = reduce_in_place::<S>(&mut current[..len], chg);
                 pending_eval = None;
             }
+        } else if num_rounds > 0 {
+            // Last round: fold the surviving pair with the final challenge.
+            debug_assert_eq!(len, 2);
+            let v0: EF = u64_to_field(current[0]);
+            let v1: EF = u64_to_field(current[1]);
+            return v0 + chg_ef * (v1 - v0);
         }
     }
+    EF::ZERO
 }
 
 /// Hybrid path: SIMD evaluate + generic arkworks reduce.
@@ -522,7 +545,8 @@ fn dispatch_hybrid<BF, EF, T, H, S>(
     num_rounds: usize,
     prover_messages: &mut Vec<(EF, EF)>,
     verifier_messages: &mut Vec<EF>,
-) where
+) -> EF
+where
     BF: Field,
     EF: Field + From<BF>,
     T: Transcript<EF>,
@@ -535,7 +559,7 @@ fn dispatch_hybrid<BF, EF, T, H, S>(
     let n = evaluations.len();
 
     if num_rounds == 0 {
-        return;
+        return EF::ZERO;
     }
 
     // ── Round 0: BF evaluate (SIMD) + cross-field reduce ──────────
@@ -572,6 +596,9 @@ fn dispatch_hybrid<BF, EF, T, H, S>(
 
         pairwise::reduce_evaluations(&mut ef_evals, chg);
     }
+
+    debug_assert_eq!(ef_evals.len(), 1);
+    ef_evals[0]
 }
 
 // ─── Inner product dispatch ─────────────────────────────────────────────────
@@ -616,6 +643,7 @@ where
     let num_rounds = n.trailing_zeros() as usize;
     let mut prover_messages: Vec<(EF, EF)> = Vec::with_capacity(num_rounds);
     let mut verifier_messages: Vec<EF> = Vec::with_capacity(num_rounds);
+    let mut final_evaluations = (EF::ZERO, EF::ZERO);
 
     if num_rounds > 0 {
         let f_raw: &mut [u64] =
@@ -642,6 +670,16 @@ where
                 let chg: u64 = field_to_u64(chg_ef);
                 // Reduce both f and g in one interleaved pass (saves one full data read)
                 len = reduce_both_in_place::<Backend>(&mut f_raw[..len], &mut g_raw[..len], chg);
+            } else {
+                // Last round: compute the final folded values using the last
+                // challenge. The loop guard skips the in-place reduce, so
+                // f_raw[0..2] and g_raw[0..2] still hold the surviving pair.
+                debug_assert_eq!(len, 2);
+                let f0: EF = u64_to_field(f_raw[0]);
+                let f1: EF = u64_to_field(f_raw[1]);
+                let g0: EF = u64_to_field(g_raw[0]);
+                let g1: EF = u64_to_field(g_raw[1]);
+                final_evaluations = (f0 + chg_ef * (f1 - f0), g0 + chg_ef * (g1 - g0));
             }
         }
     }
@@ -649,6 +687,7 @@ where
     Some(crate::multilinear_product::ProductSumcheck {
         verifier_messages,
         prover_messages,
+        final_evaluations,
     })
 }
 
@@ -1074,6 +1113,7 @@ where
     let num_rounds = n.trailing_zeros() as usize;
     let mut prover_messages: Vec<(EF, EF)> = Vec::with_capacity(num_rounds);
     let mut verifier_messages: Vec<EF> = Vec::with_capacity(num_rounds);
+    let mut final_evaluations = (EF::ZERO, EF::ZERO);
 
     // Convert both f and g from AoS → SoA
     let f_u64: &[u64] =
@@ -1153,6 +1193,15 @@ where
                         );
                     len = new_len;
                 }
+            } else {
+                // Last round: compute final folded values from the surviving
+                // pair using EF arithmetic.
+                debug_assert_eq!(len, 2);
+                let f0: EF = unsafe { ext_components_to_field(&[f_c0[0], f_c1[0]]) };
+                let f1: EF = unsafe { ext_components_to_field(&[f_c0[1], f_c1[1]]) };
+                let g0: EF = unsafe { ext_components_to_field(&[g_c0[0], g_c1[0]]) };
+                let g1: EF = unsafe { ext_components_to_field(&[g_c0[1], g_c1[1]]) };
+                final_evaluations = (f0 + chg * (f1 - f0), g0 + chg * (g1 - g0));
             }
         }
     } else {
@@ -1222,6 +1271,17 @@ where
                         );
                     len = new_len;
                 }
+            } else {
+                debug_assert_eq!(len, 2);
+                let f0: EF =
+                    unsafe { ext_components_to_field(&[f_c0[0], f_c1[0], f_c2[0]]) };
+                let f1: EF =
+                    unsafe { ext_components_to_field(&[f_c0[1], f_c1[1], f_c2[1]]) };
+                let g0: EF =
+                    unsafe { ext_components_to_field(&[g_c0[0], g_c1[0], g_c2[0]]) };
+                let g1: EF =
+                    unsafe { ext_components_to_field(&[g_c0[1], g_c1[1], g_c2[1]]) };
+                final_evaluations = (f0 + chg * (f1 - f0), g0 + chg * (g1 - g0));
             }
         }
     }
@@ -1229,6 +1289,7 @@ where
     Some(crate::multilinear_product::ProductSumcheck {
         verifier_messages,
         prover_messages,
+        final_evaluations,
     })
 }
 

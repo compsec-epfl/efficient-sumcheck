@@ -151,6 +151,7 @@ where
     let num_rounds = f.len().trailing_zeros() as usize;
     let mut prover_messages: Vec<(EF, EF)> = vec![];
     let mut verifier_messages: Vec<EF> = vec![];
+    let mut final_evaluations = (EF::ZERO, EF::ZERO);
 
     // ── Round 0: evaluate in BF, lift to EF, cross-field reduce ──
     if num_rounds > 0 {
@@ -189,11 +190,16 @@ where
             crate::simd_ops::fold(&mut ef_f, chg);
             crate::simd_ops::fold(&mut ef_g, chg);
         }
+
+        debug_assert_eq!(ef_f.len(), 1);
+        debug_assert_eq!(ef_g.len(), 1);
+        final_evaluations = (ef_f[0], ef_g[0]);
     }
 
     ProductSumcheck {
         verifier_messages,
         prover_messages,
+        final_evaluations,
     }
 }
 
@@ -470,6 +476,63 @@ mod tests {
             assert_eq!(s.0, ref_msg.0, "a mismatch at round {i}");
             assert_eq!(s.1, ref_msg.1, "b mismatch at round {i}");
         }
+    }
+
+    fn fold_multilinear<F: ark_ff::Field>(evals: &[F], challenges: &[F]) -> F {
+        let mut current = evals.to_vec();
+        for &chg in challenges {
+            let mut next = Vec::with_capacity(current.len() / 2);
+            for pair in current.chunks(2) {
+                next.push(pair[0] + chg * (pair[1] - pair[0]));
+            }
+            current = next;
+        }
+        debug_assert_eq!(current.len(), 1);
+        current[0]
+    }
+
+    #[test]
+    fn test_final_evaluations_match_independent_fold_base() {
+        use crate::transcript::SanityTranscript;
+
+        let num_vars = 8;
+        let n = 1 << num_vars;
+        let mut rng = test_rng();
+        let f_orig: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+        let g_orig: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+
+        let mut f = f_orig.clone();
+        let mut g = g_orig.clone();
+        let mut transcript = SanityTranscript::new(&mut rng);
+        let result = inner_product_sumcheck::<F64, F64>(&mut f, &mut g, &mut transcript);
+
+        let expected_f = fold_multilinear(&f_orig, &result.verifier_messages);
+        let expected_g = fold_multilinear(&g_orig, &result.verifier_messages);
+        assert_eq!(result.final_evaluations.0, expected_f, "f final mismatch");
+        assert_eq!(result.final_evaluations.1, expected_g, "g final mismatch");
+    }
+
+    #[test]
+    fn test_final_evaluations_match_independent_fold_ext2() {
+        use crate::tests::F64Ext2;
+        use crate::transcript::SanityTranscript;
+
+        let num_vars = 8;
+        let n = 1 << num_vars;
+        let mut rng = test_rng();
+        let f_orig: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+        let g_orig: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
+
+        let mut f = f_orig.clone();
+        let mut g = g_orig.clone();
+        let mut transcript = SanityTranscript::new(&mut rng);
+        let result =
+            inner_product_sumcheck::<F64Ext2, F64Ext2>(&mut f, &mut g, &mut transcript);
+
+        let expected_f = fold_multilinear(&f_orig, &result.verifier_messages);
+        let expected_g = fold_multilinear(&g_orig, &result.verifier_messages);
+        assert_eq!(result.final_evaluations.0, expected_f, "ext2 f final mismatch");
+        assert_eq!(result.final_evaluations.1, expected_g, "ext2 g final mismatch");
     }
 
     #[test]

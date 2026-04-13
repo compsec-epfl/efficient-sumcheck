@@ -7,6 +7,12 @@ use crate::{prover::Prover, streams::Stream};
 pub struct Sumcheck<F: Field> {
     pub prover_messages: Vec<(F, F)>,
     pub verifier_messages: Vec<F>,
+    /// The multilinear polynomial evaluated at the verifier challenge point
+    /// `(r_0, ..., r_{n-1})`. Populated by [`crate::multilinear_sumcheck`] and
+    /// [`crate::multilinear_sumcheck_with_hook`] (and all their SIMD dispatch
+    /// paths). The legacy [`Sumcheck::prove`] constructor leaves this as
+    /// `F::ZERO` — it's a low-level test helper that doesn't surface fold state.
+    pub final_evaluation: F,
 }
 
 impl<F: Field> Sumcheck<F> {
@@ -46,10 +52,13 @@ impl<F: Field> Sumcheck<F> {
             verifier_message = Some(F::rand(rng));
         }
 
-        // Return a Sumcheck struct with the collected messages and acceptance status
+        // Return a Sumcheck struct with the collected messages and acceptance status.
+        // NOTE: `final_evaluation` is not tracked by the generic `Prover` trait;
+        // see field doc.
         Sumcheck {
             prover_messages,
             verifier_messages,
+            final_evaluation: F::ZERO,
         }
     }
 }
