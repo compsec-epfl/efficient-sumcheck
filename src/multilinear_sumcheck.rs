@@ -46,6 +46,28 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
     evaluations: &mut [BF],
     transcript: &mut impl Transcript<EF>,
 ) -> Sumcheck<EF> {
+    multilinear_sumcheck_with_hook(evaluations, transcript, |_, _| {})
+}
+
+/// Like [`multilinear_sumcheck`], but calls `hook(round_idx, transcript)`
+/// each round *after* the prover message is written and *before* the verifier
+/// challenge is read.
+///
+/// Useful for injecting per-round proof-of-work grinding, logging, or other
+/// extensions to the transcript that must appear at a specific point in the
+/// Fiat-Shamir schedule. The hook is invoked for every round (0..num_rounds),
+/// including the round-0 base-field message on cross-field sumchecks.
+pub fn multilinear_sumcheck_with_hook<BF, EF, T, H>(
+    evaluations: &mut [BF],
+    transcript: &mut T,
+    mut hook: H,
+) -> Sumcheck<EF>
+where
+    BF: Field,
+    EF: Field + From<BF>,
+    T: Transcript<EF>,
+    H: FnMut(usize, &mut T),
+{
     // checks
     assert!(
         evaluations.len().count_ones() == 1,
@@ -63,9 +85,11 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
     ))]
     {
         // Base field dispatch (BF == EF == Goldilocks base)
-        if let Some(result) =
-            crate::simd_sumcheck::dispatch::try_simd_dispatch::<BF, EF>(evaluations, transcript)
-        {
+        if let Some(result) = crate::simd_sumcheck::dispatch::try_simd_dispatch::<BF, EF, T, H>(
+            evaluations,
+            transcript,
+            &mut hook,
+        ) {
             return result;
         }
         // Extension field dispatch (BF == EF == Goldilocks ext2/ext3).
@@ -74,7 +98,11 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
         // generic path with SIMD evaluate + rayon-parallel arkworks reduce.
         #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
         if let Some(result) =
-            crate::simd_sumcheck::dispatch::try_simd_ext_dispatch::<BF, EF>(evaluations, transcript)
+            crate::simd_sumcheck::dispatch::try_simd_ext_dispatch::<BF, EF, T, H>(
+                evaluations,
+                transcript,
+                &mut hook,
+            )
         {
             return result;
         }
@@ -93,6 +121,8 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
         transcript.write(msg.0);
         transcript.write(msg.1);
 
+        hook(0, transcript);
+
         let chg = transcript.read();
         verifier_messages.push(chg);
 
@@ -104,7 +134,7 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
         // next round's (s0, s1) in a single pass, eliminating one full read.
         let mut pending_eval: Option<(EF, EF)> = None;
 
-        for _ in 1..num_rounds {
+        for round in 1..num_rounds {
             // Get this round's evaluate — either from the previous fused pass
             // or by computing it now.
             let msg = if let Some(cached) = pending_eval.take() {
@@ -129,6 +159,8 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
             prover_messages.push(msg);
             transcript.write(msg.0);
             transcript.write(msg.1);
+
+            hook(round, transcript);
 
             let chg = transcript.read();
             verifier_messages.push(chg);
@@ -347,6 +379,69 @@ mod tests {
             assert_eq!(exp.0, got.0, "s0 mismatch at round {}", i);
             assert_eq!(exp.1, got.1, "s1 mismatch at round {}", i);
         }
+    }
+
+    #[test]
+    fn test_with_hook_called_once_per_round() {
+        use crate::transcript::SanityTranscript;
+        use std::cell::RefCell;
+
+        let num_vars = 6;
+        let n = 1 << num_vars;
+        let mut rng = test_rng();
+        let mut evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+        let mut transcript = SanityTranscript::new(&mut rng);
+
+        let calls = RefCell::new(Vec::<usize>::new());
+        let result = multilinear_sumcheck_with_hook::<F64, F64, _, _>(
+            &mut evals,
+            &mut transcript,
+            |round, _t| calls.borrow_mut().push(round),
+        );
+
+        assert_eq!(result.prover_messages.len(), num_vars);
+        let calls = calls.into_inner();
+        assert_eq!(calls, (0..num_vars).collect::<Vec<_>>(), "hook must be called once per round in order");
+    }
+
+    #[test]
+    fn test_with_hook_injects_into_transcript() {
+        // The hook writes an extra field element between the prover message and
+        // the verifier challenge. Two runs with identical data but different
+        // hook payloads must produce different verifier challenges from round 0
+        // onward — proving the hook's writes actually enter the Fiat-Shamir
+        // state.
+        use crate::transcript::SpongefishTranscript;
+
+        let num_vars = 4;
+        let n = 1 << num_vars;
+
+        let mut rng = test_rng();
+        let evals_a: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+
+        let run = |tag: F64, evals: Vec<F64>| {
+            let mut evals = evals;
+            let domsep = spongefish::domain_separator!("hook-test"; module_path!())
+                .instance(b"test");
+            let prover_state = domsep.std_prover();
+            let mut transcript = SpongefishTranscript::new(prover_state);
+            multilinear_sumcheck_with_hook::<F64, F64, _, _>(
+                &mut evals,
+                &mut transcript,
+                move |_round, t| {
+                    t.write(tag);
+                },
+            )
+        };
+
+        let result_a = run(F64::from(1u64), evals_a.clone());
+        let result_b = run(F64::from(2u64), evals_a);
+
+        assert_ne!(
+            result_a.verifier_messages[0],
+            result_b.verifier_messages[0],
+            "hook writes must affect Fiat-Shamir state"
+        );
     }
 
     #[test]
