@@ -57,6 +57,70 @@ pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
 /// extensions to the transcript that must appear at a specific point in the
 /// Fiat-Shamir schedule. The hook is invoked for every round (0..num_rounds),
 /// including the round-0 base-field message on cross-field sumchecks.
+/// Partial multilinear sumcheck: runs `max_rounds` rounds and stops.
+///
+/// Folds `evaluations` in place (truncating to length `original / 2^max_rounds`)
+/// so the caller can feed it into a subsequent partial sumcheck call. See
+/// [`crate::inner_product_sumcheck_partial_with_hook`] for the motivating
+/// shape (recursive IOPs like whir).
+///
+/// Requires `BF = EF = F` (no cross-field lift). Uses
+/// [`crate::simd_ops::pairwise_sum`] and [`crate::simd_ops::fold`] per round.
+///
+/// `Sumcheck::final_evaluation` is populated only if `max_rounds` reduces
+/// `evaluations` to length 1; otherwise `F::ZERO`.
+pub fn multilinear_sumcheck_partial_with_hook<F, T, H>(
+    evaluations: &mut Vec<F>,
+    transcript: &mut T,
+    max_rounds: usize,
+    mut hook: H,
+) -> Sumcheck<F>
+where
+    F: Field,
+    T: Transcript<F>,
+    H: FnMut(usize, &mut T),
+{
+    assert!(
+        evaluations.len().count_ones() == 1,
+        "length must be a power of 2"
+    );
+    let total_rounds = evaluations.len().trailing_zeros() as usize;
+    assert!(
+        max_rounds <= total_rounds,
+        "max_rounds ({max_rounds}) exceeds available rounds ({total_rounds})"
+    );
+
+    let mut prover_messages: Vec<(F, F)> = Vec::with_capacity(max_rounds);
+    let mut verifier_messages: Vec<F> = Vec::with_capacity(max_rounds);
+
+    for round in 0..max_rounds {
+        let msg = crate::simd_ops::pairwise_sum(evaluations);
+
+        prover_messages.push(msg);
+        transcript.write(msg.0);
+        transcript.write(msg.1);
+
+        hook(round, transcript);
+
+        let chg = transcript.read();
+        verifier_messages.push(chg);
+
+        crate::simd_ops::fold(evaluations, chg);
+    }
+
+    let final_evaluation = if evaluations.len() == 1 {
+        evaluations[0]
+    } else {
+        F::ZERO
+    };
+
+    Sumcheck {
+        prover_messages,
+        verifier_messages,
+        final_evaluation,
+    }
+}
+
 pub fn multilinear_sumcheck_with_hook<BF, EF, T, H>(
     evaluations: &mut [BF],
     transcript: &mut T,
@@ -213,7 +277,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_ff::UniformRand;
+    use ark_ff::{AdditiveGroup, UniformRand};
     use ark_std::test_rng;
 
     use crate::tests::F64;
@@ -436,6 +500,48 @@ mod tests {
 
         let expected = fold_multilinear(&evals_orig, &result.verifier_messages);
         assert_eq!(result.final_evaluation, expected, "ext2 ML final_evaluation mismatch");
+    }
+
+    #[test]
+    fn test_partial_split_matches_full() {
+        use crate::transcript::SanityTranscript;
+
+        let num_vars = 8;
+        let n = 1 << num_vars;
+        let split_at = 3;
+        let mut rng = test_rng();
+        let evals_orig: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+
+        let mut rng1 = test_rng();
+        let mut evals_full = evals_orig.clone();
+        let mut t_full = SanityTranscript::new(&mut rng1);
+        let full = multilinear_sumcheck::<F64, F64>(&mut evals_full, &mut t_full);
+
+        let mut rng2 = test_rng();
+        let mut evals = evals_orig.clone();
+        let mut t_split = SanityTranscript::new(&mut rng2);
+        let first = multilinear_sumcheck_partial_with_hook(
+            &mut evals,
+            &mut t_split,
+            split_at,
+            |_, _| {},
+        );
+        let second = multilinear_sumcheck_partial_with_hook(
+            &mut evals,
+            &mut t_split,
+            num_vars - split_at,
+            |_, _| {},
+        );
+
+        let mut split_prover_msgs = first.prover_messages.clone();
+        split_prover_msgs.extend(second.prover_messages.iter().copied());
+        let mut split_verifier_msgs = first.verifier_messages.clone();
+        split_verifier_msgs.extend(second.verifier_messages.iter().copied());
+
+        assert_eq!(split_prover_msgs, full.prover_messages, "prover msgs");
+        assert_eq!(split_verifier_msgs, full.verifier_messages, "verifier msgs");
+        assert_eq!(second.final_evaluation, full.final_evaluation, "final");
+        assert_eq!(first.final_evaluation, F64::ZERO, "partial final should be zero");
     }
 
     #[test]

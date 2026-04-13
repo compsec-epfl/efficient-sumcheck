@@ -5,15 +5,21 @@ use crate::{prover::Prover, streams::Stream};
 
 /// Transcript for the inner product sumcheck protocol.
 ///
-/// Each round the prover sends two coefficients `(a, b)` of the degree-2
-/// round polynomial `q(x) = a + bx + cx²`, where:
-///   - `a = q(0) = Σ f_even · g_even`   (even-even products)
-///   - `b = Σ (f_even · g_odd + f_odd · g_even)`  (cross-term, linear coefficient)
+/// Each round the prover sends `(a, b)`:
+///   - `a = q(0) = Σ f_even · g_even`                     (constant coefficient)
+///   - `b = Σ (f_even · g_odd + f_odd · g_even)`          (raw cross sum)
 ///
-/// The verifier derives `c = claim - 2a - b` from the constraint `q(0) + q(1) = claim`,
-/// then evaluates `q(r) = a + br + cr²` at the challenge `r` to get the next round's claim.
+/// The true round polynomial `q(X) = a + L·X + Q·X²` has:
+///   - `L = b − 2a` (linear coefficient)
+///   - `Q = claim − b` (quadratic coefficient)
 ///
-/// This saves 1/3 communication vs sending all three evaluations `(s(0), s(1), s(1/2))`.
+/// derived from the constraint `q(0) + q(1) = claim` together with the identities
+/// `L = Σ(f_e·g_o + f_o·g_e) − 2·Σ f_e·g_e = b − 2a` and
+/// `q(1) = Σ f_o·g_o = claim − a`, hence `Q = q(1) − a − L = claim − b`.
+///
+/// Wire format is `(a, b)` rather than e.g. `(q(0), q(1))` because the raw cross
+/// sum is one fewer subtraction per lane on the prover side. See
+/// [`ProductSumcheck::evaluate_round_poly`] for the reconstruction.
 #[derive(Debug, PartialEq)]
 pub struct ProductSumcheck<F: Field> {
     pub prover_messages: Vec<(F, F)>,
@@ -29,14 +35,17 @@ pub struct ProductSumcheck<F: Field> {
 }
 
 impl<F: Field> ProductSumcheck<F> {
-    /// Evaluate the degree-2 round polynomial at `r` given coefficients `(a, b)`
-    /// and the current claim (where `q(0) + q(1) = claim`).
+    /// Evaluate the degree-2 round polynomial at `r` from the wire-format
+    /// message `(a, b)` and the current claim.
     ///
-    /// Derives `c = claim - 2a - b`, then returns `q(r) = a + br + cr²`.
+    /// `a = q(0) = Σ f_e·g_e` (constant coefficient), `b = Σ(f_e·g_o + f_o·g_e)`
+    /// (raw cross sum). The true round polynomial is
+    /// `q(X) = a + (b − 2a)·X + (claim − b)·X²`; this function returns `q(r)`.
     #[inline]
     pub fn evaluate_round_poly(r: F, a: F, b: F, claim: F) -> F {
-        let c = claim - a.double() - b;
-        a + b * r + c * r.square()
+        let linear = b - a.double();
+        let quadratic = claim - b;
+        a + linear * r + quadratic * r.square()
     }
 
     pub fn prove<S, P>(prover: &mut P, rng: &mut impl Rng) -> Self
@@ -88,6 +97,7 @@ mod tests {
         multilinear_product::TimeProductProver,
         tests::{multilinear_product::consistency_test, BenchStream, F64},
     };
+    use ark_ff::{AdditiveGroup, Field};
 
     #[test]
     fn algorithm_consistency() {
@@ -100,18 +110,62 @@ mod tests {
         use ark_ff::UniformRand;
         use ark_std::test_rng;
 
+        // Exercise the real wire convention: `b` is the raw cross sum
+        // `Σ(f_e·g_o + f_o·g_e)`, NOT the linear coefficient of q. The linear
+        // coefficient is `b − 2a` and the quadratic is `claim − b`.
         let mut rng = test_rng();
         for _ in 0..1000 {
-            let a = F64::rand(&mut rng);
-            let b = F64::rand(&mut rng);
-            let c = F64::rand(&mut rng);
+            // Sample a random degree-2 polynomial via its coefficients.
+            let a = F64::rand(&mut rng);          // q(0)
+            let linear = F64::rand(&mut rng);      // linear coefficient of q
+            let quadratic = F64::rand(&mut rng);   // quadratic coefficient of q
             let r = F64::rand(&mut rng);
 
-            // claim = q(0) + q(1) = a + (a + b + c) = 2a + b + c
-            let claim = a + a + b + c;
-            let expected = a + b * r + c * r * r;
+            // Reconstruct wire-format b: linear = b − 2a  ⇒  b = linear + 2a.
+            let b = linear + a.double();
+            // claim = q(0) + q(1) = 2a + linear + quadratic.
+            let claim = a.double() + linear + quadratic;
+
+            let expected = a + linear * r + quadratic * r.square();
             let got = ProductSumcheck::<F64>::evaluate_round_poly(r, a, b, claim);
             assert_eq!(expected, got);
         }
+    }
+
+    /// End-to-end check: wire what the prover actually writes into
+    /// `evaluate_round_poly` and confirm it reconstructs `q(r)` correctly.
+    /// Catches protocol-convention regressions between prover and verifier.
+    #[test]
+    fn test_evaluate_round_poly_matches_prover_output() {
+        use super::ProductSumcheck;
+        use crate::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate_slices;
+        use ark_ff::UniformRand;
+        use ark_std::test_rng;
+
+        let mut rng = test_rng();
+        let n = 1 << 8;
+        let f: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+        let g: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+
+        let (a, b) = pairwise_product_evaluate_slices(&f, &g);
+        // claim = q(0) + q(1) = Σ f·g (inner product over full cube)
+        let claim: F64 = f.iter().zip(g.iter()).map(|(fi, gi)| *fi * *gi).sum();
+
+        let r = F64::rand(&mut rng);
+
+        // Reference: evaluate q(r) where q(X) = f(X)·g(X) summed over the rest of the cube,
+        // computed directly by folding f and g at r then taking the inner product.
+        let mut ff = f.clone();
+        let mut gg = g.clone();
+        for pair in ff.chunks_mut(2) {
+            pair[0] = pair[0] + r * (pair[1] - pair[0]);
+        }
+        for pair in gg.chunks_mut(2) {
+            pair[0] = pair[0] + r * (pair[1] - pair[0]);
+        }
+        let expected: F64 = (0..n / 2).map(|k| ff[2 * k] * gg[2 * k]).sum();
+
+        let got = ProductSumcheck::<F64>::evaluate_round_poly(r, a, b, claim);
+        assert_eq!(got, expected, "evaluate_round_poly disagrees with folded prover output");
     }
 }
