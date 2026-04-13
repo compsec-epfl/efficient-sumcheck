@@ -168,10 +168,17 @@ pub(crate) fn extract_nonresidue_ext3<EF: Field, S: crate::simd_fields::SimdBase
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-pub(crate) fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
+pub(crate) fn try_simd_dispatch<BF, EF, T, H>(
     evaluations: &mut [BF],
-    transcript: &mut impl Transcript<EF>,
-) -> Option<Sumcheck<EF>> {
+    transcript: &mut T,
+    hook: &mut H,
+) -> Option<Sumcheck<EF>>
+where
+    BF: Field,
+    EF: Field + From<BF>,
+    T: Transcript<EF>,
+    H: FnMut(usize, &mut T),
+{
     if !(is_goldilocks::<BF>() && is_goldilocks::<EF>()) {
         return None;
     }
@@ -218,17 +225,19 @@ pub(crate) fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
     const HYBRID_THRESHOLD: usize = 1 << 30;
 
     if n <= HYBRID_THRESHOLD {
-        dispatch_all_simd::<BF, EF, Backend>(
+        dispatch_all_simd::<BF, EF, T, H, Backend>(
             evaluations,
             transcript,
+            hook,
             num_rounds,
             &mut prover_messages,
             &mut verifier_messages,
         );
     } else {
-        dispatch_hybrid::<BF, EF, Backend>(
+        dispatch_hybrid::<BF, EF, T, H, Backend>(
             evaluations,
             transcript,
+            hook,
             num_rounds,
             &mut prover_messages,
             &mut verifier_messages,
@@ -255,10 +264,17 @@ pub(crate) fn try_simd_dispatch<BF: Field, EF: Field + From<BF>>(
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[allow(dead_code)] // Used on AVX-512; on NEON, generic path with rayon is faster
-pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
+pub(crate) fn try_simd_ext_dispatch<BF, EF, T, H>(
     evaluations: &mut [BF],
-    transcript: &mut impl Transcript<EF>,
-) -> Option<Sumcheck<EF>> {
+    transcript: &mut T,
+    hook: &mut H,
+) -> Option<Sumcheck<EF>>
+where
+    BF: Field,
+    EF: Field + From<BF>,
+    T: Transcript<EF>,
+    H: FnMut(usize, &mut T),
+{
     if !is_goldilocks_based::<BF>() {
         return None;
     }
@@ -327,6 +343,8 @@ pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
             transcript.write(msg.0);
             transcript.write(msg.1);
 
+            hook(round, transcript);
+
             let chg: EF = transcript.read();
             verifier_messages.push(chg);
 
@@ -386,6 +404,8 @@ pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
             transcript.write(msg.0);
             transcript.write(msg.1);
 
+            hook(round, transcript);
+
             let chg: EF = transcript.read();
             verifier_messages.push(chg);
 
@@ -431,17 +451,20 @@ pub(crate) fn try_simd_ext_dispatch<BF: Field, EF: Field + From<BF>>(
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-fn dispatch_all_simd<
-    BF: Field,
-    EF: Field + From<BF>,
-    S: crate::simd_fields::SimdBaseField<Scalar = u64>,
->(
+fn dispatch_all_simd<BF, EF, T, H, S>(
     evaluations: &mut [BF],
-    transcript: &mut impl Transcript<EF>,
+    transcript: &mut T,
+    hook: &mut H,
     num_rounds: usize,
     prover_messages: &mut Vec<(EF, EF)>,
     verifier_messages: &mut Vec<EF>,
-) {
+) where
+    BF: Field,
+    EF: Field + From<BF>,
+    T: Transcript<EF>,
+    H: FnMut(usize, &mut T),
+    S: crate::simd_fields::SimdBaseField<Scalar = u64>,
+{
     use crate::simd_sumcheck::evaluate::evaluate_parallel;
     use crate::simd_sumcheck::reduce::{reduce_and_evaluate, reduce_in_place};
 
@@ -467,6 +490,8 @@ fn dispatch_all_simd<
         transcript.write(msg.0);
         transcript.write(msg.1);
 
+        hook(round, transcript);
+
         let chg_ef: EF = transcript.read();
         verifier_messages.push(chg_ef);
 
@@ -490,17 +515,20 @@ fn dispatch_all_simd<
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-fn dispatch_hybrid<
-    BF: Field,
-    EF: Field + From<BF>,
-    S: crate::simd_fields::SimdBaseField<Scalar = u64>,
->(
+fn dispatch_hybrid<BF, EF, T, H, S>(
     evaluations: &[BF],
-    transcript: &mut impl Transcript<EF>,
+    transcript: &mut T,
+    hook: &mut H,
     num_rounds: usize,
     prover_messages: &mut Vec<(EF, EF)>,
     verifier_messages: &mut Vec<EF>,
-) {
+) where
+    BF: Field,
+    EF: Field + From<BF>,
+    T: Transcript<EF>,
+    H: FnMut(usize, &mut T),
+    S: crate::simd_fields::SimdBaseField<Scalar = u64>,
+{
     use crate::multilinear::reductions::pairwise;
     use crate::simd_sumcheck::evaluate::evaluate_parallel;
 
@@ -519,13 +547,15 @@ fn dispatch_hybrid<
     transcript.write(msg.0);
     transcript.write(msg.1);
 
+    hook(0, transcript);
+
     let chg: EF = transcript.read();
     verifier_messages.push(chg);
 
     let mut ef_evals = pairwise::cross_field_reduce(evaluations, chg);
 
     // ── Rounds 1+: EF evaluate (SIMD) + EF reduce (generic) ──────
-    for _ in 1..num_rounds {
+    for round in 1..num_rounds {
         let buf: &[u64] =
             unsafe { core::slice::from_raw_parts(ef_evals.as_ptr() as *const u64, ef_evals.len()) };
         let (s0, s1) = evaluate_parallel::<S>(buf);
@@ -534,6 +564,8 @@ fn dispatch_hybrid<
         prover_messages.push(msg);
         transcript.write(msg.0);
         transcript.write(msg.1);
+
+        hook(round, transcript);
 
         let chg: EF = transcript.read();
         verifier_messages.push(chg);
@@ -551,11 +583,18 @@ fn dispatch_hybrid<
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-pub(crate) fn try_simd_product_dispatch<BF: Field, EF: Field + From<BF>>(
+pub(crate) fn try_simd_product_dispatch<BF, EF, T, H>(
     f: &mut [BF],
     g: &mut [BF],
-    transcript: &mut impl Transcript<EF>,
-) -> Option<crate::multilinear_product::ProductSumcheck<EF>> {
+    transcript: &mut T,
+    hook: &mut H,
+) -> Option<crate::multilinear_product::ProductSumcheck<EF>>
+where
+    BF: Field,
+    EF: Field + From<BF>,
+    T: Transcript<EF>,
+    H: FnMut(usize, &mut T),
+{
     if !(is_goldilocks::<BF>() && is_goldilocks::<EF>()) {
         return None;
     }
@@ -593,6 +632,8 @@ pub(crate) fn try_simd_product_dispatch<BF: Field, EF: Field + From<BF>>(
             prover_messages.push(msg);
             transcript.write(msg.0);
             transcript.write(msg.1);
+
+            hook(round, transcript);
 
             let chg_ef: EF = transcript.read();
             verifier_messages.push(chg_ef);
@@ -999,11 +1040,18 @@ pub(crate) fn aos_to_soa_ext3(src: &[u64]) -> (Vec<u64>, Vec<u64>, Vec<u64>) {
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-pub(crate) fn try_simd_ext_product_dispatch<BF: Field, EF: Field + From<BF>>(
+pub(crate) fn try_simd_ext_product_dispatch<BF, EF, T, H>(
     f: &mut [BF],
     g: &mut [BF],
-    transcript: &mut impl Transcript<EF>,
-) -> Option<crate::multilinear_product::ProductSumcheck<EF>> {
+    transcript: &mut T,
+    hook: &mut H,
+) -> Option<crate::multilinear_product::ProductSumcheck<EF>>
+where
+    BF: Field,
+    EF: Field + From<BF>,
+    T: Transcript<EF>,
+    H: FnMut(usize, &mut T),
+{
     if !is_goldilocks_based::<BF>() {
         return None;
     }
@@ -1069,6 +1117,8 @@ pub(crate) fn try_simd_ext_product_dispatch<BF: Field, EF: Field + From<BF>>(
             prover_messages.push(msg);
             transcript.write(msg.0);
             transcript.write(msg.1);
+
+            hook(round, transcript);
 
             let chg: EF = transcript.read();
             verifier_messages.push(chg);
@@ -1136,6 +1186,8 @@ pub(crate) fn try_simd_ext_product_dispatch<BF: Field, EF: Field + From<BF>>(
             prover_messages.push(msg);
             transcript.write(msg.0);
             transcript.write(msg.1);
+
+            hook(round, transcript);
 
             let chg: EF = transcript.read();
             verifier_messages.push(chg);

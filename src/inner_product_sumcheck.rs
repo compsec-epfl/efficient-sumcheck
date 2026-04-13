@@ -100,6 +100,27 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
     g: &mut [BF],
     transcript: &mut impl Transcript<EF>,
 ) -> ProductSumcheck<EF> {
+    inner_product_sumcheck_with_hook(f, g, transcript, |_, _| {})
+}
+
+/// Like [`inner_product_sumcheck`], but calls `hook(round_idx, transcript)`
+/// each round *after* the prover message is written and *before* the verifier
+/// challenge is read.
+///
+/// See [`crate::multilinear_sumcheck_with_hook`] for the motivating use case
+/// (per-round proof-of-work grinding, etc.).
+pub fn inner_product_sumcheck_with_hook<BF, EF, T, H>(
+    f: &mut [BF],
+    g: &mut [BF],
+    transcript: &mut T,
+    mut hook: H,
+) -> ProductSumcheck<EF>
+where
+    BF: Field,
+    EF: Field + From<BF>,
+    T: Transcript<EF>,
+    H: FnMut(usize, &mut T),
+{
     assert_eq!(f.len(), g.len());
     assert!(f.len().count_ones() == 1);
 
@@ -111,14 +132,16 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
     {
         // Try base-field dispatch first (BF == EF == Goldilocks base)
         if let Some(result) =
-            crate::simd_sumcheck::dispatch::try_simd_product_dispatch::<BF, EF>(f, g, transcript)
+            crate::simd_sumcheck::dispatch::try_simd_product_dispatch::<BF, EF, T, H>(
+                f, g, transcript, &mut hook,
+            )
         {
             return result;
         }
         // Try extension-field dispatch (BF == EF == Goldilocks ext2)
         if let Some(result) =
-            crate::simd_sumcheck::dispatch::try_simd_ext_product_dispatch::<BF, EF>(
-                f, g, transcript,
+            crate::simd_sumcheck::dispatch::try_simd_ext_product_dispatch::<BF, EF, T, H>(
+                f, g, transcript, &mut hook,
             )
         {
             return result;
@@ -139,6 +162,8 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
         transcript.write(msg.0);
         transcript.write(msg.1);
 
+        hook(0, transcript);
+
         let chg = transcript.read();
         verifier_messages.push(chg);
 
@@ -147,13 +172,15 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
         let mut ef_g = crate::simd_ops::cross_field_fold(g, chg);
 
         // Remaining rounds work in EF.
-        for _ in 1..num_rounds {
+        for round in 1..num_rounds {
             // SIMD-accelerated product evaluate (dispatches for Goldilocks base)
             let msg = crate::simd_ops::pairwise_product_sum(&ef_f, &ef_g);
 
             prover_messages.push(msg);
             transcript.write(msg.0);
             transcript.write(msg.1);
+
+            hook(round, transcript);
 
             let chg = transcript.read();
             verifier_messages.push(chg);
@@ -443,5 +470,68 @@ mod tests {
             assert_eq!(s.0, ref_msg.0, "a mismatch at round {i}");
             assert_eq!(s.1, ref_msg.1, "b mismatch at round {i}");
         }
+    }
+
+    #[test]
+    fn test_with_hook_called_once_per_round() {
+        use crate::transcript::SanityTranscript;
+        use std::cell::RefCell;
+
+        let num_vars = 6;
+        let n = 1 << num_vars;
+        let mut rng = test_rng();
+        let mut f: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+        let mut g: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+        let mut transcript = SanityTranscript::new(&mut rng);
+
+        let calls = RefCell::new(Vec::<usize>::new());
+        let result = inner_product_sumcheck_with_hook::<F64, F64, _, _>(
+            &mut f,
+            &mut g,
+            &mut transcript,
+            |round, _t| calls.borrow_mut().push(round),
+        );
+
+        assert_eq!(result.prover_messages.len(), num_vars);
+        let calls = calls.into_inner();
+        assert_eq!(calls, (0..num_vars).collect::<Vec<_>>(), "hook must be called once per round in order");
+    }
+
+    #[test]
+    fn test_with_hook_injects_into_transcript() {
+        use crate::transcript::SpongefishTranscript;
+
+        let num_vars = 4;
+        let n = 1 << num_vars;
+
+        let mut rng = test_rng();
+        let f_orig: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+        let g_orig: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+
+        let run = |tag: F64, f: Vec<F64>, g: Vec<F64>| {
+            let mut f = f;
+            let mut g = g;
+            let domsep = spongefish::domain_separator!("hook-test-ip"; module_path!())
+                .instance(b"test");
+            let prover_state = domsep.std_prover();
+            let mut transcript = SpongefishTranscript::new(prover_state);
+            inner_product_sumcheck_with_hook::<F64, F64, _, _>(
+                &mut f,
+                &mut g,
+                &mut transcript,
+                move |_round, t| {
+                    t.write(tag);
+                },
+            )
+        };
+
+        let result_a = run(F64::from(1u64), f_orig.clone(), g_orig.clone());
+        let result_b = run(F64::from(2u64), f_orig, g_orig);
+
+        assert_ne!(
+            result_a.verifier_messages[0],
+            result_b.verifier_messages[0],
+            "hook writes must affect Fiat-Shamir state"
+        );
     }
 }
