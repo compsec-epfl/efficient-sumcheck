@@ -109,6 +109,75 @@ pub fn inner_product_sumcheck<BF: Field, EF: Field + From<BF>>(
 ///
 /// See [`crate::multilinear_sumcheck_with_hook`] for the motivating use case
 /// (per-round proof-of-work grinding, etc.).
+/// Partial inner-product sumcheck: runs `max_rounds` rounds and stops.
+///
+/// Folds `f` and `g` in place (truncating them to length `original / 2^max_rounds`)
+/// so the caller can feed them into a subsequent partial sumcheck call. This
+/// is the shape recursive IOPs (e.g. whir) need: between rounds the caller
+/// commits, opens, and mutates the running claim before continuing.
+///
+/// Requires `BF = EF = F` (no cross-field lift). Uses SIMD-accelerated
+/// [`crate::simd_ops::pairwise_product_sum`] and [`crate::simd_ops::fold_both`]
+/// per round, so SIMD dispatch happens under the hood — but without the
+/// fused reduce+evaluate optimization the full-sumcheck dispatch has. For
+/// whir-style calls where `max_rounds` is small (e.g. a folding factor), this
+/// is the right tradeoff.
+///
+/// `ProductSumcheck::final_evaluations` is populated only if `max_rounds`
+/// reduces `f` to length 1 (i.e., a complete sumcheck); otherwise
+/// `(F::ZERO, F::ZERO)`. The caller uses `f[0]` / `g[0]` of the returned
+/// folded vectors for the intermediate state.
+pub fn inner_product_sumcheck_partial_with_hook<F, T, H>(
+    f: &mut Vec<F>,
+    g: &mut Vec<F>,
+    transcript: &mut T,
+    max_rounds: usize,
+    mut hook: H,
+) -> ProductSumcheck<F>
+where
+    F: Field,
+    T: Transcript<F>,
+    H: FnMut(usize, &mut T),
+{
+    assert_eq!(f.len(), g.len());
+    assert!(f.len().count_ones() == 1, "length must be a power of 2");
+    let total_rounds = f.len().trailing_zeros() as usize;
+    assert!(
+        max_rounds <= total_rounds,
+        "max_rounds ({max_rounds}) exceeds available rounds ({total_rounds})"
+    );
+
+    let mut prover_messages: Vec<(F, F)> = Vec::with_capacity(max_rounds);
+    let mut verifier_messages: Vec<F> = Vec::with_capacity(max_rounds);
+
+    for round in 0..max_rounds {
+        let msg = crate::simd_ops::pairwise_product_sum(f, g);
+
+        prover_messages.push(msg);
+        transcript.write(msg.0);
+        transcript.write(msg.1);
+
+        hook(round, transcript);
+
+        let chg = transcript.read();
+        verifier_messages.push(chg);
+
+        crate::simd_ops::fold_both(f, g, chg);
+    }
+
+    let final_evaluations = if f.len() == 1 {
+        (f[0], g[0])
+    } else {
+        (F::ZERO, F::ZERO)
+    };
+
+    ProductSumcheck {
+        prover_messages,
+        verifier_messages,
+        final_evaluations,
+    }
+}
+
 pub fn inner_product_sumcheck_with_hook<BF, EF, T, H>(
     f: &mut [BF],
     g: &mut [BF],
@@ -206,7 +275,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_ff::UniformRand;
+    use ark_ff::{AdditiveGroup, UniformRand};
     use ark_std::test_rng;
 
     use crate::tests::F64;
@@ -533,6 +602,57 @@ mod tests {
         let expected_g = fold_multilinear(&g_orig, &result.verifier_messages);
         assert_eq!(result.final_evaluations.0, expected_f, "ext2 f final mismatch");
         assert_eq!(result.final_evaluations.1, expected_g, "ext2 g final mismatch");
+    }
+
+    #[test]
+    fn test_partial_split_matches_full() {
+        // Running partial(N rounds) then partial(M rounds) on the folded state
+        // must produce the same transcript as a single full run of N+M rounds.
+        use crate::transcript::SanityTranscript;
+
+        let num_vars = 8;
+        let n = 1 << num_vars;
+        let split_at = 3;
+        let mut rng = test_rng();
+        let f_orig: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+        let g_orig: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+
+        // Full: single end-to-end run.
+        let mut rng1 = test_rng();
+        let mut f_full = f_orig.clone();
+        let mut g_full = g_orig.clone();
+        let mut t_full = SanityTranscript::new(&mut rng1);
+        let full = inner_product_sumcheck::<F64, F64>(&mut f_full, &mut g_full, &mut t_full);
+
+        // Split: two partial runs on the same transcript.
+        let mut rng2 = test_rng();
+        let mut f = f_orig.clone();
+        let mut g = g_orig.clone();
+        let mut t_split = SanityTranscript::new(&mut rng2);
+        let first = inner_product_sumcheck_partial_with_hook(
+            &mut f,
+            &mut g,
+            &mut t_split,
+            split_at,
+            |_, _| {},
+        );
+        let second = inner_product_sumcheck_partial_with_hook(
+            &mut f,
+            &mut g,
+            &mut t_split,
+            num_vars - split_at,
+            |_, _| {},
+        );
+
+        let mut split_prover_msgs = first.prover_messages.clone();
+        split_prover_msgs.extend(second.prover_messages.iter().copied());
+        let mut split_verifier_msgs = first.verifier_messages.clone();
+        split_verifier_msgs.extend(second.verifier_messages.iter().copied());
+
+        assert_eq!(split_prover_msgs, full.prover_messages, "prover msgs");
+        assert_eq!(split_verifier_msgs, full.verifier_messages, "verifier msgs");
+        assert_eq!(second.final_evaluations, full.final_evaluations, "final");
+        assert_eq!(first.final_evaluations, (F64::ZERO, F64::ZERO), "partial final should be zero");
     }
 
     #[test]
