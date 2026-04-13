@@ -18,6 +18,14 @@ use crate::{prover::Prover, streams::Stream};
 pub struct ProductSumcheck<F: Field> {
     pub prover_messages: Vec<(F, F)>,
     pub verifier_messages: Vec<F>,
+    /// The two input polynomials evaluated at the verifier challenge point
+    /// `(r_0, ..., r_{n-1})`: `(f(r), g(r))`. Populated by
+    /// [`crate::inner_product_sumcheck`] and
+    /// [`crate::inner_product_sumcheck_with_hook`] (and all their SIMD
+    /// dispatch paths). The legacy [`ProductSumcheck::prove`] constructor
+    /// leaves this as `(F::ZERO, F::ZERO)` — it's a low-level test helper
+    /// that doesn't surface fold state.
+    pub final_evaluations: (F, F),
 }
 
 impl<F: Field> ProductSumcheck<F> {
@@ -64,9 +72,12 @@ impl<F: Field> ProductSumcheck<F> {
             verifier_message = Some(F::rand(rng));
         }
 
+        // NOTE: `final_evaluations` is not tracked by the generic `Prover`
+        // trait; see field doc.
         ProductSumcheck {
             prover_messages,
             verifier_messages,
+            final_evaluations: (F::ZERO, F::ZERO),
         }
     }
 }
