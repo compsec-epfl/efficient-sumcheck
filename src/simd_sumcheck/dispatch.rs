@@ -872,6 +872,13 @@ pub(crate) fn try_simd_ext_fused_reduce_evaluate<EF: Field>(
 
     #[cfg(target_arch = "aarch64")]
     {
+        // NEON-only fused reduce + evaluate. Uses `extract_nonresidue_ext{2,3}`
+        // helpers (shared with the full dispatch) to compute `w` correctly
+        // for each extension degree — an earlier version used a single
+        // squaring-based extractor for both, which gave the wrong `w` on ext3
+        // (X² instead of X³) and quietly produced wrong reduce results.
+        type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+
         if d == 2 {
             let n_u64 = evals.len() * d;
             let buf: &mut [u64] =
@@ -882,8 +889,7 @@ pub(crate) fn try_simd_ext_fused_reduce_evaluate<EF: Field>(
                 [*ptr, *ptr.add(1)]
             };
 
-            // Extract nonresidue
-            let w = extract_ext2_nonresidue::<EF>();
+            let w = extract_nonresidue_ext2::<EF, Backend>();
 
             let (even_comps, odd_comps, new_len_u64) =
                 crate::simd_sumcheck::reduce::ext2_reduce_and_evaluate(buf, chg_raw, w);
@@ -904,7 +910,7 @@ pub(crate) fn try_simd_ext_fused_reduce_evaluate<EF: Field>(
                 [*ptr, *ptr.add(1), *ptr.add(2)]
             };
 
-            let w = extract_ext2_nonresidue::<EF>(); // same trick works for ext3
+            let w = extract_nonresidue_ext3::<EF, Backend>();
 
             let (even_comps, odd_comps, new_len_u64) =
                 crate::simd_sumcheck::reduce::ext3_reduce_and_evaluate(buf, chg_raw, w);
@@ -917,32 +923,6 @@ pub(crate) fn try_simd_ext_fused_reduce_evaluate<EF: Field>(
     }
 
     None
-}
-
-/// Extract the nonresidue w from an extension field at runtime.
-/// Computes (0, 1, 0...) * (0, 1, 0...) = (w, 0, 0...) and extracts the first component.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
-))]
-fn extract_ext2_nonresidue<EF: Field>() -> u64 {
-    #[cfg(target_arch = "aarch64")]
-    type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-    type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
-
-    use crate::simd_fields::SimdBaseField;
-
-    let d = EF::extension_degree() as usize;
-    let one_x: EF = unsafe {
-        let mut tmp = vec![0u64; d];
-        tmp[1] = Backend::ONE;
-        let mut val = core::mem::MaybeUninit::<EF>::uninit();
-        core::ptr::copy_nonoverlapping(tmp.as_ptr(), val.as_mut_ptr() as *mut u64, d);
-        val.assume_init()
-    };
-    let nr = one_x * one_x;
-    unsafe { *((&nr) as *const EF as *const u64) }
 }
 
 #[allow(dead_code)]
@@ -1170,9 +1150,11 @@ where
                 };
                 if len > EXT_PARALLEL_THRESHOLD {
                     let new_len = len / 2;
-                    // Discard the (wrong) evaluate return; we recompute it at next
-                    // round's start.
-                    let _ = crate::simd_sumcheck::reduce::ext2_soa_product_reduce_and_evaluate_parallel::<Backend>(
+                    // Reduce-only: the evaluate for next round is recomputed
+                    // by ext2_soa_product_evaluate at the top of the next
+                    // iteration, so we skip the ~3 extra ext2 muls/iter that
+                    // the fused kernel used to do.
+                    crate::simd_sumcheck::reduce::ext2_soa_product_reduce_only_parallel::<Backend>(
                         &f_c0[..len], &f_c1[..len],
                         &g_c0[..len], &g_c1[..len],
                         &mut sf_c0[..new_len], &mut sf_c1[..new_len],
@@ -1185,8 +1167,8 @@ where
                     core::mem::swap(&mut g_c1, &mut sg_c1);
                     len = new_len;
                 } else {
-                    let (_, _, new_len) =
-                        crate::simd_sumcheck::reduce::ext2_soa_product_reduce_and_evaluate::<Backend>(
+                    let new_len =
+                        crate::simd_sumcheck::reduce::ext2_soa_product_reduce_only::<Backend>(
                             &mut f_c0[..len], &mut f_c1[..len],
                             &mut g_c0[..len], &mut g_c1[..len],
                             chg_raw, w,
@@ -1248,7 +1230,7 @@ where
                 };
                 if len > EXT_PARALLEL_THRESHOLD {
                     let new_len = len / 2;
-                    let _ = crate::simd_sumcheck::reduce::ext3_soa_product_reduce_and_evaluate_parallel::<Backend>(
+                    crate::simd_sumcheck::reduce::ext3_soa_product_reduce_only_parallel::<Backend>(
                         &f_c0[..len], &f_c1[..len], &f_c2[..len],
                         &g_c0[..len], &g_c1[..len], &g_c2[..len],
                         &mut sf_c0[..new_len], &mut sf_c1[..new_len], &mut sf_c2[..new_len],
@@ -1263,8 +1245,8 @@ where
                     core::mem::swap(&mut g_c2, &mut sg_c2);
                     len = new_len;
                 } else {
-                    let (_, _, new_len) =
-                        crate::simd_sumcheck::reduce::ext3_soa_product_reduce_and_evaluate::<Backend>(
+                    let new_len =
+                        crate::simd_sumcheck::reduce::ext3_soa_product_reduce_only::<Backend>(
                             &mut f_c0[..len], &mut f_c1[..len], &mut f_c2[..len],
                             &mut g_c0[..len], &mut g_c1[..len], &mut g_c2[..len],
                             chg_raw, w,
@@ -1379,7 +1361,7 @@ where
 
             if len > EXT_PARALLEL_THRESHOLD {
                 let new_len = len / 2;
-                let _ = crate::simd_sumcheck::reduce::ext2_soa_product_reduce_and_evaluate_parallel::<Backend>(
+                crate::simd_sumcheck::reduce::ext2_soa_product_reduce_only_parallel::<Backend>(
                     &f_c0[..len], &f_c1[..len],
                     &g_c0[..len], &g_c1[..len],
                     &mut sf_c0[..new_len], &mut sf_c1[..new_len],
@@ -1392,8 +1374,8 @@ where
                 core::mem::swap(&mut g_c1, &mut sg_c1);
                 len = new_len;
             } else {
-                let (_, _, new_len) =
-                    crate::simd_sumcheck::reduce::ext2_soa_product_reduce_and_evaluate::<Backend>(
+                let new_len =
+                    crate::simd_sumcheck::reduce::ext2_soa_product_reduce_only::<Backend>(
                         &mut f_c0[..len], &mut f_c1[..len],
                         &mut g_c0[..len], &mut g_c1[..len],
                         chg_raw, w,
@@ -1433,12 +1415,18 @@ where
         let mut sg_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
         let mut sg_c2: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
 
+        // pending_eval carries round k+1's (a, b) computed by round k's
+        // fused reduce-and-next-eval kernel, so we only call standalone
+        // evaluate at round 0. Saves one full read of the source per
+        // subsequent round.
+        let mut pending_eval: Option<([u64; 3], [u64; 3])> = None;
         for round in 0..max_rounds {
-            let (a_raw, b_raw) =
+            let (a_raw, b_raw) = pending_eval.take().unwrap_or_else(|| {
                 crate::simd_sumcheck::reduce::ext3_soa_product_evaluate::<Backend>(
                     &f_c0[..len], &f_c1[..len], &f_c2[..len],
                     &g_c0[..len], &g_c1[..len], &g_c2[..len], w,
-                );
+                )
+            });
             let a: F = unsafe { ext_components_to_field(&a_raw) };
             let b: F = unsafe { ext_components_to_field(&b_raw) };
             let msg = (a, b);
@@ -1455,15 +1443,33 @@ where
                 [*ptr, *ptr.add(1), *ptr.add(2)]
             };
 
+            // Only the last round doesn't need next-eval — there's no
+            // subsequent round in this partial call. For earlier rounds,
+            // the fused kernel produces reduced data AND the next round's
+            // (a, b) in a single data pass.
+            let is_last = round == max_rounds - 1;
+
             if len > EXT_PARALLEL_THRESHOLD {
                 let new_len = len / 2;
-                let _ = crate::simd_sumcheck::reduce::ext3_soa_product_reduce_and_evaluate_parallel::<Backend>(
-                    &f_c0[..len], &f_c1[..len], &f_c2[..len],
-                    &g_c0[..len], &g_c1[..len], &g_c2[..len],
-                    &mut sf_c0[..new_len], &mut sf_c1[..new_len], &mut sf_c2[..new_len],
-                    &mut sg_c0[..new_len], &mut sg_c1[..new_len], &mut sg_c2[..new_len],
-                    chg_raw, w,
-                );
+                if is_last {
+                    crate::simd_sumcheck::reduce::ext3_soa_product_reduce_only_parallel::<Backend>(
+                        &f_c0[..len], &f_c1[..len], &f_c2[..len],
+                        &g_c0[..len], &g_c1[..len], &g_c2[..len],
+                        &mut sf_c0[..new_len], &mut sf_c1[..new_len], &mut sf_c2[..new_len],
+                        &mut sg_c0[..new_len], &mut sg_c1[..new_len], &mut sg_c2[..new_len],
+                        chg_raw, w,
+                    );
+                } else {
+                    let (next_a, next_b) =
+                        crate::simd_sumcheck::reduce::ext3_soa_product_fused_reduce_next_eval_parallel::<Backend>(
+                            &f_c0[..len], &f_c1[..len], &f_c2[..len],
+                            &g_c0[..len], &g_c1[..len], &g_c2[..len],
+                            &mut sf_c0[..new_len], &mut sf_c1[..new_len], &mut sf_c2[..new_len],
+                            &mut sg_c0[..new_len], &mut sg_c1[..new_len], &mut sg_c2[..new_len],
+                            chg_raw, w,
+                        );
+                    pending_eval = Some((next_a, next_b));
+                }
                 core::mem::swap(&mut f_c0, &mut sf_c0);
                 core::mem::swap(&mut f_c1, &mut sf_c1);
                 core::mem::swap(&mut f_c2, &mut sf_c2);
@@ -1471,13 +1477,22 @@ where
                 core::mem::swap(&mut g_c1, &mut sg_c1);
                 core::mem::swap(&mut g_c2, &mut sg_c2);
                 len = new_len;
-            } else {
-                let (_, _, new_len) =
-                    crate::simd_sumcheck::reduce::ext3_soa_product_reduce_and_evaluate::<Backend>(
+            } else if is_last {
+                let new_len =
+                    crate::simd_sumcheck::reduce::ext3_soa_product_reduce_only::<Backend>(
                         &mut f_c0[..len], &mut f_c1[..len], &mut f_c2[..len],
                         &mut g_c0[..len], &mut g_c1[..len], &mut g_c2[..len],
                         chg_raw, w,
                     );
+                len = new_len;
+            } else {
+                let (next_a, next_b, new_len) =
+                    crate::simd_sumcheck::reduce::ext3_soa_product_fused_reduce_next_eval::<Backend>(
+                        &mut f_c0[..len], &mut f_c1[..len], &mut f_c2[..len],
+                        &mut g_c0[..len], &mut g_c1[..len], &mut g_c2[..len],
+                        chg_raw, w,
+                    );
+                pending_eval = Some((next_a, next_b));
                 len = new_len;
             }
         }

@@ -2440,6 +2440,983 @@ pub fn ext3_soa_product_reduce_and_evaluate_parallel<F: SimdBaseField<Scalar = u
     )
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Reduce-only kernels (no evaluate accumulation)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The fused reduce_and_evaluate kernels above also compute the current
+// round's evaluate `(a, b) = (Σ f_e·g_e, Σ f_e·g_o + f_o·g_e)` as a side
+// effect of the reduce pass. In practice every dispatch caller discards
+// this return and recomputes `(a, b)` via the standalone
+// `ext{2,3}_soa_product_evaluate` kernel at the top of each round — so the
+// 3 extra ext{2,3} Karatsuba muls per iteration (pa, peg, poe) are pure
+// waste. These `_reduce_only` variants skip that evaluate work.
+
+// ── ext2 reduce-only ───────────────────────────────────────────────────────
+
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+unsafe fn ext2_soa_product_reduce_only_raw<F: SimdBaseField<Scalar = u64>>(
+    src_f_c0: *const u64,
+    src_f_c1: *const u64,
+    src_g_c0: *const u64,
+    src_g_c1: *const u64,
+    out_f_c0: *mut u64,
+    out_f_c1: *mut u64,
+    out_g_c0: *mut u64,
+    out_g_c1: *mut u64,
+    n_out: usize,
+    challenge: [u64; 2],
+    w: u64,
+) {
+    let lanes = F::LANES;
+    let aligned = (n_out / lanes) * lanes;
+    let ch0 = F::splat(challenge[0]);
+    let ch1 = F::splat(challenge[1]);
+    let ch1w = F::splat(F::scalar_mul(challenge[1], w));
+
+    let mut i = 0;
+    while i < aligned {
+        let off = i;
+        let (fe0, fo0) = F::load_deinterleaved(src_f_c0.add(2 * off));
+        let (fe1, fo1) = F::load_deinterleaved(src_f_c1.add(2 * off));
+        let (ge0, go0) = F::load_deinterleaved(src_g_c0.add(2 * off));
+        let (ge1, go1) = F::load_deinterleaved(src_g_c1.add(2 * off));
+
+        let fd0 = F::sub(fo0, fe0);
+        let fd1 = F::sub(fo1, fe1);
+        F::store(
+            out_f_c0.add(off),
+            F::add(fe0, F::add(F::mul(ch0, fd0), F::mul(ch1w, fd1))),
+        );
+        F::store(
+            out_f_c1.add(off),
+            F::add(fe1, F::add(F::mul(ch0, fd1), F::mul(ch1, fd0))),
+        );
+
+        let gd0 = F::sub(go0, ge0);
+        let gd1 = F::sub(go1, ge1);
+        F::store(
+            out_g_c0.add(off),
+            F::add(ge0, F::add(F::mul(ch0, gd0), F::mul(ch1w, gd1))),
+        );
+        F::store(
+            out_g_c1.add(off),
+            F::add(ge1, F::add(F::mul(ch0, gd1), F::mul(ch1, gd0))),
+        );
+        i += lanes;
+    }
+
+    let ch1w_s = F::scalar_mul(challenge[1], w);
+    while i < n_out {
+        let fe = [*src_f_c0.add(2 * i), *src_f_c1.add(2 * i)];
+        let fo = [*src_f_c0.add(2 * i + 1), *src_f_c1.add(2 * i + 1)];
+        let ge = [*src_g_c0.add(2 * i), *src_g_c1.add(2 * i)];
+        let go_ = [*src_g_c0.add(2 * i + 1), *src_g_c1.add(2 * i + 1)];
+
+        let fd0 = F::scalar_sub(fo[0], fe[0]);
+        let fd1 = F::scalar_sub(fo[1], fe[1]);
+        *out_f_c0.add(i) = F::scalar_add(
+            fe[0],
+            F::scalar_add(F::scalar_mul(challenge[0], fd0), F::scalar_mul(ch1w_s, fd1)),
+        );
+        *out_f_c1.add(i) = F::scalar_add(
+            fe[1],
+            F::scalar_add(
+                F::scalar_mul(challenge[0], fd1),
+                F::scalar_mul(challenge[1], fd0),
+            ),
+        );
+
+        let gd0 = F::scalar_sub(go_[0], ge[0]);
+        let gd1 = F::scalar_sub(go_[1], ge[1]);
+        *out_g_c0.add(i) = F::scalar_add(
+            ge[0],
+            F::scalar_add(F::scalar_mul(challenge[0], gd0), F::scalar_mul(ch1w_s, gd1)),
+        );
+        *out_g_c1.add(i) = F::scalar_add(
+            ge[1],
+            F::scalar_add(
+                F::scalar_mul(challenge[0], gd1),
+                F::scalar_mul(challenge[1], gd0),
+            ),
+        );
+        i += 1;
+    }
+}
+
+/// In-place ext2 reduce (no evaluate). Returns the new length.
+#[allow(clippy::too_many_arguments)]
+pub fn ext2_soa_product_reduce_only<F: SimdBaseField<Scalar = u64>>(
+    f_c0: &mut [u64],
+    f_c1: &mut [u64],
+    g_c0: &mut [u64],
+    g_c1: &mut [u64],
+    challenge: [u64; 2],
+    w: u64,
+) -> usize {
+    let n_elems = f_c0.len();
+    debug_assert_eq!(n_elems, f_c1.len());
+    debug_assert_eq!(n_elems, g_c0.len());
+    debug_assert_eq!(n_elems, g_c1.len());
+    let n_out = n_elems / 2;
+
+    // SAFETY: all four slices have identical non-overlapping provenance.
+    // The in-place reduce writes to `[0..n_out)` reading from `[0..n_elems)`;
+    // writes to index i only ever read indices 2i and 2i+1, both ≥ i.
+    unsafe {
+        ext2_soa_product_reduce_only_raw::<F>(
+            f_c0.as_ptr(),
+            f_c1.as_ptr(),
+            g_c0.as_ptr(),
+            g_c1.as_ptr(),
+            f_c0.as_mut_ptr(),
+            f_c1.as_mut_ptr(),
+            g_c0.as_mut_ptr(),
+            g_c1.as_mut_ptr(),
+            n_out,
+            challenge,
+            w,
+        );
+    }
+    n_out
+}
+
+/// Distinct-buffer ext2 reduce (no evaluate).
+#[allow(clippy::too_many_arguments)]
+pub fn ext2_soa_product_reduce_only_into<F: SimdBaseField<Scalar = u64>>(
+    src_f_c0: &[u64],
+    src_f_c1: &[u64],
+    src_g_c0: &[u64],
+    src_g_c1: &[u64],
+    out_f_c0: &mut [u64],
+    out_f_c1: &mut [u64],
+    out_g_c0: &mut [u64],
+    out_g_c1: &mut [u64],
+    challenge: [u64; 2],
+    w: u64,
+) {
+    debug_assert_eq!(src_f_c0.len(), 2 * out_f_c0.len());
+    let n_out = out_f_c0.len();
+    unsafe {
+        ext2_soa_product_reduce_only_raw::<F>(
+            src_f_c0.as_ptr(),
+            src_f_c1.as_ptr(),
+            src_g_c0.as_ptr(),
+            src_g_c1.as_ptr(),
+            out_f_c0.as_mut_ptr(),
+            out_f_c1.as_mut_ptr(),
+            out_g_c0.as_mut_ptr(),
+            out_g_c1.as_mut_ptr(),
+            n_out,
+            challenge,
+            w,
+        );
+    }
+}
+
+/// Parallel ext2 reduce (no evaluate).
+#[cfg(feature = "parallel")]
+#[allow(clippy::too_many_arguments)]
+pub fn ext2_soa_product_reduce_only_parallel<F: SimdBaseField<Scalar = u64>>(
+    src_f_c0: &[u64],
+    src_f_c1: &[u64],
+    src_g_c0: &[u64],
+    src_g_c1: &[u64],
+    out_f_c0: &mut [u64],
+    out_f_c1: &mut [u64],
+    out_g_c0: &mut [u64],
+    out_g_c1: &mut [u64],
+    challenge: [u64; 2],
+    w: u64,
+) {
+    use rayon::prelude::*;
+
+    let n_out = out_f_c0.len();
+    let chunk_pairs = 32_768_usize;
+    if n_out <= chunk_pairs {
+        return ext2_soa_product_reduce_only_into::<F>(
+            src_f_c0, src_f_c1, src_g_c0, src_g_c1,
+            out_f_c0, out_f_c1, out_g_c0, out_g_c1,
+            challenge, w,
+        );
+    }
+
+    (out_f_c0.par_chunks_mut(chunk_pairs))
+        .zip(out_f_c1.par_chunks_mut(chunk_pairs))
+        .zip(out_g_c0.par_chunks_mut(chunk_pairs))
+        .zip(out_g_c1.par_chunks_mut(chunk_pairs))
+        .enumerate()
+        .for_each(|(idx, (((ofc0, ofc1), ogc0), ogc1))| {
+            let start = idx * chunk_pairs;
+            let end = start + ofc0.len();
+            ext2_soa_product_reduce_only_into::<F>(
+                &src_f_c0[2 * start..2 * end],
+                &src_f_c1[2 * start..2 * end],
+                &src_g_c0[2 * start..2 * end],
+                &src_g_c1[2 * start..2 * end],
+                ofc0, ofc1, ogc0, ogc1,
+                challenge, w,
+            );
+        });
+}
+
+#[cfg(not(feature = "parallel"))]
+#[allow(clippy::too_many_arguments)]
+pub fn ext2_soa_product_reduce_only_parallel<F: SimdBaseField<Scalar = u64>>(
+    src_f_c0: &[u64],
+    src_f_c1: &[u64],
+    src_g_c0: &[u64],
+    src_g_c1: &[u64],
+    out_f_c0: &mut [u64],
+    out_f_c1: &mut [u64],
+    out_g_c0: &mut [u64],
+    out_g_c1: &mut [u64],
+    challenge: [u64; 2],
+    w: u64,
+) {
+    ext2_soa_product_reduce_only_into::<F>(
+        src_f_c0, src_f_c1, src_g_c0, src_g_c1,
+        out_f_c0, out_f_c1, out_g_c0, out_g_c1,
+        challenge, w,
+    )
+}
+
+// ── ext3 reduce-only ───────────────────────────────────────────────────────
+
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+unsafe fn ext3_soa_product_reduce_only_raw<F: SimdBaseField<Scalar = u64>>(
+    src_f_c0: *const u64,
+    src_f_c1: *const u64,
+    src_f_c2: *const u64,
+    src_g_c0: *const u64,
+    src_g_c1: *const u64,
+    src_g_c2: *const u64,
+    out_f_c0: *mut u64,
+    out_f_c1: *mut u64,
+    out_f_c2: *mut u64,
+    out_g_c0: *mut u64,
+    out_g_c1: *mut u64,
+    out_g_c2: *mut u64,
+    n_out: usize,
+    challenge: [u64; 3],
+    w: u64,
+) {
+    let lanes = F::LANES;
+    let aligned = (n_out / lanes) * lanes;
+    let w_vec = F::splat(w);
+    let ch = [
+        F::splat(challenge[0]),
+        F::splat(challenge[1]),
+        F::splat(challenge[2]),
+    ];
+
+    let mut i = 0;
+    while i < aligned {
+        let off = i;
+        let (fe0, fo0) = F::load_deinterleaved(src_f_c0.add(2 * off));
+        let (fe1, fo1) = F::load_deinterleaved(src_f_c1.add(2 * off));
+        let (fe2, fo2) = F::load_deinterleaved(src_f_c2.add(2 * off));
+        let (ge0, go0) = F::load_deinterleaved(src_g_c0.add(2 * off));
+        let (ge1, go1) = F::load_deinterleaved(src_g_c1.add(2 * off));
+        let (ge2, go2) = F::load_deinterleaved(src_g_c2.add(2 * off));
+
+        let fd = [F::sub(fo0, fe0), F::sub(fo1, fe1), F::sub(fo2, fe2)];
+        let fp = soa_ext3_mul::<F>(ch, fd, w_vec);
+        F::store(out_f_c0.add(off), F::add(fe0, fp[0]));
+        F::store(out_f_c1.add(off), F::add(fe1, fp[1]));
+        F::store(out_f_c2.add(off), F::add(fe2, fp[2]));
+
+        let gd = [F::sub(go0, ge0), F::sub(go1, ge1), F::sub(go2, ge2)];
+        let gp = soa_ext3_mul::<F>(ch, gd, w_vec);
+        F::store(out_g_c0.add(off), F::add(ge0, gp[0]));
+        F::store(out_g_c1.add(off), F::add(ge1, gp[1]));
+        F::store(out_g_c2.add(off), F::add(ge2, gp[2]));
+        i += lanes;
+    }
+
+    // Scalar tail
+    while i < n_out {
+        let fe = [*src_f_c0.add(2 * i), *src_f_c1.add(2 * i), *src_f_c2.add(2 * i)];
+        let fo = [
+            *src_f_c0.add(2 * i + 1),
+            *src_f_c1.add(2 * i + 1),
+            *src_f_c2.add(2 * i + 1),
+        ];
+        let ge = [*src_g_c0.add(2 * i), *src_g_c1.add(2 * i), *src_g_c2.add(2 * i)];
+        let go_ = [
+            *src_g_c0.add(2 * i + 1),
+            *src_g_c1.add(2 * i + 1),
+            *src_g_c2.add(2 * i + 1),
+        ];
+
+        let fd = [
+            F::scalar_sub(fo[0], fe[0]),
+            F::scalar_sub(fo[1], fe[1]),
+            F::scalar_sub(fo[2], fe[2]),
+        ];
+        let fp = scalar_ext3_mul::<F>(challenge, fd, w);
+        *out_f_c0.add(i) = F::scalar_add(fe[0], fp[0]);
+        *out_f_c1.add(i) = F::scalar_add(fe[1], fp[1]);
+        *out_f_c2.add(i) = F::scalar_add(fe[2], fp[2]);
+
+        let gd = [
+            F::scalar_sub(go_[0], ge[0]),
+            F::scalar_sub(go_[1], ge[1]),
+            F::scalar_sub(go_[2], ge[2]),
+        ];
+        let gp = scalar_ext3_mul::<F>(challenge, gd, w);
+        *out_g_c0.add(i) = F::scalar_add(ge[0], gp[0]);
+        *out_g_c1.add(i) = F::scalar_add(ge[1], gp[1]);
+        *out_g_c2.add(i) = F::scalar_add(ge[2], gp[2]);
+        i += 1;
+    }
+}
+
+/// In-place ext3 reduce (no evaluate). Returns the new length.
+#[allow(clippy::too_many_arguments)]
+pub fn ext3_soa_product_reduce_only<F: SimdBaseField<Scalar = u64>>(
+    f_c0: &mut [u64],
+    f_c1: &mut [u64],
+    f_c2: &mut [u64],
+    g_c0: &mut [u64],
+    g_c1: &mut [u64],
+    g_c2: &mut [u64],
+    challenge: [u64; 3],
+    w: u64,
+) -> usize {
+    let n_elems = f_c0.len();
+    let n_out = n_elems / 2;
+    unsafe {
+        ext3_soa_product_reduce_only_raw::<F>(
+            f_c0.as_ptr(),
+            f_c1.as_ptr(),
+            f_c2.as_ptr(),
+            g_c0.as_ptr(),
+            g_c1.as_ptr(),
+            g_c2.as_ptr(),
+            f_c0.as_mut_ptr(),
+            f_c1.as_mut_ptr(),
+            f_c2.as_mut_ptr(),
+            g_c0.as_mut_ptr(),
+            g_c1.as_mut_ptr(),
+            g_c2.as_mut_ptr(),
+            n_out,
+            challenge,
+            w,
+        );
+    }
+    n_out
+}
+
+/// Distinct-buffer ext3 reduce (no evaluate).
+#[allow(clippy::too_many_arguments)]
+pub fn ext3_soa_product_reduce_only_into<F: SimdBaseField<Scalar = u64>>(
+    src_f_c0: &[u64],
+    src_f_c1: &[u64],
+    src_f_c2: &[u64],
+    src_g_c0: &[u64],
+    src_g_c1: &[u64],
+    src_g_c2: &[u64],
+    out_f_c0: &mut [u64],
+    out_f_c1: &mut [u64],
+    out_f_c2: &mut [u64],
+    out_g_c0: &mut [u64],
+    out_g_c1: &mut [u64],
+    out_g_c2: &mut [u64],
+    challenge: [u64; 3],
+    w: u64,
+) {
+    let n_out = out_f_c0.len();
+    unsafe {
+        ext3_soa_product_reduce_only_raw::<F>(
+            src_f_c0.as_ptr(),
+            src_f_c1.as_ptr(),
+            src_f_c2.as_ptr(),
+            src_g_c0.as_ptr(),
+            src_g_c1.as_ptr(),
+            src_g_c2.as_ptr(),
+            out_f_c0.as_mut_ptr(),
+            out_f_c1.as_mut_ptr(),
+            out_f_c2.as_mut_ptr(),
+            out_g_c0.as_mut_ptr(),
+            out_g_c1.as_mut_ptr(),
+            out_g_c2.as_mut_ptr(),
+            n_out,
+            challenge,
+            w,
+        );
+    }
+}
+
+/// Parallel ext3 reduce (no evaluate).
+#[cfg(feature = "parallel")]
+#[allow(clippy::too_many_arguments)]
+pub fn ext3_soa_product_reduce_only_parallel<F: SimdBaseField<Scalar = u64>>(
+    src_f_c0: &[u64],
+    src_f_c1: &[u64],
+    src_f_c2: &[u64],
+    src_g_c0: &[u64],
+    src_g_c1: &[u64],
+    src_g_c2: &[u64],
+    out_f_c0: &mut [u64],
+    out_f_c1: &mut [u64],
+    out_f_c2: &mut [u64],
+    out_g_c0: &mut [u64],
+    out_g_c1: &mut [u64],
+    out_g_c2: &mut [u64],
+    challenge: [u64; 3],
+    w: u64,
+) {
+    use rayon::prelude::*;
+
+    let n_out = out_f_c0.len();
+    let chunk_pairs = 32_768_usize;
+    if n_out <= chunk_pairs {
+        return ext3_soa_product_reduce_only_into::<F>(
+            src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2,
+            out_f_c0, out_f_c1, out_f_c2, out_g_c0, out_g_c1, out_g_c2,
+            challenge, w,
+        );
+    }
+
+    (out_f_c0.par_chunks_mut(chunk_pairs))
+        .zip(out_f_c1.par_chunks_mut(chunk_pairs))
+        .zip(out_f_c2.par_chunks_mut(chunk_pairs))
+        .zip(out_g_c0.par_chunks_mut(chunk_pairs))
+        .zip(out_g_c1.par_chunks_mut(chunk_pairs))
+        .zip(out_g_c2.par_chunks_mut(chunk_pairs))
+        .enumerate()
+        .for_each(|(idx, (((((ofc0, ofc1), ofc2), ogc0), ogc1), ogc2))| {
+            let start = idx * chunk_pairs;
+            let end = start + ofc0.len();
+            ext3_soa_product_reduce_only_into::<F>(
+                &src_f_c0[2 * start..2 * end],
+                &src_f_c1[2 * start..2 * end],
+                &src_f_c2[2 * start..2 * end],
+                &src_g_c0[2 * start..2 * end],
+                &src_g_c1[2 * start..2 * end],
+                &src_g_c2[2 * start..2 * end],
+                ofc0, ofc1, ofc2, ogc0, ogc1, ogc2,
+                challenge, w,
+            );
+        });
+}
+
+#[cfg(not(feature = "parallel"))]
+#[allow(clippy::too_many_arguments)]
+pub fn ext3_soa_product_reduce_only_parallel<F: SimdBaseField<Scalar = u64>>(
+    src_f_c0: &[u64],
+    src_f_c1: &[u64],
+    src_f_c2: &[u64],
+    src_g_c0: &[u64],
+    src_g_c1: &[u64],
+    src_g_c2: &[u64],
+    out_f_c0: &mut [u64],
+    out_f_c1: &mut [u64],
+    out_f_c2: &mut [u64],
+    out_g_c0: &mut [u64],
+    out_g_c1: &mut [u64],
+    out_g_c2: &mut [u64],
+    challenge: [u64; 3],
+    w: u64,
+) {
+    ext3_soa_product_reduce_only_into::<F>(
+        src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2,
+        out_f_c0, out_f_c1, out_f_c2, out_g_c0, out_g_c1, out_g_c2,
+        challenge, w,
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fused reduce + next-round-evaluate kernels
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// These kernels reduce the source (round k) into the output (round k+1)
+// AND accumulate round k+1's evaluate `(a, b) = (Σ f_e·g_e, Σ f_e·g_o + f_o·g_e)`
+// in a single pass over the data. Saves one full read of the source per
+// round relative to the `reduce_only` + standalone `evaluate` pattern.
+//
+// Technique: 2× unroll the SIMD loop so each iteration stores `2·LANES`
+// reduced outputs to contiguous memory. Then a `load_deinterleaved` read
+// of that just-written region (hot in L1) gives the round-k+1 even/odd
+// pair split directly: `evens = [r[0], r[2], …, r[2L−2]]`,
+// `odds  = [r[1], r[3], …, r[2L−1]]`. Those pairs feed the evaluate
+// accumulators via the same `soa_ext{2,3}_mul` Karatsuba the reduce uses.
+//
+// For use with the `pending_eval` pattern in the dispatch: only round 0
+// calls standalone evaluate; rounds 1+ consume the `(a_{k+1}, b_{k+1})`
+// returned by this kernel from round k.
+
+// ── ext3 fused reduce + next-round evaluate ────────────────────────────────
+
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+unsafe fn ext3_soa_product_fused_reduce_next_eval_raw<F: SimdBaseField<Scalar = u64>>(
+    src_f_c0: *const u64,
+    src_f_c1: *const u64,
+    src_f_c2: *const u64,
+    src_g_c0: *const u64,
+    src_g_c1: *const u64,
+    src_g_c2: *const u64,
+    out_f_c0: *mut u64,
+    out_f_c1: *mut u64,
+    out_f_c2: *mut u64,
+    out_g_c0: *mut u64,
+    out_g_c1: *mut u64,
+    out_g_c2: *mut u64,
+    n_out: usize,
+    challenge: [u64; 3],
+    w: u64,
+) -> ([u64; 3], [u64; 3]) {
+    let lanes = F::LANES;
+    let step = 2 * lanes; // 2× unroll: each iter produces 2·LANES reduced outputs
+    let aligned = (n_out / step) * step;
+    let w_vec = F::splat(w);
+    let ch = [
+        F::splat(challenge[0]),
+        F::splat(challenge[1]),
+        F::splat(challenge[2]),
+    ];
+
+    let zero = F::splat(F::ZERO);
+    let mut acc_a = [zero; 3];
+    let mut acc_b = [zero; 3];
+
+    let mut i = 0;
+    while i < aligned {
+        // Unroll A: reduce LANES source pairs into reduced outputs [i .. i+lanes).
+        let (fc0_fe_a, fc0_fo_a) = F::load_deinterleaved(src_f_c0.add(2 * i));
+        let (fc1_fe_a, fc1_fo_a) = F::load_deinterleaved(src_f_c1.add(2 * i));
+        let (fc2_fe_a, fc2_fo_a) = F::load_deinterleaved(src_f_c2.add(2 * i));
+        let (gc0_ge_a, gc0_go_a) = F::load_deinterleaved(src_g_c0.add(2 * i));
+        let (gc1_ge_a, gc1_go_a) = F::load_deinterleaved(src_g_c1.add(2 * i));
+        let (gc2_ge_a, gc2_go_a) = F::load_deinterleaved(src_g_c2.add(2 * i));
+
+        let fd_a = [
+            F::sub(fc0_fo_a, fc0_fe_a),
+            F::sub(fc1_fo_a, fc1_fe_a),
+            F::sub(fc2_fo_a, fc2_fe_a),
+        ];
+        let fp_a = soa_ext3_mul::<F>(ch, fd_a, w_vec);
+        F::store(out_f_c0.add(i), F::add(fc0_fe_a, fp_a[0]));
+        F::store(out_f_c1.add(i), F::add(fc1_fe_a, fp_a[1]));
+        F::store(out_f_c2.add(i), F::add(fc2_fe_a, fp_a[2]));
+
+        let gd_a = [
+            F::sub(gc0_go_a, gc0_ge_a),
+            F::sub(gc1_go_a, gc1_ge_a),
+            F::sub(gc2_go_a, gc2_ge_a),
+        ];
+        let gp_a = soa_ext3_mul::<F>(ch, gd_a, w_vec);
+        F::store(out_g_c0.add(i), F::add(gc0_ge_a, gp_a[0]));
+        F::store(out_g_c1.add(i), F::add(gc1_ge_a, gp_a[1]));
+        F::store(out_g_c2.add(i), F::add(gc2_ge_a, gp_a[2]));
+
+        // Unroll B: second LANES of reduced outputs [i+lanes .. i+2·lanes).
+        let off_b = i + lanes;
+        let (fc0_fe_b, fc0_fo_b) = F::load_deinterleaved(src_f_c0.add(2 * off_b));
+        let (fc1_fe_b, fc1_fo_b) = F::load_deinterleaved(src_f_c1.add(2 * off_b));
+        let (fc2_fe_b, fc2_fo_b) = F::load_deinterleaved(src_f_c2.add(2 * off_b));
+        let (gc0_ge_b, gc0_go_b) = F::load_deinterleaved(src_g_c0.add(2 * off_b));
+        let (gc1_ge_b, gc1_go_b) = F::load_deinterleaved(src_g_c1.add(2 * off_b));
+        let (gc2_ge_b, gc2_go_b) = F::load_deinterleaved(src_g_c2.add(2 * off_b));
+
+        let fd_b = [
+            F::sub(fc0_fo_b, fc0_fe_b),
+            F::sub(fc1_fo_b, fc1_fe_b),
+            F::sub(fc2_fo_b, fc2_fe_b),
+        ];
+        let fp_b = soa_ext3_mul::<F>(ch, fd_b, w_vec);
+        F::store(out_f_c0.add(off_b), F::add(fc0_fe_b, fp_b[0]));
+        F::store(out_f_c1.add(off_b), F::add(fc1_fe_b, fp_b[1]));
+        F::store(out_f_c2.add(off_b), F::add(fc2_fe_b, fp_b[2]));
+
+        let gd_b = [
+            F::sub(gc0_go_b, gc0_ge_b),
+            F::sub(gc1_go_b, gc1_ge_b),
+            F::sub(gc2_go_b, gc2_ge_b),
+        ];
+        let gp_b = soa_ext3_mul::<F>(ch, gd_b, w_vec);
+        F::store(out_g_c0.add(off_b), F::add(gc0_ge_b, gp_b[0]));
+        F::store(out_g_c1.add(off_b), F::add(gc1_ge_b, gp_b[1]));
+        F::store(out_g_c2.add(off_b), F::add(gc2_ge_b, gp_b[2]));
+
+        // Next-round evaluate: reload the just-stored 2·LANES reduced
+        // outputs via deinterleave. `load_deinterleaved(ptr)` reads
+        // `2·LANES` u64s starting at ptr and returns
+        //   evens = [r[0], r[2], …, r[2L−2]]  (first elements of each pair)
+        //   odds  = [r[1], r[3], …, r[2L−1]]  (second elements of each pair)
+        // Those are exactly the round-k+1 even/odd component lanes.
+        let (fc0_e, fc0_o) = F::load_deinterleaved(out_f_c0.add(i));
+        let (fc1_e, fc1_o) = F::load_deinterleaved(out_f_c1.add(i));
+        let (fc2_e, fc2_o) = F::load_deinterleaved(out_f_c2.add(i));
+        let (gc0_e, gc0_o) = F::load_deinterleaved(out_g_c0.add(i));
+        let (gc1_e, gc1_o) = F::load_deinterleaved(out_g_c1.add(i));
+        let (gc2_e, gc2_o) = F::load_deinterleaved(out_g_c2.add(i));
+
+        let pa = soa_ext3_mul::<F>(
+            [fc0_e, fc1_e, fc2_e],
+            [gc0_e, gc1_e, gc2_e],
+            w_vec,
+        );
+        acc_a[0] = F::add(acc_a[0], pa[0]);
+        acc_a[1] = F::add(acc_a[1], pa[1]);
+        acc_a[2] = F::add(acc_a[2], pa[2]);
+
+        let peg = soa_ext3_mul::<F>(
+            [fc0_e, fc1_e, fc2_e],
+            [gc0_o, gc1_o, gc2_o],
+            w_vec,
+        );
+        let poe = soa_ext3_mul::<F>(
+            [fc0_o, fc1_o, fc2_o],
+            [gc0_e, gc1_e, gc2_e],
+            w_vec,
+        );
+        acc_b[0] = F::add(acc_b[0], F::add(peg[0], poe[0]));
+        acc_b[1] = F::add(acc_b[1], F::add(peg[1], poe[1]));
+        acc_b[2] = F::add(acc_b[2], F::add(peg[2], poe[2]));
+
+        i += step;
+    }
+
+    // Horizontal-reduce SIMD accumulators into scalar (a, b).
+    let mut buf = [F::ZERO; 32];
+    let mut a = [F::ZERO; 3];
+    let mut b = [F::ZERO; 3];
+    for c in 0..3 {
+        F::store(buf.as_mut_ptr(), acc_a[c]);
+        for &v in buf.iter().take(lanes) {
+            a[c] = F::scalar_add(a[c], v);
+        }
+        F::store(buf.as_mut_ptr(), acc_b[c]);
+        for &v in buf.iter().take(lanes) {
+            b[c] = F::scalar_add(b[c], v);
+        }
+    }
+
+    // Scalar tail: reduce pairs of elements at a time, accumulating next-eval.
+    while i + 1 < n_out {
+        // Reduce element i
+        let fe_i = [*src_f_c0.add(2 * i), *src_f_c1.add(2 * i), *src_f_c2.add(2 * i)];
+        let fo_i = [
+            *src_f_c0.add(2 * i + 1),
+            *src_f_c1.add(2 * i + 1),
+            *src_f_c2.add(2 * i + 1),
+        ];
+        let ge_i = [*src_g_c0.add(2 * i), *src_g_c1.add(2 * i), *src_g_c2.add(2 * i)];
+        let go_i = [
+            *src_g_c0.add(2 * i + 1),
+            *src_g_c1.add(2 * i + 1),
+            *src_g_c2.add(2 * i + 1),
+        ];
+        let fd = [
+            F::scalar_sub(fo_i[0], fe_i[0]),
+            F::scalar_sub(fo_i[1], fe_i[1]),
+            F::scalar_sub(fo_i[2], fe_i[2]),
+        ];
+        let fp = scalar_ext3_mul::<F>(challenge, fd, w);
+        let r_f_i = [
+            F::scalar_add(fe_i[0], fp[0]),
+            F::scalar_add(fe_i[1], fp[1]),
+            F::scalar_add(fe_i[2], fp[2]),
+        ];
+        *out_f_c0.add(i) = r_f_i[0];
+        *out_f_c1.add(i) = r_f_i[1];
+        *out_f_c2.add(i) = r_f_i[2];
+        let gd = [
+            F::scalar_sub(go_i[0], ge_i[0]),
+            F::scalar_sub(go_i[1], ge_i[1]),
+            F::scalar_sub(go_i[2], ge_i[2]),
+        ];
+        let gp = scalar_ext3_mul::<F>(challenge, gd, w);
+        let r_g_i = [
+            F::scalar_add(ge_i[0], gp[0]),
+            F::scalar_add(ge_i[1], gp[1]),
+            F::scalar_add(ge_i[2], gp[2]),
+        ];
+        *out_g_c0.add(i) = r_g_i[0];
+        *out_g_c1.add(i) = r_g_i[1];
+        *out_g_c2.add(i) = r_g_i[2];
+
+        // Reduce element i+1
+        let j = i + 1;
+        let fe_j = [*src_f_c0.add(2 * j), *src_f_c1.add(2 * j), *src_f_c2.add(2 * j)];
+        let fo_j = [
+            *src_f_c0.add(2 * j + 1),
+            *src_f_c1.add(2 * j + 1),
+            *src_f_c2.add(2 * j + 1),
+        ];
+        let ge_j = [*src_g_c0.add(2 * j), *src_g_c1.add(2 * j), *src_g_c2.add(2 * j)];
+        let go_j = [
+            *src_g_c0.add(2 * j + 1),
+            *src_g_c1.add(2 * j + 1),
+            *src_g_c2.add(2 * j + 1),
+        ];
+        let fd_j = [
+            F::scalar_sub(fo_j[0], fe_j[0]),
+            F::scalar_sub(fo_j[1], fe_j[1]),
+            F::scalar_sub(fo_j[2], fe_j[2]),
+        ];
+        let fp_j = scalar_ext3_mul::<F>(challenge, fd_j, w);
+        let r_f_j = [
+            F::scalar_add(fe_j[0], fp_j[0]),
+            F::scalar_add(fe_j[1], fp_j[1]),
+            F::scalar_add(fe_j[2], fp_j[2]),
+        ];
+        *out_f_c0.add(j) = r_f_j[0];
+        *out_f_c1.add(j) = r_f_j[1];
+        *out_f_c2.add(j) = r_f_j[2];
+        let gd_j = [
+            F::scalar_sub(go_j[0], ge_j[0]),
+            F::scalar_sub(go_j[1], ge_j[1]),
+            F::scalar_sub(go_j[2], ge_j[2]),
+        ];
+        let gp_j = scalar_ext3_mul::<F>(challenge, gd_j, w);
+        let r_g_j = [
+            F::scalar_add(ge_j[0], gp_j[0]),
+            F::scalar_add(ge_j[1], gp_j[1]),
+            F::scalar_add(ge_j[2], gp_j[2]),
+        ];
+        *out_g_c0.add(j) = r_g_j[0];
+        *out_g_c1.add(j) = r_g_j[1];
+        *out_g_c2.add(j) = r_g_j[2];
+
+        // Next-eval: pair (r_f_i, r_f_j) × (r_g_i, r_g_j)
+        let pa = scalar_ext3_mul::<F>(r_f_i, r_g_i, w);
+        a[0] = F::scalar_add(a[0], pa[0]);
+        a[1] = F::scalar_add(a[1], pa[1]);
+        a[2] = F::scalar_add(a[2], pa[2]);
+        let peg = scalar_ext3_mul::<F>(r_f_i, r_g_j, w);
+        let poe = scalar_ext3_mul::<F>(r_f_j, r_g_i, w);
+        b[0] = F::scalar_add(b[0], F::scalar_add(peg[0], poe[0]));
+        b[1] = F::scalar_add(b[1], F::scalar_add(peg[1], poe[1]));
+        b[2] = F::scalar_add(b[2], F::scalar_add(peg[2], poe[2]));
+
+        i += 2;
+    }
+
+    // Final straggler: if n_out is odd, reduce the last element without
+    // contributing to next-round-eval (no pair to form).
+    if i < n_out {
+        let fe = [*src_f_c0.add(2 * i), *src_f_c1.add(2 * i), *src_f_c2.add(2 * i)];
+        let fo = [
+            *src_f_c0.add(2 * i + 1),
+            *src_f_c1.add(2 * i + 1),
+            *src_f_c2.add(2 * i + 1),
+        ];
+        let ge = [*src_g_c0.add(2 * i), *src_g_c1.add(2 * i), *src_g_c2.add(2 * i)];
+        let go = [
+            *src_g_c0.add(2 * i + 1),
+            *src_g_c1.add(2 * i + 1),
+            *src_g_c2.add(2 * i + 1),
+        ];
+        let fd = [
+            F::scalar_sub(fo[0], fe[0]),
+            F::scalar_sub(fo[1], fe[1]),
+            F::scalar_sub(fo[2], fe[2]),
+        ];
+        let fp = scalar_ext3_mul::<F>(challenge, fd, w);
+        *out_f_c0.add(i) = F::scalar_add(fe[0], fp[0]);
+        *out_f_c1.add(i) = F::scalar_add(fe[1], fp[1]);
+        *out_f_c2.add(i) = F::scalar_add(fe[2], fp[2]);
+        let gd = [
+            F::scalar_sub(go[0], ge[0]),
+            F::scalar_sub(go[1], ge[1]),
+            F::scalar_sub(go[2], ge[2]),
+        ];
+        let gp = scalar_ext3_mul::<F>(challenge, gd, w);
+        *out_g_c0.add(i) = F::scalar_add(ge[0], gp[0]);
+        *out_g_c1.add(i) = F::scalar_add(ge[1], gp[1]);
+        *out_g_c2.add(i) = F::scalar_add(ge[2], gp[2]);
+    }
+
+    (a, b)
+}
+
+/// In-place ext3 fused reduce + next-round evaluate. Writes reduced output
+/// to the first half of each input slice. Returns `(a_{k+1}, b_{k+1})` — the
+/// round-k+1 evaluate coefficients computed from the just-reduced output.
+#[allow(clippy::too_many_arguments)]
+pub fn ext3_soa_product_fused_reduce_next_eval<F: SimdBaseField<Scalar = u64>>(
+    f_c0: &mut [u64],
+    f_c1: &mut [u64],
+    f_c2: &mut [u64],
+    g_c0: &mut [u64],
+    g_c1: &mut [u64],
+    g_c2: &mut [u64],
+    challenge: [u64; 3],
+    w: u64,
+) -> ([u64; 3], [u64; 3], usize) {
+    let n_elems = f_c0.len();
+    let n_out = n_elems / 2;
+    // SAFETY: same aliasing reasoning as `ext3_soa_product_reduce_only`: each
+    // iteration reads src[2i], src[2i+1] and writes out[i] where 2i ≥ i, so
+    // in-place mutation never clobbers unread source. The fused next-eval
+    // reload reads out[i..i+2·LANES], which were both just written in the
+    // current iteration.
+    let (a, b) = unsafe {
+        ext3_soa_product_fused_reduce_next_eval_raw::<F>(
+            f_c0.as_ptr(),
+            f_c1.as_ptr(),
+            f_c2.as_ptr(),
+            g_c0.as_ptr(),
+            g_c1.as_ptr(),
+            g_c2.as_ptr(),
+            f_c0.as_mut_ptr(),
+            f_c1.as_mut_ptr(),
+            f_c2.as_mut_ptr(),
+            g_c0.as_mut_ptr(),
+            g_c1.as_mut_ptr(),
+            g_c2.as_mut_ptr(),
+            n_out,
+            challenge,
+            w,
+        )
+    };
+    (a, b, n_out)
+}
+
+/// Distinct-buffer ext3 fused reduce + next-round evaluate. Returns
+/// `(a_{k+1}, b_{k+1})` — the round-k+1 evaluate coefficients computed
+/// from the just-reduced output.
+#[allow(clippy::too_many_arguments)]
+pub fn ext3_soa_product_fused_reduce_next_eval_into<F: SimdBaseField<Scalar = u64>>(
+    src_f_c0: &[u64],
+    src_f_c1: &[u64],
+    src_f_c2: &[u64],
+    src_g_c0: &[u64],
+    src_g_c1: &[u64],
+    src_g_c2: &[u64],
+    out_f_c0: &mut [u64],
+    out_f_c1: &mut [u64],
+    out_f_c2: &mut [u64],
+    out_g_c0: &mut [u64],
+    out_g_c1: &mut [u64],
+    out_g_c2: &mut [u64],
+    challenge: [u64; 3],
+    w: u64,
+) -> ([u64; 3], [u64; 3]) {
+    let n_out = out_f_c0.len();
+    unsafe {
+        ext3_soa_product_fused_reduce_next_eval_raw::<F>(
+            src_f_c0.as_ptr(),
+            src_f_c1.as_ptr(),
+            src_f_c2.as_ptr(),
+            src_g_c0.as_ptr(),
+            src_g_c1.as_ptr(),
+            src_g_c2.as_ptr(),
+            out_f_c0.as_mut_ptr(),
+            out_f_c1.as_mut_ptr(),
+            out_f_c2.as_mut_ptr(),
+            out_g_c0.as_mut_ptr(),
+            out_g_c1.as_mut_ptr(),
+            out_g_c2.as_mut_ptr(),
+            n_out,
+            challenge,
+            w,
+        )
+    }
+}
+
+/// Parallel ext3 fused reduce + next-round evaluate.
+#[cfg(feature = "parallel")]
+#[allow(clippy::too_many_arguments)]
+pub fn ext3_soa_product_fused_reduce_next_eval_parallel<F: SimdBaseField<Scalar = u64>>(
+    src_f_c0: &[u64],
+    src_f_c1: &[u64],
+    src_f_c2: &[u64],
+    src_g_c0: &[u64],
+    src_g_c1: &[u64],
+    src_g_c2: &[u64],
+    out_f_c0: &mut [u64],
+    out_f_c1: &mut [u64],
+    out_f_c2: &mut [u64],
+    out_g_c0: &mut [u64],
+    out_g_c1: &mut [u64],
+    out_g_c2: &mut [u64],
+    challenge: [u64; 3],
+    w: u64,
+) -> ([u64; 3], [u64; 3]) {
+    use rayon::prelude::*;
+
+    let n_out = out_f_c0.len();
+    let chunk_pairs = 32_768_usize;
+    if n_out <= chunk_pairs {
+        return ext3_soa_product_fused_reduce_next_eval_into::<F>(
+            src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2,
+            out_f_c0, out_f_c1, out_f_c2, out_g_c0, out_g_c1, out_g_c2,
+            challenge, w,
+        );
+    }
+
+    (out_f_c0.par_chunks_mut(chunk_pairs))
+        .zip(out_f_c1.par_chunks_mut(chunk_pairs))
+        .zip(out_f_c2.par_chunks_mut(chunk_pairs))
+        .zip(out_g_c0.par_chunks_mut(chunk_pairs))
+        .zip(out_g_c1.par_chunks_mut(chunk_pairs))
+        .zip(out_g_c2.par_chunks_mut(chunk_pairs))
+        .enumerate()
+        .map(|(idx, (((((ofc0, ofc1), ofc2), ogc0), ogc1), ogc2))| {
+            let start = idx * chunk_pairs;
+            let end = start + ofc0.len();
+            ext3_soa_product_fused_reduce_next_eval_into::<F>(
+                &src_f_c0[2 * start..2 * end],
+                &src_f_c1[2 * start..2 * end],
+                &src_f_c2[2 * start..2 * end],
+                &src_g_c0[2 * start..2 * end],
+                &src_g_c1[2 * start..2 * end],
+                &src_g_c2[2 * start..2 * end],
+                ofc0, ofc1, ofc2, ogc0, ogc1, ogc2,
+                challenge, w,
+            )
+        })
+        .reduce(
+            || ([0u64; 3], [0u64; 3]),
+            |(a1, b1), (a2, b2)| {
+                (
+                    [
+                        F::scalar_add(a1[0], a2[0]),
+                        F::scalar_add(a1[1], a2[1]),
+                        F::scalar_add(a1[2], a2[2]),
+                    ],
+                    [
+                        F::scalar_add(b1[0], b2[0]),
+                        F::scalar_add(b1[1], b2[1]),
+                        F::scalar_add(b1[2], b2[2]),
+                    ],
+                )
+            },
+        )
+}
+
+#[cfg(not(feature = "parallel"))]
+#[allow(clippy::too_many_arguments)]
+pub fn ext3_soa_product_fused_reduce_next_eval_parallel<F: SimdBaseField<Scalar = u64>>(
+    src_f_c0: &[u64],
+    src_f_c1: &[u64],
+    src_f_c2: &[u64],
+    src_g_c0: &[u64],
+    src_g_c1: &[u64],
+    src_g_c2: &[u64],
+    out_f_c0: &mut [u64],
+    out_f_c1: &mut [u64],
+    out_f_c2: &mut [u64],
+    out_g_c0: &mut [u64],
+    out_g_c1: &mut [u64],
+    out_g_c2: &mut [u64],
+    challenge: [u64; 3],
+    w: u64,
+) -> ([u64; 3], [u64; 3]) {
+    ext3_soa_product_fused_reduce_next_eval_into::<F>(
+        src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2,
+        out_f_c0, out_f_c1, out_f_c2, out_g_c0, out_g_c1, out_g_c2,
+        challenge, w,
+    )
+}
+
 /// SoA ext2 inner product evaluate.
 ///
 /// Given `f` and `g` as ext2 elements in SoA layout (f_c0, f_c1, g_c0, g_c1),
@@ -2928,6 +3905,103 @@ mod tests {
                 "mismatch at index {}",
                 i
             );
+        }
+    }
+
+    /// Verify the ext3 fused reduce+next-eval kernel produces the same
+    /// (reduced_data, a_{k+1}, b_{k+1}) as `reduce_only` followed by a
+    /// standalone `ext3_soa_product_evaluate` on the reduced data.
+    #[test]
+    fn test_ext3_fused_reduce_next_eval_matches_separate() {
+        use crate::tests::F64Ext3;
+        use ark_ff::UniformRand;
+
+        let mut rng = test_rng();
+        // Exercise SIMD main loop (n_out ≥ 2·LANES), scalar-tail pair, and
+        // straggler paths: large even, large odd, small.
+        for num_source_pairs in [32usize, 31, 17, 16, 8, 4, 2] {
+            let n_src = 2 * num_source_pairs;
+            // Sample random ext3 sources and convert to SoA u64 columns.
+            let f: Vec<F64Ext3> = (0..n_src).map(|_| F64Ext3::rand(&mut rng)).collect();
+            let g: Vec<F64Ext3> = (0..n_src).map(|_| F64Ext3::rand(&mut rng)).collect();
+            let (f_c0, f_c1, f_c2): (Vec<u64>, Vec<u64>, Vec<u64>) = {
+                let mut c0 = Vec::with_capacity(n_src);
+                let mut c1 = Vec::with_capacity(n_src);
+                let mut c2 = Vec::with_capacity(n_src);
+                for x in &f {
+                    let bytes: [u64; 3] =
+                        unsafe { *(x as *const F64Ext3 as *const [u64; 3]) };
+                    c0.push(bytes[0]);
+                    c1.push(bytes[1]);
+                    c2.push(bytes[2]);
+                }
+                (c0, c1, c2)
+            };
+            let (g_c0, g_c1, g_c2): (Vec<u64>, Vec<u64>, Vec<u64>) = {
+                let mut c0 = Vec::with_capacity(n_src);
+                let mut c1 = Vec::with_capacity(n_src);
+                let mut c2 = Vec::with_capacity(n_src);
+                for x in &g {
+                    let bytes: [u64; 3] =
+                        unsafe { *(x as *const F64Ext3 as *const [u64; 3]) };
+                    c0.push(bytes[0]);
+                    c1.push(bytes[1]);
+                    c2.push(bytes[2]);
+                }
+                (c0, c1, c2)
+            };
+
+            // Random challenge and nonresidue in Montgomery form — use a
+            // small concrete nonresidue; the kernel treats `w` as opaque.
+            let chg: [u64; 3] = {
+                let c = F64Ext3::rand(&mut rng);
+                unsafe { *(&c as *const F64Ext3 as *const [u64; 3]) }
+            };
+            let w: u64 = {
+                let nr = F64Ext3::rand(&mut rng);
+                unsafe { *(&nr as *const F64Ext3 as *const u64) }
+            };
+
+            // Reference: reduce_only then standalone evaluate on reduced.
+            let mut ref_out_f = (vec![0u64; n_src / 2], vec![0u64; n_src / 2], vec![0u64; n_src / 2]);
+            let mut ref_out_g = (vec![0u64; n_src / 2], vec![0u64; n_src / 2], vec![0u64; n_src / 2]);
+            ext3_soa_product_reduce_only_into::<Backend>(
+                &f_c0, &f_c1, &f_c2, &g_c0, &g_c1, &g_c2,
+                &mut ref_out_f.0, &mut ref_out_f.1, &mut ref_out_f.2,
+                &mut ref_out_g.0, &mut ref_out_g.1, &mut ref_out_g.2,
+                chg, w,
+            );
+            // Next-round evaluate: only defined when n_out ≥ 2.
+            let (ref_a, ref_b) = if n_src / 2 >= 2 {
+                ext3_soa_product_evaluate::<Backend>(
+                    &ref_out_f.0, &ref_out_f.1, &ref_out_f.2,
+                    &ref_out_g.0, &ref_out_g.1, &ref_out_g.2,
+                    w,
+                )
+            } else {
+                ([0u64; 3], [0u64; 3])
+            };
+
+            // Under test: fused kernel.
+            let mut got_out_f = (vec![0u64; n_src / 2], vec![0u64; n_src / 2], vec![0u64; n_src / 2]);
+            let mut got_out_g = (vec![0u64; n_src / 2], vec![0u64; n_src / 2], vec![0u64; n_src / 2]);
+            let (got_a, got_b) = ext3_soa_product_fused_reduce_next_eval_into::<Backend>(
+                &f_c0, &f_c1, &f_c2, &g_c0, &g_c1, &g_c2,
+                &mut got_out_f.0, &mut got_out_f.1, &mut got_out_f.2,
+                &mut got_out_g.0, &mut got_out_g.1, &mut got_out_g.2,
+                chg, w,
+            );
+
+            assert_eq!(got_out_f.0, ref_out_f.0, "f_c0 mismatch (n_src={})", n_src);
+            assert_eq!(got_out_f.1, ref_out_f.1, "f_c1 mismatch (n_src={})", n_src);
+            assert_eq!(got_out_f.2, ref_out_f.2, "f_c2 mismatch (n_src={})", n_src);
+            assert_eq!(got_out_g.0, ref_out_g.0, "g_c0 mismatch (n_src={})", n_src);
+            assert_eq!(got_out_g.1, ref_out_g.1, "g_c1 mismatch (n_src={})", n_src);
+            assert_eq!(got_out_g.2, ref_out_g.2, "g_c2 mismatch (n_src={})", n_src);
+            if n_src / 2 >= 2 {
+                assert_eq!(got_a, ref_a, "a mismatch (n_src={})", n_src);
+                assert_eq!(got_b, ref_b, "b mismatch (n_src={})", n_src);
+            }
         }
     }
 }
