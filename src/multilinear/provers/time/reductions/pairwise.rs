@@ -35,10 +35,30 @@ pub fn evaluate_from_stream<F: Field, S: Stream<F>>(src: &S) -> (F, F) {
 }
 
 pub fn reduce_evaluations<F: Field>(src: &mut Vec<F>, verifier_message: F) {
-    let out: Vec<F> = cfg_chunks!(src, 2)
-        .map(|chunk| chunk[0] + verifier_message * (chunk[1] - chunk[0]))
-        .collect();
-    *src = out;
+    #[cfg(feature = "parallel")]
+    {
+        // Parallel path: MSB pairing makes true in-place parallel impossible
+        // without unsafe (writer i writes src[i] while writer j reads src[2j]
+        // which may alias src[i]). Allocate a fresh Vec via rayon's parallel
+        // collect; `*src = out` swaps buffers without a copy.
+        let out: Vec<F> = cfg_chunks!(src, 2)
+            .map(|chunk| chunk[0] + verifier_message * (chunk[1] - chunk[0]))
+            .collect();
+        *src = out;
+    }
+    #[cfg(not(feature = "parallel"))]
+    {
+        // Serial path: truly in-place. Writing src[i] while reading src[2i]
+        // and src[2i+1] is safe sequentially because 2i ≥ i always, so we
+        // never clobber a read we still need.
+        let new_len = src.len() / 2;
+        for i in 0..new_len {
+            let a = src[2 * i];
+            let b = src[2 * i + 1];
+            src[i] = a + verifier_message * (b - a);
+        }
+        src.truncate(new_len);
+    }
 }
 
 pub fn reduce_evaluations_from_stream<F: Field, S: Stream<F>>(
