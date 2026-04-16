@@ -975,6 +975,10 @@ pub(crate) fn try_simd_ext_fused_reduce_evaluate<EF: Field>(
     None
 }
 
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
 #[allow(dead_code)]
 pub(crate) fn try_simd_ext_reduce<EF: Field>(evals: &mut Vec<EF>, challenge: EF) -> bool {
     if !is_goldilocks_based::<EF>() {
