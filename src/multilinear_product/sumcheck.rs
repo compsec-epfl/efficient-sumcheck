@@ -116,9 +116,9 @@ mod tests {
         let mut rng = test_rng();
         for _ in 0..1000 {
             // Sample a random degree-2 polynomial via its coefficients.
-            let a = F64::rand(&mut rng);          // q(0)
-            let linear = F64::rand(&mut rng);      // linear coefficient of q
-            let quadratic = F64::rand(&mut rng);   // quadratic coefficient of q
+            let a = F64::rand(&mut rng); // q(0)
+            let linear = F64::rand(&mut rng); // linear coefficient of q
+            let quadratic = F64::rand(&mut rng); // quadratic coefficient of q
             let r = F64::rand(&mut rng);
 
             // Reconstruct wire-format b: linear = b − 2a  ⇒  b = linear + 2a.
@@ -166,6 +166,9 @@ mod tests {
         let expected: F64 = (0..n / 2).map(|k| ff[2 * k] * gg[2 * k]).sum();
 
         let got = ProductSumcheck::<F64>::evaluate_round_poly(r, a, b, claim);
-        assert_eq!(got, expected, "evaluate_round_poly disagrees with folded prover output");
+        assert_eq!(
+            got, expected,
+            "evaluate_round_poly disagrees with folded prover output"
+        );
     }
 }

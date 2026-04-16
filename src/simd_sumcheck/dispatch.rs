@@ -118,7 +118,10 @@ fn is_goldilocks_based<F: Field>() -> bool {
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[inline]
-pub(crate) fn extract_nonresidue_ext2<EF: Field, S: crate::simd_fields::SimdBaseField<Scalar = u64>>() -> u64 {
+pub(crate) fn extract_nonresidue_ext2<
+    EF: Field,
+    S: crate::simd_fields::SimdBaseField<Scalar = u64>,
+>() -> u64 {
     let one_x = unsafe {
         let mut tmp = [0u64; 2];
         tmp[1] = S::ONE;
@@ -136,7 +139,10 @@ pub(crate) fn extract_nonresidue_ext2<EF: Field, S: crate::simd_fields::SimdBase
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[inline]
-pub(crate) fn extract_nonresidue_ext3<EF: Field, S: crate::simd_fields::SimdBaseField<Scalar = u64>>() -> u64 {
+pub(crate) fn extract_nonresidue_ext3<
+    EF: Field,
+    S: crate::simd_fields::SimdBaseField<Scalar = u64>,
+>() -> u64 {
     let one_x = unsafe {
         let mut tmp = [0u64; 3];
         tmp[1] = S::ONE;
@@ -168,6 +174,7 @@ pub(crate) fn extract_nonresidue_ext3<EF: Field, S: crate::simd_fields::SimdBase
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
+#[allow(dead_code)] // Orphaned after the MSB refactor; kept as reference.
 pub(crate) fn try_simd_dispatch<BF, EF, T, H>(
     evaluations: &mut [BF],
     transcript: &mut T,
@@ -322,8 +329,16 @@ where
         // Size n/2 is enough for the first parallel round; subsequent rounds write
         // smaller outputs.
         let use_parallel = n > EXT_PARALLEL_THRESHOLD;
-        let mut scratch_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut scratch_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut scratch_c0: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut scratch_c1: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
 
         // Fused reduce+evaluate: rounds 1+ get evaluate results from the prior
         // round's fused kernel, eliminating one full data pass per round.
@@ -358,10 +373,15 @@ where
                 if len > EXT_PARALLEL_THRESHOLD {
                     let new_len = len / 2;
                     let (next_even, next_odd) =
-                        crate::simd_sumcheck::reduce::ext2_soa_reduce_and_evaluate_parallel::<Backend>(
-                            &c0[..len], &c1[..len],
-                            &mut scratch_c0[..new_len], &mut scratch_c1[..new_len],
-                            chg_raw, w,
+                        crate::simd_sumcheck::reduce::ext2_soa_reduce_and_evaluate_parallel::<
+                            Backend,
+                        >(
+                            &c0[..len],
+                            &c1[..len],
+                            &mut scratch_c0[..new_len],
+                            &mut scratch_c1[..new_len],
+                            chg_raw,
+                            w,
                         );
                     core::mem::swap(&mut c0, &mut scratch_c0);
                     core::mem::swap(&mut c1, &mut scratch_c1);
@@ -370,7 +390,10 @@ where
                 } else {
                     let (next_even, next_odd, new_len) =
                         crate::simd_sumcheck::reduce::ext2_soa_reduce_and_evaluate::<Backend>(
-                            &mut c0[..len], &mut c1[..len], chg_raw, w,
+                            &mut c0[..len],
+                            &mut c1[..len],
+                            chg_raw,
+                            w,
                         );
                     len = new_len;
                     pending_eval = Some((next_even, next_odd));
@@ -391,9 +414,21 @@ where
         let (mut c0, mut c1, mut c2) = aos_to_soa_ext3(src);
         let mut len = n;
         let use_parallel = n > EXT_PARALLEL_THRESHOLD;
-        let mut scratch_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut scratch_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut scratch_c2: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut scratch_c0: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut scratch_c1: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut scratch_c2: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
         let mut pending_eval: Option<([u64; 3], [u64; 3])> = None;
 
         for round in 0..num_rounds {
@@ -426,10 +461,17 @@ where
                 if len > EXT_PARALLEL_THRESHOLD {
                     let new_len = len / 2;
                     let (next_even, next_odd) =
-                        crate::simd_sumcheck::reduce::ext3_soa_reduce_and_evaluate_parallel::<Backend>(
-                            &c0[..len], &c1[..len], &c2[..len],
-                            &mut scratch_c0[..new_len], &mut scratch_c1[..new_len], &mut scratch_c2[..new_len],
-                            chg_raw, w,
+                        crate::simd_sumcheck::reduce::ext3_soa_reduce_and_evaluate_parallel::<
+                            Backend,
+                        >(
+                            &c0[..len],
+                            &c1[..len],
+                            &c2[..len],
+                            &mut scratch_c0[..new_len],
+                            &mut scratch_c1[..new_len],
+                            &mut scratch_c2[..new_len],
+                            chg_raw,
+                            w,
                         );
                     core::mem::swap(&mut c0, &mut scratch_c0);
                     core::mem::swap(&mut c1, &mut scratch_c1);
@@ -439,7 +481,11 @@ where
                 } else {
                     let (next_even, next_odd, new_len) =
                         crate::simd_sumcheck::reduce::ext3_soa_reduce_and_evaluate::<Backend>(
-                            &mut c0[..len], &mut c1[..len], &mut c2[..len], chg_raw, w,
+                            &mut c0[..len],
+                            &mut c1[..len],
+                            &mut c2[..len],
+                            chg_raw,
+                            w,
                         );
                     len = new_len;
                     pending_eval = Some((next_even, next_odd));
@@ -466,6 +512,7 @@ where
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
+#[allow(dead_code)] // Called only by the orphan `try_simd_dispatch`.
 fn dispatch_all_simd<BF, EF, T, H, S>(
     evaluations: &mut [BF],
     transcript: &mut T,
@@ -538,6 +585,7 @@ where
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
+#[allow(dead_code)] // Called only by the orphan `try_simd_dispatch`.
 fn dispatch_hybrid<BF, EF, T, H, S>(
     evaluations: &[BF],
     transcript: &mut T,
@@ -610,6 +658,7 @@ where
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
+#[allow(dead_code)] // Orphaned after the MSB refactor; kept as reference.
 pub(crate) fn try_simd_product_dispatch<BF, EF, T, H>(
     f: &mut [BF],
     g: &mut [BF],
@@ -844,6 +893,7 @@ unsafe fn ext_components_to_field<F: Field>(components: &[u64]) -> F {
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
+#[allow(dead_code)] // Orphaned after the MSB refactor; kept as reference.
 pub(crate) fn try_simd_ext_fused_reduce_evaluate<EF: Field>(
     evals: &mut Vec<EF>,
     challenge: EF,
@@ -1059,6 +1109,7 @@ pub(crate) fn aos_to_soa_ext3(src: &[u64]) -> (Vec<u64>, Vec<u64>, Vec<u64>) {
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
+#[allow(dead_code)] // Orphaned after the MSB refactor; kept as reference.
 pub(crate) fn try_simd_ext_product_dispatch<BF, EF, T, H>(
     f: &mut [BF],
     g: &mut [BF],
@@ -1096,10 +1147,8 @@ where
     let mut final_evaluations = (EF::ZERO, EF::ZERO);
 
     // Convert both f and g from AoS → SoA
-    let f_u64: &[u64] =
-        unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n * d) };
-    let g_u64: &[u64] =
-        unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n * d) };
+    let f_u64: &[u64] = unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n * d) };
+    let g_u64: &[u64] = unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n * d) };
 
     const EXT_PARALLEL_THRESHOLD: usize = 1 << 17;
 
@@ -1117,18 +1166,35 @@ where
         let mut len = n;
 
         let use_parallel = n > EXT_PARALLEL_THRESHOLD;
-        let mut sf_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sf_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sg_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sg_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sf_c0: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sf_c1: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sg_c0: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sg_c1: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
 
         for round in 0..num_rounds {
-            let (a_raw, b_raw) =
-                crate::simd_sumcheck::reduce::ext2_soa_product_evaluate::<Backend>(
-                    &f_c0[..len], &f_c1[..len],
-                    &g_c0[..len], &g_c1[..len],
-                    w,
-                );
+            let (a_raw, b_raw) = crate::simd_sumcheck::reduce::ext2_soa_product_evaluate::<Backend>(
+                &f_c0[..len],
+                &f_c1[..len],
+                &g_c0[..len],
+                &g_c1[..len],
+                w,
+            );
 
             let a: EF = unsafe { ext_components_to_field(&a_raw) };
             let b: EF = unsafe { ext_components_to_field(&b_raw) };
@@ -1155,11 +1221,16 @@ where
                     // iteration, so we skip the ~3 extra ext2 muls/iter that
                     // the fused kernel used to do.
                     crate::simd_sumcheck::reduce::ext2_soa_product_reduce_only_parallel::<Backend>(
-                        &f_c0[..len], &f_c1[..len],
-                        &g_c0[..len], &g_c1[..len],
-                        &mut sf_c0[..new_len], &mut sf_c1[..new_len],
-                        &mut sg_c0[..new_len], &mut sg_c1[..new_len],
-                        chg_raw, w,
+                        &f_c0[..len],
+                        &f_c1[..len],
+                        &g_c0[..len],
+                        &g_c1[..len],
+                        &mut sf_c0[..new_len],
+                        &mut sf_c1[..new_len],
+                        &mut sg_c0[..new_len],
+                        &mut sg_c1[..new_len],
+                        chg_raw,
+                        w,
                     );
                     core::mem::swap(&mut f_c0, &mut sf_c0);
                     core::mem::swap(&mut f_c1, &mut sf_c1);
@@ -1169,9 +1240,12 @@ where
                 } else {
                     let new_len =
                         crate::simd_sumcheck::reduce::ext2_soa_product_reduce_only::<Backend>(
-                            &mut f_c0[..len], &mut f_c1[..len],
-                            &mut g_c0[..len], &mut g_c1[..len],
-                            chg_raw, w,
+                            &mut f_c0[..len],
+                            &mut f_c1[..len],
+                            &mut g_c0[..len],
+                            &mut g_c1[..len],
+                            chg_raw,
+                            w,
                         );
                     len = new_len;
                 }
@@ -1195,20 +1269,47 @@ where
         let mut len = n;
 
         let use_parallel = n > EXT_PARALLEL_THRESHOLD;
-        let mut sf_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sf_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sf_c2: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sg_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sg_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sg_c2: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sf_c0: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sf_c1: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sf_c2: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sg_c0: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sg_c1: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sg_c2: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
 
         for round in 0..num_rounds {
-            let (a_raw, b_raw) =
-                crate::simd_sumcheck::reduce::ext3_soa_product_evaluate::<Backend>(
-                    &f_c0[..len], &f_c1[..len], &f_c2[..len],
-                    &g_c0[..len], &g_c1[..len], &g_c2[..len],
-                    w,
-                );
+            let (a_raw, b_raw) = crate::simd_sumcheck::reduce::ext3_soa_product_evaluate::<Backend>(
+                &f_c0[..len],
+                &f_c1[..len],
+                &f_c2[..len],
+                &g_c0[..len],
+                &g_c1[..len],
+                &g_c2[..len],
+                w,
+            );
 
             let a: EF = unsafe { ext_components_to_field(&a_raw) };
             let b: EF = unsafe { ext_components_to_field(&b_raw) };
@@ -1231,11 +1332,20 @@ where
                 if len > EXT_PARALLEL_THRESHOLD {
                     let new_len = len / 2;
                     crate::simd_sumcheck::reduce::ext3_soa_product_reduce_only_parallel::<Backend>(
-                        &f_c0[..len], &f_c1[..len], &f_c2[..len],
-                        &g_c0[..len], &g_c1[..len], &g_c2[..len],
-                        &mut sf_c0[..new_len], &mut sf_c1[..new_len], &mut sf_c2[..new_len],
-                        &mut sg_c0[..new_len], &mut sg_c1[..new_len], &mut sg_c2[..new_len],
-                        chg_raw, w,
+                        &f_c0[..len],
+                        &f_c1[..len],
+                        &f_c2[..len],
+                        &g_c0[..len],
+                        &g_c1[..len],
+                        &g_c2[..len],
+                        &mut sf_c0[..new_len],
+                        &mut sf_c1[..new_len],
+                        &mut sf_c2[..new_len],
+                        &mut sg_c0[..new_len],
+                        &mut sg_c1[..new_len],
+                        &mut sg_c2[..new_len],
+                        chg_raw,
+                        w,
                     );
                     core::mem::swap(&mut f_c0, &mut sf_c0);
                     core::mem::swap(&mut f_c1, &mut sf_c1);
@@ -1247,22 +1357,23 @@ where
                 } else {
                     let new_len =
                         crate::simd_sumcheck::reduce::ext3_soa_product_reduce_only::<Backend>(
-                            &mut f_c0[..len], &mut f_c1[..len], &mut f_c2[..len],
-                            &mut g_c0[..len], &mut g_c1[..len], &mut g_c2[..len],
-                            chg_raw, w,
+                            &mut f_c0[..len],
+                            &mut f_c1[..len],
+                            &mut f_c2[..len],
+                            &mut g_c0[..len],
+                            &mut g_c1[..len],
+                            &mut g_c2[..len],
+                            chg_raw,
+                            w,
                         );
                     len = new_len;
                 }
             } else {
                 debug_assert_eq!(len, 2);
-                let f0: EF =
-                    unsafe { ext_components_to_field(&[f_c0[0], f_c1[0], f_c2[0]]) };
-                let f1: EF =
-                    unsafe { ext_components_to_field(&[f_c0[1], f_c1[1], f_c2[1]]) };
-                let g0: EF =
-                    unsafe { ext_components_to_field(&[g_c0[0], g_c1[0], g_c2[0]]) };
-                let g1: EF =
-                    unsafe { ext_components_to_field(&[g_c0[1], g_c1[1], g_c2[1]]) };
+                let f0: EF = unsafe { ext_components_to_field(&[f_c0[0], f_c1[0], f_c2[0]]) };
+                let f1: EF = unsafe { ext_components_to_field(&[f_c0[1], f_c1[1], f_c2[1]]) };
+                let g0: EF = unsafe { ext_components_to_field(&[g_c0[0], g_c1[0], g_c2[0]]) };
+                let g1: EF = unsafe { ext_components_to_field(&[g_c0[1], g_c1[1], g_c2[1]]) };
                 final_evaluations = (f0 + chg * (f1 - f0), g0 + chg * (g1 - g0));
             }
         }
@@ -1318,10 +1429,8 @@ where
     let mut prover_messages: Vec<(F, F)> = Vec::with_capacity(max_rounds);
     let mut verifier_messages: Vec<F> = Vec::with_capacity(max_rounds);
 
-    let f_u64: &[u64] =
-        unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n * d) };
-    let g_u64: &[u64] =
-        unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n * d) };
+    let f_u64: &[u64] = unsafe { core::slice::from_raw_parts(f.as_ptr() as *const u64, n * d) };
+    let g_u64: &[u64] = unsafe { core::slice::from_raw_parts(g.as_ptr() as *const u64, n * d) };
 
     const EXT_PARALLEL_THRESHOLD: usize = 1 << 17;
 
@@ -1333,16 +1442,35 @@ where
         let mut len = n;
 
         let use_parallel = n > EXT_PARALLEL_THRESHOLD;
-        let mut sf_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sf_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sg_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sg_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sf_c0: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sf_c1: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sg_c0: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sg_c1: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
 
         for round in 0..max_rounds {
-            let (a_raw, b_raw) =
-                crate::simd_sumcheck::reduce::ext2_soa_product_evaluate::<Backend>(
-                    &f_c0[..len], &f_c1[..len], &g_c0[..len], &g_c1[..len], w,
-                );
+            let (a_raw, b_raw) = crate::simd_sumcheck::reduce::ext2_soa_product_evaluate::<Backend>(
+                &f_c0[..len],
+                &f_c1[..len],
+                &g_c0[..len],
+                &g_c1[..len],
+                w,
+            );
             let a: F = unsafe { ext_components_to_field(&a_raw) };
             let b: F = unsafe { ext_components_to_field(&b_raw) };
             let msg = (a, b);
@@ -1362,11 +1490,16 @@ where
             if len > EXT_PARALLEL_THRESHOLD {
                 let new_len = len / 2;
                 crate::simd_sumcheck::reduce::ext2_soa_product_reduce_only_parallel::<Backend>(
-                    &f_c0[..len], &f_c1[..len],
-                    &g_c0[..len], &g_c1[..len],
-                    &mut sf_c0[..new_len], &mut sf_c1[..new_len],
-                    &mut sg_c0[..new_len], &mut sg_c1[..new_len],
-                    chg_raw, w,
+                    &f_c0[..len],
+                    &f_c1[..len],
+                    &g_c0[..len],
+                    &g_c1[..len],
+                    &mut sf_c0[..new_len],
+                    &mut sf_c1[..new_len],
+                    &mut sg_c0[..new_len],
+                    &mut sg_c1[..new_len],
+                    chg_raw,
+                    w,
                 );
                 core::mem::swap(&mut f_c0, &mut sf_c0);
                 core::mem::swap(&mut f_c1, &mut sf_c1);
@@ -1374,23 +1507,23 @@ where
                 core::mem::swap(&mut g_c1, &mut sg_c1);
                 len = new_len;
             } else {
-                let new_len =
-                    crate::simd_sumcheck::reduce::ext2_soa_product_reduce_only::<Backend>(
-                        &mut f_c0[..len], &mut f_c1[..len],
-                        &mut g_c0[..len], &mut g_c1[..len],
-                        chg_raw, w,
-                    );
+                let new_len = crate::simd_sumcheck::reduce::ext2_soa_product_reduce_only::<Backend>(
+                    &mut f_c0[..len],
+                    &mut f_c1[..len],
+                    &mut g_c0[..len],
+                    &mut g_c1[..len],
+                    chg_raw,
+                    w,
+                );
                 len = new_len;
             }
         }
 
         // SoA → AoS writeback into f and g, then truncate.
-        let f_out: &mut [u64] = unsafe {
-            core::slice::from_raw_parts_mut(f.as_mut_ptr() as *mut u64, len * d)
-        };
-        let g_out: &mut [u64] = unsafe {
-            core::slice::from_raw_parts_mut(g.as_mut_ptr() as *mut u64, len * d)
-        };
+        let f_out: &mut [u64] =
+            unsafe { core::slice::from_raw_parts_mut(f.as_mut_ptr() as *mut u64, len * d) };
+        let g_out: &mut [u64] =
+            unsafe { core::slice::from_raw_parts_mut(g.as_mut_ptr() as *mut u64, len * d) };
         for i in 0..len {
             f_out[2 * i] = f_c0[i];
             f_out[2 * i + 1] = f_c1[i];
@@ -1408,12 +1541,36 @@ where
         let mut len = n;
 
         let use_parallel = n > EXT_PARALLEL_THRESHOLD;
-        let mut sf_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sf_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sf_c2: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sg_c0: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sg_c1: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
-        let mut sg_c2: Vec<u64> = if use_parallel { vec![0u64; n / 2] } else { Vec::new() };
+        let mut sf_c0: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sf_c1: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sf_c2: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sg_c0: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sg_c1: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
+        let mut sg_c2: Vec<u64> = if use_parallel {
+            vec![0u64; n / 2]
+        } else {
+            Vec::new()
+        };
 
         // pending_eval carries round k+1's (a, b) computed by round k's
         // fused reduce-and-next-eval kernel, so we only call standalone
@@ -1423,8 +1580,13 @@ where
         for round in 0..max_rounds {
             let (a_raw, b_raw) = pending_eval.take().unwrap_or_else(|| {
                 crate::simd_sumcheck::reduce::ext3_soa_product_evaluate::<Backend>(
-                    &f_c0[..len], &f_c1[..len], &f_c2[..len],
-                    &g_c0[..len], &g_c1[..len], &g_c2[..len], w,
+                    &f_c0[..len],
+                    &f_c1[..len],
+                    &f_c2[..len],
+                    &g_c0[..len],
+                    &g_c1[..len],
+                    &g_c2[..len],
+                    w,
                 )
             });
             let a: F = unsafe { ext_components_to_field(&a_raw) };
@@ -1453,11 +1615,20 @@ where
                 let new_len = len / 2;
                 if is_last {
                     crate::simd_sumcheck::reduce::ext3_soa_product_reduce_only_parallel::<Backend>(
-                        &f_c0[..len], &f_c1[..len], &f_c2[..len],
-                        &g_c0[..len], &g_c1[..len], &g_c2[..len],
-                        &mut sf_c0[..new_len], &mut sf_c1[..new_len], &mut sf_c2[..new_len],
-                        &mut sg_c0[..new_len], &mut sg_c1[..new_len], &mut sg_c2[..new_len],
-                        chg_raw, w,
+                        &f_c0[..len],
+                        &f_c1[..len],
+                        &f_c2[..len],
+                        &g_c0[..len],
+                        &g_c1[..len],
+                        &g_c2[..len],
+                        &mut sf_c0[..new_len],
+                        &mut sf_c1[..new_len],
+                        &mut sf_c2[..new_len],
+                        &mut sg_c0[..new_len],
+                        &mut sg_c1[..new_len],
+                        &mut sg_c2[..new_len],
+                        chg_raw,
+                        w,
                     );
                 } else {
                     let (next_a, next_b) =
@@ -1478,31 +1649,38 @@ where
                 core::mem::swap(&mut g_c2, &mut sg_c2);
                 len = new_len;
             } else if is_last {
-                let new_len =
-                    crate::simd_sumcheck::reduce::ext3_soa_product_reduce_only::<Backend>(
-                        &mut f_c0[..len], &mut f_c1[..len], &mut f_c2[..len],
-                        &mut g_c0[..len], &mut g_c1[..len], &mut g_c2[..len],
-                        chg_raw, w,
-                    );
+                let new_len = crate::simd_sumcheck::reduce::ext3_soa_product_reduce_only::<Backend>(
+                    &mut f_c0[..len],
+                    &mut f_c1[..len],
+                    &mut f_c2[..len],
+                    &mut g_c0[..len],
+                    &mut g_c1[..len],
+                    &mut g_c2[..len],
+                    chg_raw,
+                    w,
+                );
                 len = new_len;
             } else {
                 let (next_a, next_b, new_len) =
                     crate::simd_sumcheck::reduce::ext3_soa_product_fused_reduce_next_eval::<Backend>(
-                        &mut f_c0[..len], &mut f_c1[..len], &mut f_c2[..len],
-                        &mut g_c0[..len], &mut g_c1[..len], &mut g_c2[..len],
-                        chg_raw, w,
+                        &mut f_c0[..len],
+                        &mut f_c1[..len],
+                        &mut f_c2[..len],
+                        &mut g_c0[..len],
+                        &mut g_c1[..len],
+                        &mut g_c2[..len],
+                        chg_raw,
+                        w,
                     );
                 pending_eval = Some((next_a, next_b));
                 len = new_len;
             }
         }
 
-        let f_out: &mut [u64] = unsafe {
-            core::slice::from_raw_parts_mut(f.as_mut_ptr() as *mut u64, len * d)
-        };
-        let g_out: &mut [u64] = unsafe {
-            core::slice::from_raw_parts_mut(g.as_mut_ptr() as *mut u64, len * d)
-        };
+        let f_out: &mut [u64] =
+            unsafe { core::slice::from_raw_parts_mut(f.as_mut_ptr() as *mut u64, len * d) };
+        let g_out: &mut [u64] =
+            unsafe { core::slice::from_raw_parts_mut(g.as_mut_ptr() as *mut u64, len * d) };
         for i in 0..len {
             f_out[3 * i] = f_c0[i];
             f_out[3 * i + 1] = f_c1[i];

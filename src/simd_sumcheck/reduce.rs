@@ -1246,7 +1246,10 @@ pub fn ext2_soa_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
         let d1 = F::scalar_sub(c1[2 * i + 1], c1[2 * i]);
 
         let prod_c0 = F::scalar_add(F::scalar_mul(challenge[0], d0), F::scalar_mul(ch1w_s, d1));
-        let prod_c1 = F::scalar_add(F::scalar_mul(challenge[0], d1), F::scalar_mul(challenge[1], d0));
+        let prod_c1 = F::scalar_add(
+            F::scalar_mul(challenge[0], d1),
+            F::scalar_mul(challenge[1], d0),
+        );
 
         c0[i] = F::scalar_add(c0[2 * i], prod_c0);
         c1[i] = F::scalar_add(c1[2 * i], prod_c1);
@@ -1277,7 +1280,13 @@ pub fn ext2_soa_reduce_and_evaluate<F: SimdBaseField<Scalar = u64>>(
     // reads at src[2i, 2i+1] precede writes at out[i] for each step i.
     let (even, odd) = unsafe {
         ext2_soa_reduce_and_evaluate_raw::<F>(
-            c0.as_ptr(), c1.as_ptr(), c0.as_mut_ptr(), c1.as_mut_ptr(), n, challenge, w,
+            c0.as_ptr(),
+            c1.as_ptr(),
+            c0.as_mut_ptr(),
+            c1.as_mut_ptr(),
+            n,
+            challenge,
+            w,
         )
     };
     (even, odd, n)
@@ -1301,8 +1310,13 @@ pub fn ext2_soa_reduce_and_evaluate_into<F: SimdBaseField<Scalar = u64>>(
     debug_assert_eq!(src_c1.len(), 2 * n);
     unsafe {
         ext2_soa_reduce_and_evaluate_raw::<F>(
-            src_c0.as_ptr(), src_c1.as_ptr(), out_c0.as_mut_ptr(), out_c1.as_mut_ptr(),
-            n, challenge, w,
+            src_c0.as_ptr(),
+            src_c1.as_ptr(),
+            out_c0.as_mut_ptr(),
+            out_c1.as_mut_ptr(),
+            n,
+            challenge,
+            w,
         )
     }
 }
@@ -1406,8 +1420,14 @@ unsafe fn ext2_soa_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64>>(
     }
 
     // Finalize lazy accumulators
-    let total_c0 = F::add(F::reduce_carry(acc_c0_0, carry_c0_0), F::reduce_carry(acc_c0_1, carry_c0_1));
-    let total_c1 = F::add(F::reduce_carry(acc_c1_0, carry_c1_0), F::reduce_carry(acc_c1_1, carry_c1_1));
+    let total_c0 = F::add(
+        F::reduce_carry(acc_c0_0, carry_c0_0),
+        F::reduce_carry(acc_c0_1, carry_c0_1),
+    );
+    let total_c1 = F::add(
+        F::reduce_carry(acc_c1_0, carry_c1_0),
+        F::reduce_carry(acc_c1_1, carry_c1_1),
+    );
 
     // Extract even/odd lanes
     let mut buf = [F::ZERO; 32];
@@ -1416,13 +1436,19 @@ unsafe fn ext2_soa_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64>>(
 
     F::store(buf.as_mut_ptr(), total_c0);
     for (j, &v) in buf.iter().enumerate().take(F::LANES) {
-        if j % 2 == 0 { even[0] = F::scalar_add(even[0], v); }
-        else { odd[0] = F::scalar_add(odd[0], v); }
+        if j % 2 == 0 {
+            even[0] = F::scalar_add(even[0], v);
+        } else {
+            odd[0] = F::scalar_add(odd[0], v);
+        }
     }
     F::store(buf.as_mut_ptr(), total_c1);
     for (j, &v) in buf.iter().enumerate().take(F::LANES) {
-        if j % 2 == 0 { even[1] = F::scalar_add(even[1], v); }
-        else { odd[1] = F::scalar_add(odd[1], v); }
+        if j % 2 == 0 {
+            even[1] = F::scalar_add(even[1], v);
+        } else {
+            odd[1] = F::scalar_add(odd[1], v);
+        }
     }
 
     // Scalar tail
@@ -1436,8 +1462,17 @@ unsafe fn ext2_soa_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64>>(
         let d0 = F::scalar_sub(b0, a0);
         let d1 = F::scalar_sub(b1, a1);
 
-        let r0 = F::scalar_add(a0, F::scalar_add(F::scalar_mul(challenge[0], d0), F::scalar_mul(ch1w_s, d1)));
-        let r1 = F::scalar_add(a1, F::scalar_add(F::scalar_mul(challenge[0], d1), F::scalar_mul(challenge[1], d0)));
+        let r0 = F::scalar_add(
+            a0,
+            F::scalar_add(F::scalar_mul(challenge[0], d0), F::scalar_mul(ch1w_s, d1)),
+        );
+        let r1 = F::scalar_add(
+            a1,
+            F::scalar_add(
+                F::scalar_mul(challenge[0], d1),
+                F::scalar_mul(challenge[1], d0),
+            ),
+        );
 
         *out_c0_ptr.add(i) = r0;
         *out_c1_ptr.add(i) = r1;
@@ -1503,10 +1538,12 @@ pub fn ext2_soa_reduce_and_evaluate_parallel<F: SimdBaseField<Scalar = u64>>(
         })
         .reduce(
             || ([0u64; 2], [0u64; 2]),
-            |(e1, o1), (e2, o2)| (
-                [F::scalar_add(e1[0], e2[0]), F::scalar_add(e1[1], e2[1])],
-                [F::scalar_add(o1[0], o2[0]), F::scalar_add(o1[1], o2[1])],
-            ),
+            |(e1, o1), (e2, o2)| {
+                (
+                    [F::scalar_add(e1[0], e2[0]), F::scalar_add(e1[1], e2[1])],
+                    [F::scalar_add(o1[0], o2[0]), F::scalar_add(o1[1], o2[1])],
+                )
+            },
         )
 }
 
@@ -1540,7 +1577,11 @@ pub fn ext3_soa_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
     debug_assert_eq!(len, c2.len());
     let n = len / 2;
 
-    let ch = [F::splat(challenge[0]), F::splat(challenge[1]), F::splat(challenge[2])];
+    let ch = [
+        F::splat(challenge[0]),
+        F::splat(challenge[1]),
+        F::splat(challenge[2]),
+    ];
     let w_vec = F::splat(w);
 
     let lanes = F::LANES;
@@ -1610,9 +1651,21 @@ pub fn ext3_soa_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
             let be = F::mul(ch[1], d[1]);
             let cf = F::mul(ch[2], d[2]);
 
-            let x = F::sub(F::sub(F::mul(F::add(ch[1], ch[2]), F::add(d[1], d[2])), be), cf);
-            let y = F::sub(F::sub(F::mul(F::add(ch[0], ch[1]), F::add(d[0], d[1])), ad), be);
-            let z = F::add(F::sub(F::sub(F::mul(F::add(ch[0], ch[2]), F::add(d[0], d[2])), ad), cf), be);
+            let x = F::sub(
+                F::sub(F::mul(F::add(ch[1], ch[2]), F::add(d[1], d[2])), be),
+                cf,
+            );
+            let y = F::sub(
+                F::sub(F::mul(F::add(ch[0], ch[1]), F::add(d[0], d[1])), ad),
+                be,
+            );
+            let z = F::add(
+                F::sub(
+                    F::sub(F::mul(F::add(ch[0], ch[2]), F::add(d[0], d[2])), ad),
+                    cf,
+                ),
+                be,
+            );
 
             F::store(c0_out.add(i), F::add(e0, F::add(ad, F::mul(w_vec, x))));
             F::store(c1_out.add(i), F::add(e1, F::add(y, F::mul(w_vec, cf))));
@@ -1635,14 +1688,20 @@ pub fn ext3_soa_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
 
         let x = F::scalar_sub(
             F::scalar_sub(
-                F::scalar_mul(F::scalar_add(challenge[1], challenge[2]), F::scalar_add(d[1], d[2])),
+                F::scalar_mul(
+                    F::scalar_add(challenge[1], challenge[2]),
+                    F::scalar_add(d[1], d[2]),
+                ),
                 be,
             ),
             cf,
         );
         let y = F::scalar_sub(
             F::scalar_sub(
-                F::scalar_mul(F::scalar_add(challenge[0], challenge[1]), F::scalar_add(d[0], d[1])),
+                F::scalar_mul(
+                    F::scalar_add(challenge[0], challenge[1]),
+                    F::scalar_add(d[0], d[1]),
+                ),
                 ad,
             ),
             be,
@@ -1650,7 +1709,10 @@ pub fn ext3_soa_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
         let z = F::scalar_add(
             F::scalar_sub(
                 F::scalar_sub(
-                    F::scalar_mul(F::scalar_add(challenge[0], challenge[2]), F::scalar_add(d[0], d[2])),
+                    F::scalar_mul(
+                        F::scalar_add(challenge[0], challenge[2]),
+                        F::scalar_add(d[0], d[2]),
+                    ),
                     ad,
                 ),
                 cf,
@@ -1688,15 +1750,22 @@ pub fn ext3_soa_reduce_and_evaluate<F: SimdBaseField<Scalar = u64>>(
     // SAFETY: single-threaded ascending iteration is safe in-place.
     let (even, odd) = unsafe {
         ext3_soa_reduce_and_evaluate_raw::<F>(
-            c0.as_ptr(), c1.as_ptr(), c2.as_ptr(),
-            c0.as_mut_ptr(), c1.as_mut_ptr(), c2.as_mut_ptr(),
-            n, challenge, w,
+            c0.as_ptr(),
+            c1.as_ptr(),
+            c2.as_ptr(),
+            c0.as_mut_ptr(),
+            c1.as_mut_ptr(),
+            c2.as_mut_ptr(),
+            n,
+            challenge,
+            w,
         )
     };
     (even, odd, n)
 }
 
 /// Distinct-buffer version of `ext3_soa_reduce_and_evaluate`.
+#[allow(clippy::too_many_arguments)]
 pub fn ext3_soa_reduce_and_evaluate_into<F: SimdBaseField<Scalar = u64>>(
     src_c0: &[u64],
     src_c1: &[u64],
@@ -1715,9 +1784,15 @@ pub fn ext3_soa_reduce_and_evaluate_into<F: SimdBaseField<Scalar = u64>>(
     debug_assert_eq!(src_c2.len(), 2 * n);
     unsafe {
         ext3_soa_reduce_and_evaluate_raw::<F>(
-            src_c0.as_ptr(), src_c1.as_ptr(), src_c2.as_ptr(),
-            out_c0.as_mut_ptr(), out_c1.as_mut_ptr(), out_c2.as_mut_ptr(),
-            n, challenge, w,
+            src_c0.as_ptr(),
+            src_c1.as_ptr(),
+            src_c2.as_ptr(),
+            out_c0.as_mut_ptr(),
+            out_c1.as_mut_ptr(),
+            out_c2.as_mut_ptr(),
+            n,
+            challenge,
+            w,
         )
     }
 }
@@ -1727,6 +1802,7 @@ pub fn ext3_soa_reduce_and_evaluate_into<F: SimdBaseField<Scalar = u64>>(
 /// # Safety
 /// Same contract as `ext2_soa_reduce_and_evaluate_raw`.
 #[inline(always)]
+#[allow(clippy::too_many_arguments)]
 unsafe fn ext3_soa_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64>>(
     src_c0_ptr: *const u64,
     src_c1_ptr: *const u64,
@@ -1738,7 +1814,11 @@ unsafe fn ext3_soa_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64>>(
     challenge: [u64; 3],
     w: u64,
 ) -> ([u64; 3], [u64; 3]) {
-    let ch = [F::splat(challenge[0]), F::splat(challenge[1]), F::splat(challenge[2])];
+    let ch = [
+        F::splat(challenge[0]),
+        F::splat(challenge[1]),
+        F::splat(challenge[2]),
+    ];
     let w_vec = F::splat(w);
 
     let lanes = F::LANES;
@@ -1761,9 +1841,21 @@ unsafe fn ext3_soa_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64>>(
         let be = F::mul(ch[1], d[1]);
         let cf = F::mul(ch[2], d[2]);
 
-        let x = F::sub(F::sub(F::mul(F::add(ch[1], ch[2]), F::add(d[1], d[2])), be), cf);
-        let y = F::sub(F::sub(F::mul(F::add(ch[0], ch[1]), F::add(d[0], d[1])), ad), be);
-        let z = F::add(F::sub(F::sub(F::mul(F::add(ch[0], ch[2]), F::add(d[0], d[2])), ad), cf), be);
+        let x = F::sub(
+            F::sub(F::mul(F::add(ch[1], ch[2]), F::add(d[1], d[2])), be),
+            cf,
+        );
+        let y = F::sub(
+            F::sub(F::mul(F::add(ch[0], ch[1]), F::add(d[0], d[1])), ad),
+            be,
+        );
+        let z = F::add(
+            F::sub(
+                F::sub(F::mul(F::add(ch[0], ch[2]), F::add(d[0], d[2])), ad),
+                cf,
+            ),
+            be,
+        );
 
         let r0 = F::add(e0, F::add(ad, F::mul(w_vec, x)));
         let r1 = F::add(e1, F::add(y, F::mul(w_vec, cf)));
@@ -1799,8 +1891,11 @@ unsafe fn ext3_soa_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64>>(
     for c in 0..3 {
         F::store(buf.as_mut_ptr(), total[c]);
         for (j, &v) in buf.iter().enumerate().take(F::LANES) {
-            if j % 2 == 0 { even[c] = F::scalar_add(even[c], v); }
-            else { odd[c] = F::scalar_add(odd[c], v); }
+            if j % 2 == 0 {
+                even[c] = F::scalar_add(even[c], v);
+            } else {
+                odd[c] = F::scalar_add(odd[c], v);
+            }
         }
     }
 
@@ -1813,14 +1908,48 @@ unsafe fn ext3_soa_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64>>(
         let a2 = *src_c2_ptr.add(2 * i);
         let b2 = *src_c2_ptr.add(2 * i + 1);
 
-        let d = [F::scalar_sub(b0, a0), F::scalar_sub(b1, a1), F::scalar_sub(b2, a2)];
+        let d = [
+            F::scalar_sub(b0, a0),
+            F::scalar_sub(b1, a1),
+            F::scalar_sub(b2, a2),
+        ];
 
         let ad = F::scalar_mul(challenge[0], d[0]);
         let be = F::scalar_mul(challenge[1], d[1]);
         let cf = F::scalar_mul(challenge[2], d[2]);
-        let x = F::scalar_sub(F::scalar_sub(F::scalar_mul(F::scalar_add(challenge[1], challenge[2]), F::scalar_add(d[1], d[2])), be), cf);
-        let y = F::scalar_sub(F::scalar_sub(F::scalar_mul(F::scalar_add(challenge[0], challenge[1]), F::scalar_add(d[0], d[1])), ad), be);
-        let z = F::scalar_add(F::scalar_sub(F::scalar_sub(F::scalar_mul(F::scalar_add(challenge[0], challenge[2]), F::scalar_add(d[0], d[2])), ad), cf), be);
+        let x = F::scalar_sub(
+            F::scalar_sub(
+                F::scalar_mul(
+                    F::scalar_add(challenge[1], challenge[2]),
+                    F::scalar_add(d[1], d[2]),
+                ),
+                be,
+            ),
+            cf,
+        );
+        let y = F::scalar_sub(
+            F::scalar_sub(
+                F::scalar_mul(
+                    F::scalar_add(challenge[0], challenge[1]),
+                    F::scalar_add(d[0], d[1]),
+                ),
+                ad,
+            ),
+            be,
+        );
+        let z = F::scalar_add(
+            F::scalar_sub(
+                F::scalar_sub(
+                    F::scalar_mul(
+                        F::scalar_add(challenge[0], challenge[2]),
+                        F::scalar_add(d[0], d[2]),
+                    ),
+                    ad,
+                ),
+                cf,
+            ),
+            be,
+        );
 
         let r = [
             F::scalar_add(a0, F::scalar_add(ad, F::scalar_mul(w, x))),
@@ -1831,8 +1960,15 @@ unsafe fn ext3_soa_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64>>(
         *out_c1_ptr.add(i) = r[1];
         *out_c2_ptr.add(i) = r[2];
 
-        if i % 2 == 0 { for c in 0..3 { even[c] = F::scalar_add(even[c], r[c]); } }
-        else { for c in 0..3 { odd[c] = F::scalar_add(odd[c], r[c]); } }
+        if i % 2 == 0 {
+            for c in 0..3 {
+                even[c] = F::scalar_add(even[c], r[c]);
+            }
+        } else {
+            for c in 0..3 {
+                odd[c] = F::scalar_add(odd[c], r[c]);
+            }
+        }
         i += 1;
     }
 
@@ -1841,6 +1977,7 @@ unsafe fn ext3_soa_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64>>(
 
 /// Parallel fused SoA ext3 reduce + next-round evaluate.
 #[cfg(feature = "parallel")]
+#[allow(clippy::too_many_arguments)]
 pub fn ext3_soa_reduce_and_evaluate_parallel<F: SimdBaseField<Scalar = u64>>(
     src_c0: &[u64],
     src_c1: &[u64],
@@ -1874,21 +2011,35 @@ pub fn ext3_soa_reduce_and_evaluate_parallel<F: SimdBaseField<Scalar = u64>>(
                 &src_c0[2 * start..2 * end],
                 &src_c1[2 * start..2 * end],
                 &src_c2[2 * start..2 * end],
-                oc0, oc1, oc2,
-                challenge, w,
+                oc0,
+                oc1,
+                oc2,
+                challenge,
+                w,
             )
         })
         .reduce(
             || ([0u64; 3], [0u64; 3]),
-            |(e1, o1), (e2, o2)| (
-                [F::scalar_add(e1[0], e2[0]), F::scalar_add(e1[1], e2[1]), F::scalar_add(e1[2], e2[2])],
-                [F::scalar_add(o1[0], o2[0]), F::scalar_add(o1[1], o2[1]), F::scalar_add(o1[2], o2[2])],
-            ),
+            |(e1, o1), (e2, o2)| {
+                (
+                    [
+                        F::scalar_add(e1[0], e2[0]),
+                        F::scalar_add(e1[1], e2[1]),
+                        F::scalar_add(e1[2], e2[2]),
+                    ],
+                    [
+                        F::scalar_add(o1[0], o2[0]),
+                        F::scalar_add(o1[1], o2[1]),
+                        F::scalar_add(o1[2], o2[2]),
+                    ],
+                )
+            },
         )
 }
 
 /// Non-parallel fallback.
 #[cfg(not(feature = "parallel"))]
+#[allow(clippy::too_many_arguments)]
 pub fn ext3_soa_reduce_and_evaluate_parallel<F: SimdBaseField<Scalar = u64>>(
     src_c0: &[u64],
     src_c1: &[u64],
@@ -1927,9 +2078,17 @@ pub fn ext2_soa_product_reduce_and_evaluate<F: SimdBaseField<Scalar = u64>>(
     // SAFETY: single-threaded ascending iteration is safe in-place.
     let (a, b) = unsafe {
         ext2_soa_product_reduce_and_evaluate_raw::<F>(
-            f_c0.as_ptr(), f_c1.as_ptr(), g_c0.as_ptr(), g_c1.as_ptr(),
-            f_c0.as_mut_ptr(), f_c1.as_mut_ptr(), g_c0.as_mut_ptr(), g_c1.as_mut_ptr(),
-            half, challenge, w,
+            f_c0.as_ptr(),
+            f_c1.as_ptr(),
+            g_c0.as_ptr(),
+            g_c1.as_ptr(),
+            f_c0.as_mut_ptr(),
+            f_c1.as_mut_ptr(),
+            g_c0.as_mut_ptr(),
+            g_c1.as_mut_ptr(),
+            half,
+            challenge,
+            w,
         )
     };
     (a, b, half)
@@ -1959,11 +2118,17 @@ pub fn ext2_soa_product_reduce_and_evaluate_into<F: SimdBaseField<Scalar = u64>>
     debug_assert_eq!(src_g_c1.len(), 2 * n_out);
     unsafe {
         ext2_soa_product_reduce_and_evaluate_raw::<F>(
-            src_f_c0.as_ptr(), src_f_c1.as_ptr(),
-            src_g_c0.as_ptr(), src_g_c1.as_ptr(),
-            out_f_c0.as_mut_ptr(), out_f_c1.as_mut_ptr(),
-            out_g_c0.as_mut_ptr(), out_g_c1.as_mut_ptr(),
-            n_out, challenge, w,
+            src_f_c0.as_ptr(),
+            src_f_c1.as_ptr(),
+            src_g_c0.as_ptr(),
+            src_g_c1.as_ptr(),
+            out_f_c0.as_mut_ptr(),
+            out_f_c1.as_mut_ptr(),
+            out_g_c0.as_mut_ptr(),
+            out_g_c1.as_mut_ptr(),
+            n_out,
+            challenge,
+            w,
         )
     }
 }
@@ -2024,26 +2189,38 @@ unsafe fn ext2_soa_product_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64
         let p1 = F::mul(fo1, ge1);
         let m2 = F::mul(F::add(fo0, fo1), F::add(ge0, ge1));
 
-        acc_b0 = F::add(acc_b0, F::add(
-            F::add(u0, F::mul(w_vec, u1)),
-            F::add(p0, F::mul(w_vec, p1)),
-        ));
-        acc_b1 = F::add(acc_b1, F::add(
-            F::sub(F::sub(m1, u0), u1),
-            F::sub(F::sub(m2, p0), p1),
-        ));
+        acc_b0 = F::add(
+            acc_b0,
+            F::add(F::add(u0, F::mul(w_vec, u1)), F::add(p0, F::mul(w_vec, p1))),
+        );
+        acc_b1 = F::add(
+            acc_b1,
+            F::add(F::sub(F::sub(m1, u0), u1), F::sub(F::sub(m2, p0), p1)),
+        );
 
         // Reduce f
         let fd0 = F::sub(fo0, fe0);
         let fd1 = F::sub(fo1, fe1);
-        F::store(out_f_c0.add(off), F::add(fe0, F::add(F::mul(ch0, fd0), F::mul(ch1w, fd1))));
-        F::store(out_f_c1.add(off), F::add(fe1, F::add(F::mul(ch0, fd1), F::mul(ch1, fd0))));
+        F::store(
+            out_f_c0.add(off),
+            F::add(fe0, F::add(F::mul(ch0, fd0), F::mul(ch1w, fd1))),
+        );
+        F::store(
+            out_f_c1.add(off),
+            F::add(fe1, F::add(F::mul(ch0, fd1), F::mul(ch1, fd0))),
+        );
 
         // Reduce g
         let gd0 = F::sub(go0, ge0);
         let gd1 = F::sub(go1, ge1);
-        F::store(out_g_c0.add(off), F::add(ge0, F::add(F::mul(ch0, gd0), F::mul(ch1w, gd1))));
-        F::store(out_g_c1.add(off), F::add(ge1, F::add(F::mul(ch0, gd1), F::mul(ch1, gd0))));
+        F::store(
+            out_g_c0.add(off),
+            F::add(ge0, F::add(F::mul(ch0, gd0), F::mul(ch1w, gd1))),
+        );
+        F::store(
+            out_g_c1.add(off),
+            F::add(ge1, F::add(F::mul(ch0, gd1), F::mul(ch1, gd0))),
+        );
         i += lanes;
     }
 
@@ -2053,13 +2230,21 @@ unsafe fn ext2_soa_product_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64
     let mut b = [F::ZERO; 2];
 
     F::store(buf.as_mut_ptr(), acc_a0);
-    for &v in buf.iter().take(lanes) { a[0] = F::scalar_add(a[0], v); }
+    for &v in buf.iter().take(lanes) {
+        a[0] = F::scalar_add(a[0], v);
+    }
     F::store(buf.as_mut_ptr(), acc_a1);
-    for &v in buf.iter().take(lanes) { a[1] = F::scalar_add(a[1], v); }
+    for &v in buf.iter().take(lanes) {
+        a[1] = F::scalar_add(a[1], v);
+    }
     F::store(buf.as_mut_ptr(), acc_b0);
-    for &v in buf.iter().take(lanes) { b[0] = F::scalar_add(b[0], v); }
+    for &v in buf.iter().take(lanes) {
+        b[0] = F::scalar_add(b[0], v);
+    }
     F::store(buf.as_mut_ptr(), acc_b1);
-    for &v in buf.iter().take(lanes) { b[1] = F::scalar_add(b[1], v); }
+    for &v in buf.iter().take(lanes) {
+        b[1] = F::scalar_add(b[1], v);
+    }
 
     // Scalar tail
     let ch1w_s = F::scalar_mul(challenge[1], w);
@@ -2081,24 +2266,48 @@ unsafe fn ext2_soa_product_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64
         let p0 = F::scalar_mul(fo[0], ge[0]);
         let p1 = F::scalar_mul(fo[1], ge[1]);
         let m2 = F::scalar_mul(F::scalar_add(fo[0], fo[1]), F::scalar_add(ge[0], ge[1]));
-        b[0] = F::scalar_add(b[0], F::scalar_add(
-            F::scalar_add(u0, F::scalar_mul(w, u1)),
-            F::scalar_add(p0, F::scalar_mul(w, p1)),
-        ));
-        b[1] = F::scalar_add(b[1], F::scalar_add(
-            F::scalar_sub(F::scalar_sub(m1, u0), u1),
-            F::scalar_sub(F::scalar_sub(m2, p0), p1),
-        ));
+        b[0] = F::scalar_add(
+            b[0],
+            F::scalar_add(
+                F::scalar_add(u0, F::scalar_mul(w, u1)),
+                F::scalar_add(p0, F::scalar_mul(w, p1)),
+            ),
+        );
+        b[1] = F::scalar_add(
+            b[1],
+            F::scalar_add(
+                F::scalar_sub(F::scalar_sub(m1, u0), u1),
+                F::scalar_sub(F::scalar_sub(m2, p0), p1),
+            ),
+        );
 
         let fd0 = F::scalar_sub(fo[0], fe[0]);
         let fd1 = F::scalar_sub(fo[1], fe[1]);
-        *out_f_c0.add(i) = F::scalar_add(fe[0], F::scalar_add(F::scalar_mul(challenge[0], fd0), F::scalar_mul(ch1w_s, fd1)));
-        *out_f_c1.add(i) = F::scalar_add(fe[1], F::scalar_add(F::scalar_mul(challenge[0], fd1), F::scalar_mul(challenge[1], fd0)));
+        *out_f_c0.add(i) = F::scalar_add(
+            fe[0],
+            F::scalar_add(F::scalar_mul(challenge[0], fd0), F::scalar_mul(ch1w_s, fd1)),
+        );
+        *out_f_c1.add(i) = F::scalar_add(
+            fe[1],
+            F::scalar_add(
+                F::scalar_mul(challenge[0], fd1),
+                F::scalar_mul(challenge[1], fd0),
+            ),
+        );
 
         let gd0 = F::scalar_sub(go_[0], ge[0]);
         let gd1 = F::scalar_sub(go_[1], ge[1]);
-        *out_g_c0.add(i) = F::scalar_add(ge[0], F::scalar_add(F::scalar_mul(challenge[0], gd0), F::scalar_mul(ch1w_s, gd1)));
-        *out_g_c1.add(i) = F::scalar_add(ge[1], F::scalar_add(F::scalar_mul(challenge[0], gd1), F::scalar_mul(challenge[1], gd0)));
+        *out_g_c0.add(i) = F::scalar_add(
+            ge[0],
+            F::scalar_add(F::scalar_mul(challenge[0], gd0), F::scalar_mul(ch1w_s, gd1)),
+        );
+        *out_g_c1.add(i) = F::scalar_add(
+            ge[1],
+            F::scalar_add(
+                F::scalar_mul(challenge[0], gd1),
+                F::scalar_mul(challenge[1], gd0),
+            ),
+        );
 
         i += 1;
     }
@@ -2127,8 +2336,7 @@ pub fn ext2_soa_product_reduce_and_evaluate_parallel<F: SimdBaseField<Scalar = u
     let chunk_pairs = 32_768_usize;
     if n_out <= chunk_pairs {
         return ext2_soa_product_reduce_and_evaluate_into::<F>(
-            src_f_c0, src_f_c1, src_g_c0, src_g_c1,
-            out_f_c0, out_f_c1, out_g_c0, out_g_c1,
+            src_f_c0, src_f_c1, src_g_c0, src_g_c1, out_f_c0, out_f_c1, out_g_c0, out_g_c1,
             challenge, w,
         );
     }
@@ -2146,16 +2354,22 @@ pub fn ext2_soa_product_reduce_and_evaluate_parallel<F: SimdBaseField<Scalar = u
                 &src_f_c1[2 * start..2 * end],
                 &src_g_c0[2 * start..2 * end],
                 &src_g_c1[2 * start..2 * end],
-                ofc0, ofc1, ogc0, ogc1,
-                challenge, w,
+                ofc0,
+                ofc1,
+                ogc0,
+                ogc1,
+                challenge,
+                w,
             )
         })
         .reduce(
             || ([0u64; 2], [0u64; 2]),
-            |(a1, b1), (a2, b2)| (
-                [F::scalar_add(a1[0], a2[0]), F::scalar_add(a1[1], a2[1])],
-                [F::scalar_add(b1[0], b2[0]), F::scalar_add(b1[1], b2[1])],
-            ),
+            |(a1, b1), (a2, b2)| {
+                (
+                    [F::scalar_add(a1[0], a2[0]), F::scalar_add(a1[1], a2[1])],
+                    [F::scalar_add(b1[0], b2[0]), F::scalar_add(b1[1], b2[1])],
+                )
+            },
         )
 }
 
@@ -2175,15 +2389,15 @@ pub fn ext2_soa_product_reduce_and_evaluate_parallel<F: SimdBaseField<Scalar = u
     w: u64,
 ) -> ([u64; 2], [u64; 2]) {
     ext2_soa_product_reduce_and_evaluate_into::<F>(
-        src_f_c0, src_f_c1, src_g_c0, src_g_c1,
-        out_f_c0, out_f_c1, out_g_c0, out_g_c1,
-        challenge, w,
+        src_f_c0, src_f_c1, src_g_c0, src_g_c1, out_f_c0, out_f_c1, out_g_c0, out_g_c1, challenge,
+        w,
     )
 }
 
 /// Fused SoA ext3 product evaluate + reduce in a single pass.
 ///
 /// Same concept as ext2 fused product kernel but with Karatsuba ext3 multiply.
+#[allow(clippy::too_many_arguments)]
 pub fn ext3_soa_product_reduce_and_evaluate<F: SimdBaseField<Scalar = u64>>(
     f_c0: &mut [u64],
     f_c1: &mut [u64],
@@ -2200,11 +2414,21 @@ pub fn ext3_soa_product_reduce_and_evaluate<F: SimdBaseField<Scalar = u64>>(
     // SAFETY: single-threaded ascending iteration is safe in-place.
     let (a, b) = unsafe {
         ext3_soa_product_reduce_and_evaluate_raw::<F>(
-            f_c0.as_ptr(), f_c1.as_ptr(), f_c2.as_ptr(),
-            g_c0.as_ptr(), g_c1.as_ptr(), g_c2.as_ptr(),
-            f_c0.as_mut_ptr(), f_c1.as_mut_ptr(), f_c2.as_mut_ptr(),
-            g_c0.as_mut_ptr(), g_c1.as_mut_ptr(), g_c2.as_mut_ptr(),
-            half, challenge, w,
+            f_c0.as_ptr(),
+            f_c1.as_ptr(),
+            f_c2.as_ptr(),
+            g_c0.as_ptr(),
+            g_c1.as_ptr(),
+            g_c2.as_ptr(),
+            f_c0.as_mut_ptr(),
+            f_c1.as_mut_ptr(),
+            f_c2.as_mut_ptr(),
+            g_c0.as_mut_ptr(),
+            g_c1.as_mut_ptr(),
+            g_c2.as_mut_ptr(),
+            half,
+            challenge,
+            w,
         )
     };
     (a, b, half)
@@ -2232,11 +2456,21 @@ pub fn ext3_soa_product_reduce_and_evaluate_into<F: SimdBaseField<Scalar = u64>>
     debug_assert_eq!(src_f_c0.len(), 2 * n_out);
     unsafe {
         ext3_soa_product_reduce_and_evaluate_raw::<F>(
-            src_f_c0.as_ptr(), src_f_c1.as_ptr(), src_f_c2.as_ptr(),
-            src_g_c0.as_ptr(), src_g_c1.as_ptr(), src_g_c2.as_ptr(),
-            out_f_c0.as_mut_ptr(), out_f_c1.as_mut_ptr(), out_f_c2.as_mut_ptr(),
-            out_g_c0.as_mut_ptr(), out_g_c1.as_mut_ptr(), out_g_c2.as_mut_ptr(),
-            n_out, challenge, w,
+            src_f_c0.as_ptr(),
+            src_f_c1.as_ptr(),
+            src_f_c2.as_ptr(),
+            src_g_c0.as_ptr(),
+            src_g_c1.as_ptr(),
+            src_g_c2.as_ptr(),
+            out_f_c0.as_mut_ptr(),
+            out_f_c1.as_mut_ptr(),
+            out_f_c2.as_mut_ptr(),
+            out_g_c0.as_mut_ptr(),
+            out_g_c1.as_mut_ptr(),
+            out_g_c2.as_mut_ptr(),
+            n_out,
+            challenge,
+            w,
         )
     }
 }
@@ -2267,7 +2501,11 @@ unsafe fn ext3_soa_product_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64
     let lanes = F::LANES;
     let aligned = (n_out / lanes) * lanes;
     let w_vec = F::splat(w);
-    let ch = [F::splat(challenge[0]), F::splat(challenge[1]), F::splat(challenge[2])];
+    let ch = [
+        F::splat(challenge[0]),
+        F::splat(challenge[1]),
+        F::splat(challenge[2]),
+    ];
 
     let zero = F::splat(F::ZERO);
     let mut acc_a = [zero; 3];
@@ -2315,32 +2553,64 @@ unsafe fn ext3_soa_product_reduce_and_evaluate_raw<F: SimdBaseField<Scalar = u64
 
     for c in 0..3 {
         F::store(buf.as_mut_ptr(), acc_a[c]);
-        for &v in buf.iter().take(lanes) { a[c] = F::scalar_add(a[c], v); }
+        for &v in buf.iter().take(lanes) {
+            a[c] = F::scalar_add(a[c], v);
+        }
         F::store(buf.as_mut_ptr(), acc_b[c]);
-        for &v in buf.iter().take(lanes) { b[c] = F::scalar_add(b[c], v); }
+        for &v in buf.iter().take(lanes) {
+            b[c] = F::scalar_add(b[c], v);
+        }
     }
 
     // Scalar tail
     while i < n_out {
-        let fe = [*src_f_c0.add(2 * i), *src_f_c1.add(2 * i), *src_f_c2.add(2 * i)];
-        let fo = [*src_f_c0.add(2 * i + 1), *src_f_c1.add(2 * i + 1), *src_f_c2.add(2 * i + 1)];
-        let ge = [*src_g_c0.add(2 * i), *src_g_c1.add(2 * i), *src_g_c2.add(2 * i)];
-        let go_ = [*src_g_c0.add(2 * i + 1), *src_g_c1.add(2 * i + 1), *src_g_c2.add(2 * i + 1)];
+        let fe = [
+            *src_f_c0.add(2 * i),
+            *src_f_c1.add(2 * i),
+            *src_f_c2.add(2 * i),
+        ];
+        let fo = [
+            *src_f_c0.add(2 * i + 1),
+            *src_f_c1.add(2 * i + 1),
+            *src_f_c2.add(2 * i + 1),
+        ];
+        let ge = [
+            *src_g_c0.add(2 * i),
+            *src_g_c1.add(2 * i),
+            *src_g_c2.add(2 * i),
+        ];
+        let go_ = [
+            *src_g_c0.add(2 * i + 1),
+            *src_g_c1.add(2 * i + 1),
+            *src_g_c2.add(2 * i + 1),
+        ];
 
         let pa = scalar_ext3_mul::<F>(fe, ge, w);
-        for c in 0..3 { a[c] = F::scalar_add(a[c], pa[c]); }
+        for c in 0..3 {
+            a[c] = F::scalar_add(a[c], pa[c]);
+        }
 
         let peg = scalar_ext3_mul::<F>(fe, go_, w);
         let poe = scalar_ext3_mul::<F>(fo, ge, w);
-        for c in 0..3 { b[c] = F::scalar_add(b[c], F::scalar_add(peg[c], poe[c])); }
+        for c in 0..3 {
+            b[c] = F::scalar_add(b[c], F::scalar_add(peg[c], poe[c]));
+        }
 
-        let fd = [F::scalar_sub(fo[0], fe[0]), F::scalar_sub(fo[1], fe[1]), F::scalar_sub(fo[2], fe[2])];
+        let fd = [
+            F::scalar_sub(fo[0], fe[0]),
+            F::scalar_sub(fo[1], fe[1]),
+            F::scalar_sub(fo[2], fe[2]),
+        ];
         let fp = scalar_ext3_mul::<F>(challenge, fd, w);
         *out_f_c0.add(i) = F::scalar_add(fe[0], fp[0]);
         *out_f_c1.add(i) = F::scalar_add(fe[1], fp[1]);
         *out_f_c2.add(i) = F::scalar_add(fe[2], fp[2]);
 
-        let gd = [F::scalar_sub(go_[0], ge[0]), F::scalar_sub(go_[1], ge[1]), F::scalar_sub(go_[2], ge[2])];
+        let gd = [
+            F::scalar_sub(go_[0], ge[0]),
+            F::scalar_sub(go_[1], ge[1]),
+            F::scalar_sub(go_[2], ge[2]),
+        ];
         let gp = scalar_ext3_mul::<F>(challenge, gd, w);
         *out_g_c0.add(i) = F::scalar_add(ge[0], gp[0]);
         *out_g_c1.add(i) = F::scalar_add(ge[1], gp[1]);
@@ -2377,9 +2647,8 @@ pub fn ext3_soa_product_reduce_and_evaluate_parallel<F: SimdBaseField<Scalar = u
     let chunk_pairs = 32_768_usize;
     if n_out <= chunk_pairs {
         return ext3_soa_product_reduce_and_evaluate_into::<F>(
-            src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2,
-            out_f_c0, out_f_c1, out_f_c2, out_g_c0, out_g_c1, out_g_c2,
-            challenge, w,
+            src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2, out_f_c0, out_f_c1,
+            out_f_c2, out_g_c0, out_g_c1, out_g_c2, challenge, w,
         );
     }
 
@@ -2401,16 +2670,32 @@ pub fn ext3_soa_product_reduce_and_evaluate_parallel<F: SimdBaseField<Scalar = u
                 &src_g_c0[2 * start..2 * end],
                 &src_g_c1[2 * start..2 * end],
                 &src_g_c2[2 * start..2 * end],
-                ofc0, ofc1, ofc2, ogc0, ogc1, ogc2,
-                challenge, w,
+                ofc0,
+                ofc1,
+                ofc2,
+                ogc0,
+                ogc1,
+                ogc2,
+                challenge,
+                w,
             )
         })
         .reduce(
             || ([0u64; 3], [0u64; 3]),
-            |(a1, b1), (a2, b2)| (
-                [F::scalar_add(a1[0], a2[0]), F::scalar_add(a1[1], a2[1]), F::scalar_add(a1[2], a2[2])],
-                [F::scalar_add(b1[0], b2[0]), F::scalar_add(b1[1], b2[1]), F::scalar_add(b1[2], b2[2])],
-            ),
+            |(a1, b1), (a2, b2)| {
+                (
+                    [
+                        F::scalar_add(a1[0], a2[0]),
+                        F::scalar_add(a1[1], a2[1]),
+                        F::scalar_add(a1[2], a2[2]),
+                    ],
+                    [
+                        F::scalar_add(b1[0], b2[0]),
+                        F::scalar_add(b1[1], b2[1]),
+                        F::scalar_add(b1[2], b2[2]),
+                    ],
+                )
+            },
         )
 }
 
@@ -2434,9 +2719,8 @@ pub fn ext3_soa_product_reduce_and_evaluate_parallel<F: SimdBaseField<Scalar = u
     w: u64,
 ) -> ([u64; 3], [u64; 3]) {
     ext3_soa_product_reduce_and_evaluate_into::<F>(
-        src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2,
-        out_f_c0, out_f_c1, out_f_c2, out_g_c0, out_g_c1, out_g_c2,
-        challenge, w,
+        src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2, out_f_c0, out_f_c1, out_f_c2,
+        out_g_c0, out_g_c1, out_g_c2, challenge, w,
     )
 }
 
@@ -2636,8 +2920,7 @@ pub fn ext2_soa_product_reduce_only_parallel<F: SimdBaseField<Scalar = u64>>(
     let chunk_pairs = 32_768_usize;
     if n_out <= chunk_pairs {
         return ext2_soa_product_reduce_only_into::<F>(
-            src_f_c0, src_f_c1, src_g_c0, src_g_c1,
-            out_f_c0, out_f_c1, out_g_c0, out_g_c1,
+            src_f_c0, src_f_c1, src_g_c0, src_g_c1, out_f_c0, out_f_c1, out_g_c0, out_g_c1,
             challenge, w,
         );
     }
@@ -2655,8 +2938,12 @@ pub fn ext2_soa_product_reduce_only_parallel<F: SimdBaseField<Scalar = u64>>(
                 &src_f_c1[2 * start..2 * end],
                 &src_g_c0[2 * start..2 * end],
                 &src_g_c1[2 * start..2 * end],
-                ofc0, ofc1, ogc0, ogc1,
-                challenge, w,
+                ofc0,
+                ofc1,
+                ogc0,
+                ogc1,
+                challenge,
+                w,
             );
         });
 }
@@ -2676,9 +2963,8 @@ pub fn ext2_soa_product_reduce_only_parallel<F: SimdBaseField<Scalar = u64>>(
     w: u64,
 ) {
     ext2_soa_product_reduce_only_into::<F>(
-        src_f_c0, src_f_c1, src_g_c0, src_g_c1,
-        out_f_c0, out_f_c1, out_g_c0, out_g_c1,
-        challenge, w,
+        src_f_c0, src_f_c1, src_g_c0, src_g_c1, out_f_c0, out_f_c1, out_g_c0, out_g_c1, challenge,
+        w,
     )
 }
 
@@ -2738,13 +3024,21 @@ unsafe fn ext3_soa_product_reduce_only_raw<F: SimdBaseField<Scalar = u64>>(
 
     // Scalar tail
     while i < n_out {
-        let fe = [*src_f_c0.add(2 * i), *src_f_c1.add(2 * i), *src_f_c2.add(2 * i)];
+        let fe = [
+            *src_f_c0.add(2 * i),
+            *src_f_c1.add(2 * i),
+            *src_f_c2.add(2 * i),
+        ];
         let fo = [
             *src_f_c0.add(2 * i + 1),
             *src_f_c1.add(2 * i + 1),
             *src_f_c2.add(2 * i + 1),
         ];
-        let ge = [*src_g_c0.add(2 * i), *src_g_c1.add(2 * i), *src_g_c2.add(2 * i)];
+        let ge = [
+            *src_g_c0.add(2 * i),
+            *src_g_c1.add(2 * i),
+            *src_g_c2.add(2 * i),
+        ];
         let go_ = [
             *src_g_c0.add(2 * i + 1),
             *src_g_c1.add(2 * i + 1),
@@ -2875,9 +3169,8 @@ pub fn ext3_soa_product_reduce_only_parallel<F: SimdBaseField<Scalar = u64>>(
     let chunk_pairs = 32_768_usize;
     if n_out <= chunk_pairs {
         return ext3_soa_product_reduce_only_into::<F>(
-            src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2,
-            out_f_c0, out_f_c1, out_f_c2, out_g_c0, out_g_c1, out_g_c2,
-            challenge, w,
+            src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2, out_f_c0, out_f_c1,
+            out_f_c2, out_g_c0, out_g_c1, out_g_c2, challenge, w,
         );
     }
 
@@ -2898,8 +3191,14 @@ pub fn ext3_soa_product_reduce_only_parallel<F: SimdBaseField<Scalar = u64>>(
                 &src_g_c0[2 * start..2 * end],
                 &src_g_c1[2 * start..2 * end],
                 &src_g_c2[2 * start..2 * end],
-                ofc0, ofc1, ofc2, ogc0, ogc1, ogc2,
-                challenge, w,
+                ofc0,
+                ofc1,
+                ofc2,
+                ogc0,
+                ogc1,
+                ogc2,
+                challenge,
+                w,
             );
         });
 }
@@ -2923,9 +3222,8 @@ pub fn ext3_soa_product_reduce_only_parallel<F: SimdBaseField<Scalar = u64>>(
     w: u64,
 ) {
     ext3_soa_product_reduce_only_into::<F>(
-        src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2,
-        out_f_c0, out_f_c1, out_f_c2, out_g_c0, out_g_c1, out_g_c2,
-        challenge, w,
+        src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2, out_f_c0, out_f_c1, out_f_c2,
+        out_g_c0, out_g_c1, out_g_c2, challenge, w,
     );
 }
 
@@ -3056,25 +3354,13 @@ unsafe fn ext3_soa_product_fused_reduce_next_eval_raw<F: SimdBaseField<Scalar = 
         let (gc1_e, gc1_o) = F::load_deinterleaved(out_g_c1.add(i));
         let (gc2_e, gc2_o) = F::load_deinterleaved(out_g_c2.add(i));
 
-        let pa = soa_ext3_mul::<F>(
-            [fc0_e, fc1_e, fc2_e],
-            [gc0_e, gc1_e, gc2_e],
-            w_vec,
-        );
+        let pa = soa_ext3_mul::<F>([fc0_e, fc1_e, fc2_e], [gc0_e, gc1_e, gc2_e], w_vec);
         acc_a[0] = F::add(acc_a[0], pa[0]);
         acc_a[1] = F::add(acc_a[1], pa[1]);
         acc_a[2] = F::add(acc_a[2], pa[2]);
 
-        let peg = soa_ext3_mul::<F>(
-            [fc0_e, fc1_e, fc2_e],
-            [gc0_o, gc1_o, gc2_o],
-            w_vec,
-        );
-        let poe = soa_ext3_mul::<F>(
-            [fc0_o, fc1_o, fc2_o],
-            [gc0_e, gc1_e, gc2_e],
-            w_vec,
-        );
+        let peg = soa_ext3_mul::<F>([fc0_e, fc1_e, fc2_e], [gc0_o, gc1_o, gc2_o], w_vec);
+        let poe = soa_ext3_mul::<F>([fc0_o, fc1_o, fc2_o], [gc0_e, gc1_e, gc2_e], w_vec);
         acc_b[0] = F::add(acc_b[0], F::add(peg[0], poe[0]));
         acc_b[1] = F::add(acc_b[1], F::add(peg[1], poe[1]));
         acc_b[2] = F::add(acc_b[2], F::add(peg[2], poe[2]));
@@ -3100,13 +3386,21 @@ unsafe fn ext3_soa_product_fused_reduce_next_eval_raw<F: SimdBaseField<Scalar = 
     // Scalar tail: reduce pairs of elements at a time, accumulating next-eval.
     while i + 1 < n_out {
         // Reduce element i
-        let fe_i = [*src_f_c0.add(2 * i), *src_f_c1.add(2 * i), *src_f_c2.add(2 * i)];
+        let fe_i = [
+            *src_f_c0.add(2 * i),
+            *src_f_c1.add(2 * i),
+            *src_f_c2.add(2 * i),
+        ];
         let fo_i = [
             *src_f_c0.add(2 * i + 1),
             *src_f_c1.add(2 * i + 1),
             *src_f_c2.add(2 * i + 1),
         ];
-        let ge_i = [*src_g_c0.add(2 * i), *src_g_c1.add(2 * i), *src_g_c2.add(2 * i)];
+        let ge_i = [
+            *src_g_c0.add(2 * i),
+            *src_g_c1.add(2 * i),
+            *src_g_c2.add(2 * i),
+        ];
         let go_i = [
             *src_g_c0.add(2 * i + 1),
             *src_g_c1.add(2 * i + 1),
@@ -3143,13 +3437,21 @@ unsafe fn ext3_soa_product_fused_reduce_next_eval_raw<F: SimdBaseField<Scalar = 
 
         // Reduce element i+1
         let j = i + 1;
-        let fe_j = [*src_f_c0.add(2 * j), *src_f_c1.add(2 * j), *src_f_c2.add(2 * j)];
+        let fe_j = [
+            *src_f_c0.add(2 * j),
+            *src_f_c1.add(2 * j),
+            *src_f_c2.add(2 * j),
+        ];
         let fo_j = [
             *src_f_c0.add(2 * j + 1),
             *src_f_c1.add(2 * j + 1),
             *src_f_c2.add(2 * j + 1),
         ];
-        let ge_j = [*src_g_c0.add(2 * j), *src_g_c1.add(2 * j), *src_g_c2.add(2 * j)];
+        let ge_j = [
+            *src_g_c0.add(2 * j),
+            *src_g_c1.add(2 * j),
+            *src_g_c2.add(2 * j),
+        ];
         let go_j = [
             *src_g_c0.add(2 * j + 1),
             *src_g_c1.add(2 * j + 1),
@@ -3201,13 +3503,21 @@ unsafe fn ext3_soa_product_fused_reduce_next_eval_raw<F: SimdBaseField<Scalar = 
     // Final straggler: if n_out is odd, reduce the last element without
     // contributing to next-round-eval (no pair to form).
     if i < n_out {
-        let fe = [*src_f_c0.add(2 * i), *src_f_c1.add(2 * i), *src_f_c2.add(2 * i)];
+        let fe = [
+            *src_f_c0.add(2 * i),
+            *src_f_c1.add(2 * i),
+            *src_f_c2.add(2 * i),
+        ];
         let fo = [
             *src_f_c0.add(2 * i + 1),
             *src_f_c1.add(2 * i + 1),
             *src_f_c2.add(2 * i + 1),
         ];
-        let ge = [*src_g_c0.add(2 * i), *src_g_c1.add(2 * i), *src_g_c2.add(2 * i)];
+        let ge = [
+            *src_g_c0.add(2 * i),
+            *src_g_c1.add(2 * i),
+            *src_g_c2.add(2 * i),
+        ];
         let go = [
             *src_g_c0.add(2 * i + 1),
             *src_g_c1.add(2 * i + 1),
@@ -3346,9 +3656,8 @@ pub fn ext3_soa_product_fused_reduce_next_eval_parallel<F: SimdBaseField<Scalar 
     let chunk_pairs = 32_768_usize;
     if n_out <= chunk_pairs {
         return ext3_soa_product_fused_reduce_next_eval_into::<F>(
-            src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2,
-            out_f_c0, out_f_c1, out_f_c2, out_g_c0, out_g_c1, out_g_c2,
-            challenge, w,
+            src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2, out_f_c0, out_f_c1,
+            out_f_c2, out_g_c0, out_g_c1, out_g_c2, challenge, w,
         );
     }
 
@@ -3369,8 +3678,14 @@ pub fn ext3_soa_product_fused_reduce_next_eval_parallel<F: SimdBaseField<Scalar 
                 &src_g_c0[2 * start..2 * end],
                 &src_g_c1[2 * start..2 * end],
                 &src_g_c2[2 * start..2 * end],
-                ofc0, ofc1, ofc2, ogc0, ogc1, ogc2,
-                challenge, w,
+                ofc0,
+                ofc1,
+                ofc2,
+                ogc0,
+                ogc1,
+                ogc2,
+                challenge,
+                w,
             )
         })
         .reduce(
@@ -3411,9 +3726,8 @@ pub fn ext3_soa_product_fused_reduce_next_eval_parallel<F: SimdBaseField<Scalar 
     w: u64,
 ) -> ([u64; 3], [u64; 3]) {
     ext3_soa_product_fused_reduce_next_eval_into::<F>(
-        src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2,
-        out_f_c0, out_f_c1, out_f_c2, out_g_c0, out_g_c1, out_g_c2,
-        challenge, w,
+        src_f_c0, src_f_c1, src_f_c2, src_g_c0, src_g_c1, src_g_c2, out_f_c0, out_f_c1, out_f_c2,
+        out_g_c0, out_g_c1, out_g_c2, challenge, w,
     )
 }
 
@@ -3477,14 +3791,14 @@ pub fn ext2_soa_product_evaluate<F: SimdBaseField<Scalar = u64>>(
                 let p1 = F::mul(fo1, ge1);
                 let m2 = F::mul(F::add(fo0, fo1), F::add(ge0, ge1));
 
-                acc_b0 = F::add(acc_b0, F::add(
-                    F::add(u0, F::mul(w_vec, u1)),
-                    F::add(p0, F::mul(w_vec, p1)),
-                ));
-                acc_b1 = F::add(acc_b1, F::add(
-                    F::sub(F::sub(m1, u0), u1),
-                    F::sub(F::sub(m2, p0), p1),
-                ));
+                acc_b0 = F::add(
+                    acc_b0,
+                    F::add(F::add(u0, F::mul(w_vec, u1)), F::add(p0, F::mul(w_vec, p1))),
+                );
+                acc_b1 = F::add(
+                    acc_b1,
+                    F::add(F::sub(F::sub(m1, u0), u1), F::sub(F::sub(m2, p0), p1)),
+                );
             }
         }
         i += step;
@@ -3511,14 +3825,14 @@ pub fn ext2_soa_product_evaluate<F: SimdBaseField<Scalar = u64>>(
             let p1 = F::mul(fo1, ge1);
             let m2 = F::mul(F::add(fo0, fo1), F::add(ge0, ge1));
 
-            acc_b0 = F::add(acc_b0, F::add(
-                F::add(u0, F::mul(w_vec, u1)),
-                F::add(p0, F::mul(w_vec, p1)),
-            ));
-            acc_b1 = F::add(acc_b1, F::add(
-                F::sub(F::sub(m1, u0), u1),
-                F::sub(F::sub(m2, p0), p1),
-            ));
+            acc_b0 = F::add(
+                acc_b0,
+                F::add(F::add(u0, F::mul(w_vec, u1)), F::add(p0, F::mul(w_vec, p1))),
+            );
+            acc_b1 = F::add(
+                acc_b1,
+                F::add(F::sub(F::sub(m1, u0), u1), F::sub(F::sub(m2, p0), p1)),
+            );
         }
         i += load_width;
     }
@@ -3529,13 +3843,21 @@ pub fn ext2_soa_product_evaluate<F: SimdBaseField<Scalar = u64>>(
     let mut b = [F::ZERO; 2];
 
     unsafe { F::store(buf.as_mut_ptr(), acc_a0) };
-    for &v in buf.iter().take(lanes) { a[0] = F::scalar_add(a[0], v); }
+    for &v in buf.iter().take(lanes) {
+        a[0] = F::scalar_add(a[0], v);
+    }
     unsafe { F::store(buf.as_mut_ptr(), acc_a1) };
-    for &v in buf.iter().take(lanes) { a[1] = F::scalar_add(a[1], v); }
+    for &v in buf.iter().take(lanes) {
+        a[1] = F::scalar_add(a[1], v);
+    }
     unsafe { F::store(buf.as_mut_ptr(), acc_b0) };
-    for &v in buf.iter().take(lanes) { b[0] = F::scalar_add(b[0], v); }
+    for &v in buf.iter().take(lanes) {
+        b[0] = F::scalar_add(b[0], v);
+    }
     unsafe { F::store(buf.as_mut_ptr(), acc_b1) };
-    for &v in buf.iter().take(lanes) { b[1] = F::scalar_add(b[1], v); }
+    for &v in buf.iter().take(lanes) {
+        b[1] = F::scalar_add(b[1], v);
+    }
 
     // Scalar tail
     while i + 1 < n {
@@ -3559,14 +3881,20 @@ pub fn ext2_soa_product_evaluate<F: SimdBaseField<Scalar = u64>>(
         let p1 = F::scalar_mul(fo[1], ge[1]);
         let m2 = F::scalar_mul(F::scalar_add(fo[0], fo[1]), F::scalar_add(ge[0], ge[1]));
 
-        b[0] = F::scalar_add(b[0], F::scalar_add(
-            F::scalar_add(u0, F::scalar_mul(w, u1)),
-            F::scalar_add(p0, F::scalar_mul(w, p1)),
-        ));
-        b[1] = F::scalar_add(b[1], F::scalar_add(
-            F::scalar_sub(F::scalar_sub(m1, u0), u1),
-            F::scalar_sub(F::scalar_sub(m2, p0), p1),
-        ));
+        b[0] = F::scalar_add(
+            b[0],
+            F::scalar_add(
+                F::scalar_add(u0, F::scalar_mul(w, u1)),
+                F::scalar_add(p0, F::scalar_mul(w, p1)),
+            ),
+        );
+        b[1] = F::scalar_add(
+            b[1],
+            F::scalar_add(
+                F::scalar_sub(F::scalar_sub(m1, u0), u1),
+                F::scalar_sub(F::scalar_sub(m2, p0), p1),
+            ),
+        );
         i += 2;
     }
 
@@ -3622,20 +3950,14 @@ pub fn ext3_soa_product_evaluate<F: SimdBaseField<Scalar = u64>>(
                 let (ge2, go2) = F::load_deinterleaved(g_c2.as_ptr().add(off));
 
                 // a += f_even * g_even (ext3 Karatsuba)
-                let prod_a = soa_ext3_mul::<F>(
-                    [fe0, fe1, fe2], [ge0, ge1, ge2], w_vec,
-                );
+                let prod_a = soa_ext3_mul::<F>([fe0, fe1, fe2], [ge0, ge1, ge2], w_vec);
                 acc_a[0] = F::add(acc_a[0], prod_a[0]);
                 acc_a[1] = F::add(acc_a[1], prod_a[1]);
                 acc_a[2] = F::add(acc_a[2], prod_a[2]);
 
                 // b += f_even * g_odd + f_odd * g_even
-                let prod_eg = soa_ext3_mul::<F>(
-                    [fe0, fe1, fe2], [go0, go1, go2], w_vec,
-                );
-                let prod_oe = soa_ext3_mul::<F>(
-                    [fo0, fo1, fo2], [ge0, ge1, ge2], w_vec,
-                );
+                let prod_eg = soa_ext3_mul::<F>([fe0, fe1, fe2], [go0, go1, go2], w_vec);
+                let prod_oe = soa_ext3_mul::<F>([fo0, fo1, fo2], [ge0, ge1, ge2], w_vec);
                 acc_b[0] = F::add(acc_b[0], F::add(prod_eg[0], prod_oe[0]));
                 acc_b[1] = F::add(acc_b[1], F::add(prod_eg[1], prod_oe[1]));
                 acc_b[2] = F::add(acc_b[2], F::add(prod_eg[2], prod_oe[2]));
@@ -3675,9 +3997,13 @@ pub fn ext3_soa_product_evaluate<F: SimdBaseField<Scalar = u64>>(
 
     for c in 0..3 {
         unsafe { F::store(buf.as_mut_ptr(), acc_a[c]) };
-        for &v in buf.iter().take(lanes) { a[c] = F::scalar_add(a[c], v); }
+        for &v in buf.iter().take(lanes) {
+            a[c] = F::scalar_add(a[c], v);
+        }
         unsafe { F::store(buf.as_mut_ptr(), acc_b[c]) };
-        for &v in buf.iter().take(lanes) { b[c] = F::scalar_add(b[c], v); }
+        for &v in buf.iter().take(lanes) {
+            b[c] = F::scalar_add(b[c], v);
+        }
     }
 
     // Scalar tail
@@ -3688,11 +4014,15 @@ pub fn ext3_soa_product_evaluate<F: SimdBaseField<Scalar = u64>>(
         let go_ = [g_c0[i + 1], g_c1[i + 1], g_c2[i + 1]];
 
         let pa = scalar_ext3_mul::<F>(fe, ge, w);
-        for c in 0..3 { a[c] = F::scalar_add(a[c], pa[c]); }
+        for c in 0..3 {
+            a[c] = F::scalar_add(a[c], pa[c]);
+        }
 
         let peg = scalar_ext3_mul::<F>(fe, go_, w);
         let poe = scalar_ext3_mul::<F>(fo, ge, w);
-        for c in 0..3 { b[c] = F::scalar_add(b[c], F::scalar_add(peg[c], poe[c])); }
+        for c in 0..3 {
+            b[c] = F::scalar_add(b[c], F::scalar_add(peg[c], poe[c]));
+        }
 
         i += 2;
     }
@@ -3728,11 +4058,7 @@ fn soa_ext3_mul<F: SimdBaseField<Scalar = u64>>(
         be,
     );
 
-    [
-        F::add(ad, F::mul(w, x)),
-        F::add(y, F::mul(w, cf)),
-        z,
-    ]
+    [F::add(ad, F::mul(w, x)), F::add(y, F::mul(w, cf)), z]
 }
 
 /// Scalar ext3 Karatsuba multiply helper.
@@ -3929,8 +4255,7 @@ mod tests {
                 let mut c1 = Vec::with_capacity(n_src);
                 let mut c2 = Vec::with_capacity(n_src);
                 for x in &f {
-                    let bytes: [u64; 3] =
-                        unsafe { *(x as *const F64Ext3 as *const [u64; 3]) };
+                    let bytes: [u64; 3] = unsafe { *(x as *const F64Ext3 as *const [u64; 3]) };
                     c0.push(bytes[0]);
                     c1.push(bytes[1]);
                     c2.push(bytes[2]);
@@ -3942,8 +4267,7 @@ mod tests {
                 let mut c1 = Vec::with_capacity(n_src);
                 let mut c2 = Vec::with_capacity(n_src);
                 for x in &g {
-                    let bytes: [u64; 3] =
-                        unsafe { *(x as *const F64Ext3 as *const [u64; 3]) };
+                    let bytes: [u64; 3] = unsafe { *(x as *const F64Ext3 as *const [u64; 3]) };
                     c0.push(bytes[0]);
                     c1.push(bytes[1]);
                     c2.push(bytes[2]);
@@ -3963,19 +4287,41 @@ mod tests {
             };
 
             // Reference: reduce_only then standalone evaluate on reduced.
-            let mut ref_out_f = (vec![0u64; n_src / 2], vec![0u64; n_src / 2], vec![0u64; n_src / 2]);
-            let mut ref_out_g = (vec![0u64; n_src / 2], vec![0u64; n_src / 2], vec![0u64; n_src / 2]);
+            let mut ref_out_f = (
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+            );
+            let mut ref_out_g = (
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+            );
             ext3_soa_product_reduce_only_into::<Backend>(
-                &f_c0, &f_c1, &f_c2, &g_c0, &g_c1, &g_c2,
-                &mut ref_out_f.0, &mut ref_out_f.1, &mut ref_out_f.2,
-                &mut ref_out_g.0, &mut ref_out_g.1, &mut ref_out_g.2,
-                chg, w,
+                &f_c0,
+                &f_c1,
+                &f_c2,
+                &g_c0,
+                &g_c1,
+                &g_c2,
+                &mut ref_out_f.0,
+                &mut ref_out_f.1,
+                &mut ref_out_f.2,
+                &mut ref_out_g.0,
+                &mut ref_out_g.1,
+                &mut ref_out_g.2,
+                chg,
+                w,
             );
             // Next-round evaluate: only defined when n_out ≥ 2.
             let (ref_a, ref_b) = if n_src / 2 >= 2 {
                 ext3_soa_product_evaluate::<Backend>(
-                    &ref_out_f.0, &ref_out_f.1, &ref_out_f.2,
-                    &ref_out_g.0, &ref_out_g.1, &ref_out_g.2,
+                    &ref_out_f.0,
+                    &ref_out_f.1,
+                    &ref_out_f.2,
+                    &ref_out_g.0,
+                    &ref_out_g.1,
+                    &ref_out_g.2,
                     w,
                 )
             } else {
@@ -3983,13 +4329,31 @@ mod tests {
             };
 
             // Under test: fused kernel.
-            let mut got_out_f = (vec![0u64; n_src / 2], vec![0u64; n_src / 2], vec![0u64; n_src / 2]);
-            let mut got_out_g = (vec![0u64; n_src / 2], vec![0u64; n_src / 2], vec![0u64; n_src / 2]);
+            let mut got_out_f = (
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+            );
+            let mut got_out_g = (
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+            );
             let (got_a, got_b) = ext3_soa_product_fused_reduce_next_eval_into::<Backend>(
-                &f_c0, &f_c1, &f_c2, &g_c0, &g_c1, &g_c2,
-                &mut got_out_f.0, &mut got_out_f.1, &mut got_out_f.2,
-                &mut got_out_g.0, &mut got_out_g.1, &mut got_out_g.2,
-                chg, w,
+                &f_c0,
+                &f_c1,
+                &f_c2,
+                &g_c0,
+                &g_c1,
+                &g_c2,
+                &mut got_out_f.0,
+                &mut got_out_f.1,
+                &mut got_out_f.2,
+                &mut got_out_g.0,
+                &mut got_out_g.1,
+                &mut got_out_g.2,
+                chg,
+                w,
             );
 
             assert_eq!(got_out_f.0, ref_out_f.0, "f_c0 mismatch (n_src={})", n_src);
@@ -4002,6 +4366,127 @@ mod tests {
                 assert_eq!(got_a, ref_a, "a mismatch (n_src={})", n_src);
                 assert_eq!(got_b, ref_b, "b mismatch (n_src={})", n_src);
             }
+        }
+    }
+
+    /// Microbench: fused reduce+next-eval vs (reduce_only + standalone
+    /// evaluate). Run with:
+    ///
+    ///   cargo test --release --lib bench_ext3_fused -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn bench_ext3_fused_vs_separate() {
+        use crate::tests::F64Ext3;
+        use ark_ff::UniformRand;
+        use std::time::Instant;
+
+        let mut rng = test_rng();
+        for num_vars in [16usize, 18, 20, 22, 24] {
+            let n_src = 1usize << num_vars;
+            let f: Vec<F64Ext3> = (0..n_src).map(|_| F64Ext3::rand(&mut rng)).collect();
+            let g: Vec<F64Ext3> = (0..n_src).map(|_| F64Ext3::rand(&mut rng)).collect();
+            let (f_c0, f_c1, f_c2): (Vec<u64>, Vec<u64>, Vec<u64>) = {
+                let mut c0 = Vec::with_capacity(n_src);
+                let mut c1 = Vec::with_capacity(n_src);
+                let mut c2 = Vec::with_capacity(n_src);
+                for x in &f {
+                    let bytes: [u64; 3] = unsafe { *(x as *const F64Ext3 as *const [u64; 3]) };
+                    c0.push(bytes[0]);
+                    c1.push(bytes[1]);
+                    c2.push(bytes[2]);
+                }
+                (c0, c1, c2)
+            };
+            let (g_c0, g_c1, g_c2): (Vec<u64>, Vec<u64>, Vec<u64>) = {
+                let mut c0 = Vec::with_capacity(n_src);
+                let mut c1 = Vec::with_capacity(n_src);
+                let mut c2 = Vec::with_capacity(n_src);
+                for x in &g {
+                    let bytes: [u64; 3] = unsafe { *(x as *const F64Ext3 as *const [u64; 3]) };
+                    c0.push(bytes[0]);
+                    c1.push(bytes[1]);
+                    c2.push(bytes[2]);
+                }
+                (c0, c1, c2)
+            };
+
+            let chg: [u64; 3] = {
+                let c = F64Ext3::rand(&mut rng);
+                unsafe { *(&c as *const F64Ext3 as *const [u64; 3]) }
+            };
+            let w: u64 = {
+                let nr = F64Ext3::rand(&mut rng);
+                unsafe { *(&nr as *const F64Ext3 as *const u64) }
+            };
+
+            // SEPARATE: reduce_only + standalone evaluate
+            let mut out_f = (
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+            );
+            let mut out_g = (
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+            );
+            let t0 = Instant::now();
+            ext3_soa_product_reduce_only_into::<Backend>(
+                &f_c0,
+                &f_c1,
+                &f_c2,
+                &g_c0,
+                &g_c1,
+                &g_c2,
+                &mut out_f.0,
+                &mut out_f.1,
+                &mut out_f.2,
+                &mut out_g.0,
+                &mut out_g.1,
+                &mut out_g.2,
+                chg,
+                w,
+            );
+            let _ = ext3_soa_product_evaluate::<Backend>(
+                &out_f.0, &out_f.1, &out_f.2, &out_g.0, &out_g.1, &out_g.2, w,
+            );
+            let t_sep = t0.elapsed();
+
+            // FUSED: reduce + next-eval in one pass
+            let mut out_f = (
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+            );
+            let mut out_g = (
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+                vec![0u64; n_src / 2],
+            );
+            let t0 = Instant::now();
+            let _ = ext3_soa_product_fused_reduce_next_eval_into::<Backend>(
+                &f_c0,
+                &f_c1,
+                &f_c2,
+                &g_c0,
+                &g_c1,
+                &g_c2,
+                &mut out_f.0,
+                &mut out_f.1,
+                &mut out_f.2,
+                &mut out_g.0,
+                &mut out_g.1,
+                &mut out_g.2,
+                chg,
+                w,
+            );
+            let t_fused = t0.elapsed();
+
+            let ratio = t_sep.as_secs_f64() / t_fused.as_secs_f64();
+            println!(
+                "num_vars={:>2}  n=2^{num_vars}  separate={:>10.3?}  fused={:>10.3?}  speedup={:.2}x",
+                num_vars, t_sep, t_fused, ratio
+            );
         }
     }
 }

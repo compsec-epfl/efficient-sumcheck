@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tee /tmp/final_bench.log)"
+      "Bash(tee /tmp/final_bench.log)",
+      "Bash(tee /tmp/fused_bench.log)",
+      "Bash(tee /tmp/fused_bench_vectorized_mul.log)",
+      "Read(//Users/zitek/Desktop/**)",
+      "Bash(ssh -i ~/Desktop/bench-epfl.pem -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 ec2-user@ec2-18-193-83-29.eu-central-1.compute.amazonaws.com 'ls ~/src && pwd && echo \"OK\"')"
     ]
   }
 }
