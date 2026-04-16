@@ -1,5 +1,5 @@
-//! Quick microbench: effsc SIMD `inner_product_sumcheck` vs the WHIR port
-//! (faithful) vs the WHIR port with fused fold+compute (`whir_sumcheck_fused`).
+//! Quick microbench: the faithful WHIR port (`whir_sumcheck`) vs the fused
+//! fold+compute variant (`whir_sumcheck_fused`).
 //!
 //! Run:
 //!   RUSTFLAGS="-C target-feature=+avx512ifma" \
@@ -10,11 +10,6 @@
 //!   ~10% run-to-run noise.
 //! - Each variant is called on freshly-cloned inputs so the timings aren't
 //!   biased by cached-state differences.
-//! - For F64Ext3, the effsc run uses `inner_product_sumcheck::<F64Ext3, F64Ext3>`
-//!   (both a/b and challenges in the extension) to match the WHIR port's
-//!   monomorphic signature. The canonical "cross-field" setting (base-field
-//!   evals, extension-field challenges) isn't covered here yet — the WHIR port
-//!   doesn't support it.
 
 use std::time::Instant;
 
@@ -23,7 +18,7 @@ use ark_std::rand::{rngs::StdRng, SeedableRng};
 
 use efficient_sumcheck::tests::{F64Ext3, F64};
 use efficient_sumcheck::transcript::SanityTranscript;
-use efficient_sumcheck::{inner_product_sumcheck, whir_sumcheck, whir_sumcheck_fused};
+use efficient_sumcheck::{whir_sumcheck, whir_sumcheck_fused};
 
 const SEED: u64 = 0xA110C8ED;
 
@@ -32,16 +27,6 @@ fn gen_inputs<F: Field>(n: usize) -> (Vec<F>, Vec<F>) {
     let a: Vec<F> = (0..n).map(|_| F::rand(&mut rng)).collect();
     let b: Vec<F> = (0..n).map(|_| F::rand(&mut rng)).collect();
     (a, b)
-}
-
-fn time_effsc<F: Field + From<F>>(a: &[F], b: &[F]) -> f64 {
-    let mut f = a.to_vec();
-    let mut g = b.to_vec();
-    let mut trng = StdRng::seed_from_u64(SEED);
-    let mut t = SanityTranscript::new(&mut trng);
-    let start = Instant::now();
-    let _ = inner_product_sumcheck::<F, F>(&mut f, &mut g, &mut t);
-    start.elapsed().as_secs_f64()
 }
 
 fn time_whir_port<F: Field>(a: &[F], b: &[F]) -> f64 {
@@ -64,13 +49,13 @@ fn time_whir_fused<F: Field>(a: &[F], b: &[F]) -> f64 {
     start.elapsed().as_secs_f64()
 }
 
-fn run_section<F: Field + From<F>>(name: &str, sizes: &[u32]) {
+fn run_section<F: Field>(name: &str, sizes: &[u32]) {
     println!("\n== {name} ==");
     println!(
-        "{:>6} {:>14} {:>14} {:>14} {:>10} {:>10}",
-        "log2 n", "effsc (SIMD)", "whir port", "whir fused", "port/effsc", "fused/port"
+        "{:>6} {:>14} {:>14} {:>10}",
+        "log2 n", "whir port", "whir fused", "fused/port"
     );
-    println!("{}", "-".repeat(78));
+    println!("{}", "-".repeat(50));
     for &log2n in sizes {
         let n = 1usize << log2n;
         let (a, b) = gen_inputs::<F>(n);
@@ -79,16 +64,13 @@ fn run_section<F: Field + From<F>>(name: &str, sizes: &[u32]) {
         // penalised vs later sizes.
         let _ = time_whir_port(&a[..(n.min(1 << 16))], &b[..(n.min(1 << 16))]);
 
-        let effsc = time_effsc::<F>(&a, &b);
         let whir = time_whir_port::<F>(&a, &b);
         let fused = time_whir_fused::<F>(&a, &b);
         println!(
-            "{:>6} {:>11.3} ms {:>11.3} ms {:>11.3} ms {:>9.2}x {:>9.2}x",
+            "{:>6} {:>11.3} ms {:>11.3} ms {:>9.2}x",
             log2n,
-            effsc * 1e3,
             whir * 1e3,
             fused * 1e3,
-            whir / effsc,
             fused / whir,
         );
     }
