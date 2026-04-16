@@ -544,6 +544,13 @@ pub fn ext2_reduce_parallel(src: &[u64], challenge: [u64; 2], w: u64) -> Vec<u64
 ///
 /// Uses precomputed `c1w = c1 * w` for the "mul-by-constant matrix" approach:
 /// 4 base muls + 2 adds instead of Karatsuba's 3 muls + 5 adds.
+#[cfg_attr(
+    not(any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )),
+    allow(unused_mut, unused_variables)
+)]
 fn ext2_reduce_chunk(src: &[u64], challenge: [u64; 2], w: u64) -> Vec<u64> {
     let ext_deg = 2;
     let n_elems = src.len() / ext_deg;
@@ -585,7 +592,7 @@ fn ext2_reduce_chunk(src: &[u64], challenge: [u64; 2], w: u64) -> Vec<u64> {
         }
     }
 
-    #[cfg(not(target_arch = "aarch64"))]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
     {
         use crate::simd_fields::goldilocks::avx512::{
             ext2_reduce_8pairs, ext2_scalar_mul, GoldilocksAvx512,
@@ -856,6 +863,13 @@ pub fn product_reduce_and_evaluate<F: SimdBaseField>(
 }
 
 #[allow(dead_code)]
+#[cfg_attr(
+    not(any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )),
+    allow(unused_variables)
+)]
 pub fn ext2_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
     src: &mut [u64],
     challenge: [u64; 2],
@@ -913,7 +927,7 @@ pub fn ext2_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
         }
     }
 
-    #[cfg(not(target_arch = "aarch64"))]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
     {
         use crate::simd_fields::goldilocks::avx512::{
             ext2_reduce_8pairs, ext2_scalar_mul, GoldilocksAvx512,
@@ -997,6 +1011,13 @@ pub fn ext3_reduce_parallel(src: &[u64], challenge: [u64; 3], w: u64) -> Vec<u64
 }
 
 /// Process a chunk of pairs for ext3 reduce.
+#[cfg_attr(
+    not(any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )),
+    allow(unused_mut, unused_variables)
+)]
 fn ext3_reduce_chunk(src: &[u64], challenge: [u64; 3], w: u64) -> Vec<u64> {
     let ext_deg = 3;
     let n_elems = src.len() / ext_deg;
@@ -1024,7 +1045,7 @@ fn ext3_reduce_chunk(src: &[u64], challenge: [u64; 3], w: u64) -> Vec<u64> {
         }
     }
 
-    #[cfg(not(target_arch = "aarch64"))]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
     {
         use crate::simd_fields::goldilocks::avx512::{
             ext3_reduce_8pairs, ext3_scalar_mul, GoldilocksAvx512,
@@ -1078,6 +1099,13 @@ fn ext3_reduce_chunk(src: &[u64], challenge: [u64; 3], w: u64) -> Vec<u64> {
 
 /// Degree-3 extension reduce in-place (single-threaded, for small inputs).
 #[allow(dead_code)]
+#[cfg_attr(
+    not(any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )),
+    allow(unused_variables)
+)]
 pub fn ext3_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
     src: &mut [u64],
     challenge: [u64; 3],
@@ -1108,7 +1136,7 @@ pub fn ext3_reduce_in_place<F: SimdBaseField<Scalar = u64>>(
         }
     }
 
-    #[cfg(not(target_arch = "aarch64"))]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
     {
         use crate::simd_fields::goldilocks::avx512::{
             ext3_reduce_8pairs, ext3_scalar_mul, GoldilocksAvx512,
