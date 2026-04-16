@@ -96,6 +96,6 @@ fn run_section<F: Field + From<F>>(name: &str, sizes: &[u32]) {
 
 fn main() {
     run_section::<F64>("Goldilocks (F64, 8 B)", &[20, 21, 22, 23, 24]);
-    // F64Ext3 is 24 B/element; cap at 2^22 to stay under ~300 MiB per vector.
-    run_section::<F64Ext3>("Goldilocks³ (F64Ext3, 24 B)", &[18, 19, 20, 21, 22]);
+    // F64Ext3 is 24 B/element; 2^24 = ~384 MiB per vector, fine on this box.
+    run_section::<F64Ext3>("Goldilocks³ (F64Ext3, 24 B)", &[20, 21, 22, 23, 24]);
 }
