@@ -46,7 +46,7 @@ fn simd_vs_generic_sumcheck(c: &mut Criterion) {
                     |mut evals| {
                         let mut rng = ark_std::test_rng();
                         let mut transcript = SanityTranscript::new(&mut rng);
-                        black_box(multilinear_sumcheck::<F64, F64>(
+                        black_box(multilinear_sumcheck(
                             &mut evals,
                             &mut transcript,
                         ));
@@ -369,7 +369,7 @@ fn inner_product_sumcheck_bench(c: &mut Criterion) {
                     |(mut f, mut g)| {
                         let mut rng = ark_std::test_rng();
                         let mut transcript = SanityTranscript::new(&mut rng);
-                        black_box(inner_product_sumcheck::<F64, F64>(
+                        black_box(inner_product_sumcheck(
                             &mut f,
                             &mut g,
                             &mut transcript,
@@ -645,7 +645,7 @@ fn extension_field_sumcheck_bench(c: &mut Criterion) {
                     |mut evals| {
                         let mut rng = ark_std::test_rng();
                         let mut transcript = SanityTranscript::new(&mut rng);
-                        black_box(multilinear_sumcheck::<F64Ext2, F64Ext2>(
+                        black_box(multilinear_sumcheck(
                             &mut evals,
                             &mut transcript,
                         ));
@@ -701,7 +701,7 @@ fn extension_field_sumcheck_bench(c: &mut Criterion) {
                     |mut evals| {
                         let mut rng = ark_std::test_rng();
                         let mut transcript = SanityTranscript::new(&mut rng);
-                        black_box(multilinear_sumcheck::<F64Ext3, F64Ext3>(
+                        black_box(multilinear_sumcheck(
                             &mut evals,
                             &mut transcript,
                         ));
@@ -772,7 +772,7 @@ fn inner_product_extension_bench(c: &mut Criterion) {
                     |(mut f, mut g)| {
                         let mut rng = ark_std::test_rng();
                         let mut transcript = SanityTranscript::new(&mut rng);
-                        black_box(inner_product_sumcheck::<F64Ext2, F64Ext2>(
+                        black_box(inner_product_sumcheck(
                             &mut f,
                             &mut g,
                             &mut transcript,
@@ -829,7 +829,7 @@ fn inner_product_extension_bench(c: &mut Criterion) {
                     |(mut f, mut g)| {
                         let mut rng = ark_std::test_rng();
                         let mut transcript = SanityTranscript::new(&mut rng);
-                        black_box(inner_product_sumcheck::<F64Ext3, F64Ext3>(
+                        black_box(inner_product_sumcheck(
                             &mut f,
                             &mut g,
                             &mut transcript,
@@ -886,7 +886,7 @@ fn inner_product_extension_bench(c: &mut Criterion) {
                     |(mut f, mut g)| {
                         let mut rng = ark_std::test_rng();
                         let mut transcript = SanityTranscript::new(&mut rng);
-                        black_box(inner_product_sumcheck::<F64, F64>(
+                        black_box(inner_product_sumcheck(
                             &mut f,
                             &mut g,
                             &mut transcript,

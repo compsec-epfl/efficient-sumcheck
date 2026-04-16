@@ -23,8 +23,8 @@ pub struct MemoryStream<F: Field> {
 /// Fast paths for two well-known orders:
 ///   - [`MSBOrder`]: bit-reversal permutation, computed directly via
 ///     `usize::reverse_bits` and scattered in parallel with rayon. This is
-///     the hot-path in recursive IOPs like whir that pad + reorder at the
-///     entry of each sumcheck call; at 2^24 it was measured at ~46% of total
+///     the hot-path in recursive IOPs that pad + reorder at the entry of
+///     each sumcheck call; at 2^24 it was measured at ~46% of total
 ///     sumcheck time in a prior profile.
 ///   - [`AscendingOrder`]: identity permutation — just returns `evaluations`
 ///     unchanged.
