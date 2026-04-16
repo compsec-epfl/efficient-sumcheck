@@ -1,28 +1,32 @@
 //! # efficient-sumcheck
 //!
-//! Space-efficient implementations of the sumcheck protocol with Fiat-Shamir support.
+//! Sumcheck protocol implementations with Fiat-Shamir support.
 //!
 //! ## Quick Start
 //!
-//! For most use cases, you need just two functions and a transcript:
+//! Two primary entry points, both operating on evaluation vectors over the
+//! boolean hypercube with a half-split (MSB) layout and a fused
+//! fold+compute kernel:
 //!
 //! ```text
 //! use efficient_sumcheck::{multilinear_sumcheck, inner_product_sumcheck};
 //! use efficient_sumcheck::transcript::{Transcript, SpongefishTranscript, SanityTranscript};
 //! ```
 //!
-//! - [`multilinear_sumcheck()`] — standard multilinear sumcheck: `∑_x p(x)`
-//! - [`inner_product_sumcheck()`] — inner product sumcheck: `∑_x f(x)·g(x)`
+//! - [`multilinear_sumcheck()`] — `∑_x v(x)` over a multilinear polynomial.
+//! - [`inner_product_sumcheck()`] — `∑_x f(x)·g(x)` for two multilinears.
 //!
 //! Both accept any [`Transcript`] implementation — either
-//! [`SpongefishTranscript`](transcript::SpongefishTranscript) for real Fiat-Shamir, or
-//! [`SanityTranscript`](transcript::SanityTranscript) for testing with random challenges.
+//! [`SpongefishTranscript`](transcript::SpongefishTranscript) for real
+//! Fiat-Shamir, or [`SanityTranscript`](transcript::SanityTranscript) for
+//! testing with seeded random challenges.
 //!
-//! ## Advanced Usage
+//! ## Layout note
 //!
-//! For custom prover implementations, streaming evaluation access,
-//! or specialized reduction strategies, the internal modules expose the full
-//! prover machinery: [`multilinear`], [`multilinear_product`], [`prover`], [`streams`].
+//! The half-split (MSB) layout folds the top-most remaining variable each
+//! round — round 0 splits `v[0..L/2]` vs `v[L/2..L]`. This differs from the
+//! pair-split (LSB) layout used in earlier versions of this crate; callers
+//! migrating from the old interface must reorder inputs by bit-reversal.
 
 // ─── Primary API ─────────────────────────────────────────────────────────────
 
@@ -31,20 +35,15 @@ pub mod transcript;
 
 mod inner_product_sumcheck;
 mod multilinear_sumcheck;
-mod whir_sumcheck;
 
 pub use inner_product_sumcheck::{
-    accumulate_sparse_evaluations, batched_constraint_poly, inner_product_sumcheck,
-    inner_product_sumcheck_partial_with_hook, inner_product_sumcheck_with_hook, ProductSumcheck,
+    inner_product_sumcheck, inner_product_sumcheck_partial_with_hook,
+    inner_product_sumcheck_verify, inner_product_sumcheck_verify_with_hook,
+    inner_product_sumcheck_with_hook, ProductSumcheck,
 };
 pub use multilinear_sumcheck::{
-    multilinear_sumcheck, multilinear_sumcheck_partial_with_hook, multilinear_sumcheck_with_hook,
-    Sumcheck,
-};
-pub use whir_sumcheck::{
-    whir_sumcheck, whir_sumcheck_fused, whir_sumcheck_fused_partial_with_hook,
-    whir_sumcheck_fused_with_hook, whir_sumcheck_partial_with_hook, whir_sumcheck_verify,
-    whir_sumcheck_verify_with_hook, whir_sumcheck_with_hook,
+    multilinear_sumcheck, multilinear_sumcheck_partial_with_hook, multilinear_sumcheck_verify,
+    multilinear_sumcheck_verify_with_hook, multilinear_sumcheck_with_hook, Sumcheck,
 };
 
 // ─── Internal / Advanced ─────────────────────────────────────────────────────

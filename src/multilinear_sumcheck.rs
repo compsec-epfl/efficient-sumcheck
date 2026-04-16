@@ -1,78 +1,242 @@
-//! Standard multilinear sumcheck protocol.
+//! Standard multilinear sumcheck: `∑_x v(x)`.
 //!
-//! Given evaluations `[p(0..0), p(0..1), ..., p(1..1)]` of a multilinear polynomial `p`
-//! on the boolean hypercube `{0,1}^n`, the [`multilinear_sumcheck`] function executes `n`
-//! rounds of the sumcheck protocol and returns the resulting [`Sumcheck`] transcript.
+//! Half-split (MSB) layout with a fused fold+compute kernel. Round `i`
+//! folds the top-most remaining variable — the round-0 split is
+//! `v[0..L/2]` vs `v[L/2..L]`, *not* the adjacent pairs `(v[2k], v[2k+1])`
+//! of a pair-split (LSB) layout. Callers whose upstream indexing assumed
+//! pair-split semantics must reorder their inputs with a bit-reversal.
 //!
-//! The function is parameterized by two field types:
-//! - `BF` (base field): the field the evaluations live in
-//! - `EF` (extension field): the field challenges are sampled from
+//! Wire format per round: `(s0, s1)` where
+//!   - `s0 = q(0) = Σ v_lo`
+//!   - `s1 = q(1) = Σ v_hi`
+//! The round polynomial is degree 1: `q(X) = s0 + X·(s1 − s0)`. Consistency
+//! invariant: `s0 + s1 == current_claim`.
 //!
-//! When no extension field is needed, set `EF = BF`.
-//!
-//! # Example
-//!
-//! ```text
-//! use efficient_sumcheck::{multilinear_sumcheck, Sumcheck};
-//! use efficient_sumcheck::transcript::SanityTranscript;
-//!
-//! // No extension field (BF = EF):
-//! let mut evals = vec![F::from(1), F::from(2), F::from(3), F::from(4)];
-//! let mut transcript = SanityTranscript::new(&mut rng);
-//! let result: Sumcheck<F> = multilinear_sumcheck(&mut evals, &mut transcript);
-//! ```
+//! The fused kernel rolls the round-`i` fold into the round-`(i+1)` compute:
+//! 4 reads + 2 writes per quadruple (fused) vs. 6 reads + 2 writes
+//! (fold + compute separately) — a ~33% memory-traffic reduction.
 
 use ark_ff::Field;
+#[cfg(feature = "parallel")]
+use rayon::join;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
-use crate::multilinear::reductions::pairwise;
 use crate::transcript::Transcript;
 
 pub use crate::multilinear::Sumcheck;
 
-/// Run the standard multilinear sumcheck protocol over an evaluation vector,
-/// using a generic [`Transcript`] for Fiat-Shamir (or sanity/random challenges).
-///
-/// `BF` is the base field of the evaluations, `EF` is the extension field for challenges.
-/// When `BF = EF`, this is the standard single-field sumcheck.
-/// When `BF ≠ EF`, round 0 evaluates in `BF` and lifts to `EF`, then subsequent
-/// rounds work entirely in `EF`.
-///
-/// Each round:
-/// 1. Computes the round polynomial evaluations `(s(0), s(1))` via pairwise reduction.
-/// 2. Writes them to the transcript (2 field elements).
-/// 3. Reads the verifier's challenge from the transcript (1 field element).
-/// 4. Reduces the evaluation vector by folding with the challenge.
-pub fn multilinear_sumcheck<BF: Field, EF: Field + From<BF>>(
-    evaluations: &mut [BF],
-    transcript: &mut impl Transcript<EF>,
-) -> Sumcheck<EF> {
-    multilinear_sumcheck_with_hook(evaluations, transcript, |_, _| {})
+// ─── Workload threshold ─────────────────────────────────────────────────────
+
+const fn workload_size<T: Sized>() -> usize {
+    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+    const CACHE_SIZE: usize = 1 << 17;
+    #[cfg(all(
+        target_arch = "aarch64",
+        any(target_os = "ios", target_os = "android", target_os = "linux")
+    ))]
+    const CACHE_SIZE: usize = 1 << 16;
+    #[cfg(target_arch = "x86_64")]
+    const CACHE_SIZE: usize = 1 << 15;
+    #[cfg(not(any(
+        all(target_arch = "aarch64", target_os = "macos"),
+        all(
+            target_arch = "aarch64",
+            any(target_os = "ios", target_os = "android", target_os = "linux")
+        ),
+        target_arch = "x86_64"
+    )))]
+    const CACHE_SIZE: usize = 1 << 15;
+
+    CACHE_SIZE / core::mem::size_of::<T>()
 }
 
-/// Like [`multilinear_sumcheck`], but calls `hook(round_idx, transcript)`
-/// each round *after* the prover message is written and *before* the verifier
-/// challenge is read.
+// ─── Scalar helpers ─────────────────────────────────────────────────────────
+
+fn sum_slice<F: Field>(v: &[F]) -> F {
+    #[cfg(feature = "parallel")]
+    if v.len() > workload_size::<F>() {
+        return v.par_iter().copied().sum();
+    }
+    v.iter().copied().sum()
+}
+
+fn scalar_mul<F: Field>(v: &mut [F], w: F) {
+    for x in v.iter_mut() {
+        *x *= w;
+    }
+}
+
+// ─── Core algebra ───────────────────────────────────────────────────────────
+
+/// `(s0, s1)` of the degree-1 round polynomial `q(X) = s0 + X·(s1 − s0)`.
 ///
-/// Useful for injecting per-round proof-of-work grinding, logging, or other
-/// extensions to the transcript that must appear at a specific point in the
-/// Fiat-Shamir schedule. The hook is invoked for every round (0..num_rounds),
-/// including the round-0 base-field message on cross-field sumchecks.
-/// Partial multilinear sumcheck: runs `max_rounds` rounds and stops.
+/// `values` is implicitly zero-extended to the next power of two.
+///   - `s0 = Σ v[0..L/2]` (low half, possibly with tail contributions)
+///   - `s1 = Σ v[L/2..L]`
+pub fn compute_sumcheck_polynomial<F: Field>(values: &[F]) -> (F, F) {
+    fn recurse<F: Field>(lo: &[F], hi: &[F]) -> (F, F) {
+        debug_assert_eq!(lo.len(), hi.len());
+
+        #[cfg(feature = "parallel")]
+        if lo.len() * 2 > workload_size::<F>() {
+            let mid = lo.len() / 2;
+            let (lol, lor) = lo.split_at(mid);
+            let (hil, hir) = hi.split_at(mid);
+            let (l, r) = join(|| recurse(lol, hil), || recurse(lor, hir));
+            return (l.0 + r.0, l.1 + r.1);
+        }
+        let mut s0 = F::ZERO;
+        let mut s1 = F::ZERO;
+        for (&l, &h) in lo.iter().zip(hi) {
+            s0 += l;
+            s1 += h;
+        }
+        (s0, s1)
+    }
+
+    if values.is_empty() {
+        return (F::ZERO, F::ZERO);
+    }
+    if values.len() == 1 {
+        // Implicit zero pad on the high half: (v[0], 0).
+        return (values[0], F::ZERO);
+    }
+
+    let half = values.len().next_power_of_two() >> 1;
+    let (lo, hi) = values.split_at(half);
+    debug_assert!(lo.len() >= hi.len());
+    let (lo, lo_tail) = lo.split_at(hi.len());
+    let (s0, s1) = recurse(lo, hi);
+
+    // Tail (hi implicitly zero): contributes to s0 only.
+    let tail = sum_slice(lo_tail);
+    (s0 + tail, s1)
+}
+
+/// In-place half-split fold: `new[k] = v[k] + (v[k+L/2] − v[k]) · weight`.
 ///
-/// Folds `evaluations` in place (truncating to length `original / 2^max_rounds`)
-/// so the caller can feed it into a subsequent partial sumcheck call. See
-/// [`crate::inner_product_sumcheck_partial_with_hook`] for the motivating
-/// shape (recursive IOPs like whir).
+/// Implicit zero padding on the high half collapses the tail to `v[k] * (1 − w)`.
+pub fn fold<F: Field>(values: &mut Vec<F>, weight: F) {
+    fn recurse_both<F: Field>(low: &mut [F], high: &[F], weight: F) {
+        #[cfg(feature = "parallel")]
+        if low.len() > workload_size::<F>() {
+            let split = low.len() / 2;
+            let (ll, lr) = low.split_at_mut(split);
+            let (hl, hr) = high.split_at(split);
+            join(
+                || recurse_both(ll, hl, weight),
+                || recurse_both(lr, hr, weight),
+            );
+            return;
+        }
+        for (low, high) in low.iter_mut().zip(high) {
+            *low += (*high - *low) * weight;
+        }
+    }
+
+    if values.len() <= 1 {
+        return;
+    }
+
+    let half = values.len().next_power_of_two() >> 1;
+    let (low, high) = values.split_at_mut(half);
+    debug_assert!(low.len() >= high.len());
+    let (low, tail) = low.split_at_mut(high.len());
+    recurse_both(low, high, weight);
+
+    scalar_mul(tail, F::ONE - weight);
+
+    values.truncate(half);
+    values.shrink_to_fit();
+}
+
+/// Two-pass fold-then-compute. Reference only.
+pub fn fold_and_compute_polynomial<F: Field>(values: &mut Vec<F>, weight: F) -> (F, F) {
+    fold(values, weight);
+    compute_sumcheck_polynomial(values)
+}
+
+/// Fused fold + compute: folds `values` by `weight` *and* returns the
+/// next-round `(s0, s1)` in one sweep over the quadruple
+/// `(v[k], v[k+L/4], v[k+L/2], v[k+3L/4])`.
+pub fn fused_fold_and_compute_polynomial<F: Field>(values: &mut Vec<F>, weight: F) -> (F, F) {
+    let l = values.len();
+    if !l.is_power_of_two() || l < 4 {
+        return fold_and_compute_polynomial(values, weight);
+    }
+
+    fn kernel<F: Field>(
+        v0: &mut [F],
+        v1: &mut [F],
+        v2: &[F],
+        v3: &[F],
+        weight: F,
+    ) -> (F, F) {
+        debug_assert_eq!(v0.len(), v1.len());
+        debug_assert_eq!(v0.len(), v2.len());
+        debug_assert_eq!(v0.len(), v3.len());
+
+        #[cfg(feature = "parallel")]
+        if v0.len() * 2 > workload_size::<F>() {
+            let mid = v0.len() / 2;
+            let (v0l, v0r) = v0.split_at_mut(mid);
+            let (v1l, v1r) = v1.split_at_mut(mid);
+            let (v2l, v2r) = v2.split_at(mid);
+            let (v3l, v3r) = v3.split_at(mid);
+            let (left, right) = join(
+                || kernel(v0l, v1l, v2l, v3l, weight),
+                || kernel(v0r, v1r, v2r, v3r, weight),
+            );
+            return (left.0 + right.0, left.1 + right.1);
+        }
+
+        let mut s0 = F::ZERO;
+        let mut s1 = F::ZERO;
+        for i in 0..v0.len() {
+            let x0 = v0[i];
+            let x1 = v1[i];
+            let x2 = v2[i];
+            let x3 = v3[i];
+
+            let n_lo = x0 + (x2 - x0) * weight;
+            let n_hi = x1 + (x3 - x1) * weight;
+
+            v0[i] = n_lo;
+            v1[i] = n_hi;
+
+            s0 += n_lo;
+            s1 += n_hi;
+        }
+        (s0, s1)
+    }
+
+    let quarter = l / 4;
+    let half = l / 2;
+
+    let (first, second) = values.split_at_mut(half);
+    let (v0, v1) = first.split_at_mut(quarter);
+    let (v2, v3) = second.split_at(quarter);
+
+    let result = kernel(v0, v1, v2, v3, weight);
+
+    values.truncate(half);
+    result
+}
+
+// ─── Prover ─────────────────────────────────────────────────────────────────
+
+/// Runs `num_rounds` rounds on `values`, folding it in place.
 ///
-/// Requires `BF = EF = F` (no cross-field lift). Uses
-/// [`crate::simd_ops::pairwise_sum`] and [`crate::simd_ops::fold`] per round.
+/// Transcript per round: writes `s0` then `s1`, invokes
+/// `hook(round, transcript)`, then reads the verifier challenge.
 ///
-/// `Sumcheck::final_evaluation` is populated only if `max_rounds` reduces
-/// `evaluations` to length 1; otherwise `F::ZERO`.
+/// On return, if `num_rounds == log2(next_pow2(len))` then `values.len() == 1`
+/// and `final_evaluation = values[0]`; otherwise `F::ZERO`.
 pub fn multilinear_sumcheck_partial_with_hook<F, T, H>(
-    evaluations: &mut Vec<F>,
+    values: &mut Vec<F>,
     transcript: &mut T,
-    max_rounds: usize,
+    num_rounds: usize,
     mut hook: H,
 ) -> Sumcheck<F>
 where
@@ -81,35 +245,39 @@ where
     H: FnMut(usize, &mut T),
 {
     assert!(
-        evaluations.len().count_ones() == 1,
-        "length must be a power of 2"
-    );
-    let total_rounds = evaluations.len().trailing_zeros() as usize;
-    assert!(
-        max_rounds <= total_rounds,
-        "max_rounds ({max_rounds}) exceeds available rounds ({total_rounds})"
+        num_rounds == 0 || values.len().next_power_of_two() >= 1 << num_rounds,
+        "num_rounds ({num_rounds}) exceeds log2 of next-pow2 of len ({})",
+        values.len(),
     );
 
-    let mut prover_messages: Vec<(F, F)> = Vec::with_capacity(max_rounds);
-    let mut verifier_messages: Vec<F> = Vec::with_capacity(max_rounds);
+    let mut prover_messages: Vec<(F, F)> = Vec::with_capacity(num_rounds);
+    let mut verifier_messages: Vec<F> = Vec::with_capacity(num_rounds);
+    let mut folding_randomness: Option<F> = None;
 
-    for round in 0..max_rounds {
-        let msg = crate::simd_ops::pairwise_sum(evaluations);
+    for round in 0..num_rounds {
+        let (s0, s1) = if let Some(w) = folding_randomness {
+            fused_fold_and_compute_polynomial(values, w)
+        } else {
+            compute_sumcheck_polynomial(values)
+        };
 
-        prover_messages.push(msg);
-        transcript.write(msg.0);
-        transcript.write(msg.1);
+        prover_messages.push((s0, s1));
+        transcript.write(s0);
+        transcript.write(s1);
 
         hook(round, transcript);
 
-        let chg = transcript.read();
-        verifier_messages.push(chg);
-
-        crate::simd_ops::fold(evaluations, chg);
+        let r = transcript.read();
+        verifier_messages.push(r);
+        folding_randomness = Some(r);
     }
 
-    let final_evaluation = if evaluations.len() == 1 {
-        evaluations[0]
+    if let Some(w) = folding_randomness {
+        fold(values, w);
+    }
+
+    let final_evaluation = if values.len() == 1 {
+        values[0]
     } else {
         F::ZERO
     };
@@ -121,524 +289,78 @@ where
     }
 }
 
-pub fn multilinear_sumcheck_with_hook<BF, EF, T, H>(
-    evaluations: &mut [BF],
+/// Full sumcheck (`log2(next_pow2(len))` rounds) with a per-round hook.
+pub fn multilinear_sumcheck_with_hook<F, T, H>(
+    values: &mut Vec<F>,
     transcript: &mut T,
-    mut hook: H,
-) -> Sumcheck<EF>
+    hook: H,
+) -> Sumcheck<F>
 where
-    BF: Field,
-    EF: Field + From<BF>,
-    T: Transcript<EF>,
+    F: Field,
+    T: Transcript<F>,
     H: FnMut(usize, &mut T),
 {
-    // checks
-    assert!(
-        evaluations.len().count_ones() == 1,
-        "length must be a power of 2"
-    );
-    assert!(evaluations.len() >= 2, "need at least 1 variable");
-
-    // ── SIMD auto-dispatch ──
-    // When BF == EF and BF has a SIMD backend, transparently route to the
-    // fast SIMD path. The TypeId checks evaluate to compile-time constants
-    // in monomorphized code, so LLVM eliminates the dead branch — zero cost.
-    #[cfg(any(
-        target_arch = "aarch64",
-        all(target_arch = "x86_64", target_feature = "avx512ifma")
-    ))]
-    {
-        // Base field dispatch (BF == EF == Goldilocks base)
-        if let Some(result) = crate::simd_sumcheck::dispatch::try_simd_dispatch::<BF, EF, T, H>(
-            evaluations,
-            transcript,
-            &mut hook,
-        ) {
-            return result;
-        }
-        // Extension field dispatch (BF == EF == Goldilocks ext2/ext3).
-        // On AVX-512: use full SIMD dispatch (8-wide mul makes reduce fast).
-        // On NEON: skip — the single-threaded ext reduce is slower than the
-        // generic path with SIMD evaluate + rayon-parallel arkworks reduce.
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-        if let Some(result) =
-            crate::simd_sumcheck::dispatch::try_simd_ext_dispatch::<BF, EF, T, H>(
-                evaluations,
-                transcript,
-                &mut hook,
-            )
-        {
-            return result;
-        }
-    }
-
-    let num_rounds = evaluations.len().trailing_zeros() as usize;
-    let mut prover_messages: Vec<(EF, EF)> = vec![];
-    let mut verifier_messages: Vec<EF> = vec![];
-    let mut final_evaluation = EF::ZERO;
-
-    // ── Round 0: evaluate in BF, lift to EF, cross-field reduce ──
-    if num_rounds > 0 {
-        let msg_bf = crate::simd_ops::pairwise_sum(evaluations);
-        let msg = (EF::from(msg_bf.0), EF::from(msg_bf.1));
-
-        prover_messages.push(msg);
-        transcript.write(msg.0);
-        transcript.write(msg.1);
-
-        hook(0, transcript);
-
-        let chg = transcript.read();
-        verifier_messages.push(chg);
-
-        // Cross-field reduce: BF evaluations + EF challenge → Vec<EF>
-        let mut ef_evals = pairwise::cross_field_reduce(evaluations, chg);
-
-        // Remaining rounds work in EF.
-        // Use fused reduce+evaluate when available: reduces data AND computes
-        // next round's (s0, s1) in a single pass, eliminating one full read.
-        let mut pending_eval: Option<(EF, EF)> = None;
-
-        for round in 1..num_rounds {
-            // Get this round's evaluate — either from the previous fused pass
-            // or by computing it now.
-            let msg = if let Some(cached) = pending_eval.take() {
-                cached
-            } else {
-                #[cfg(any(
-                    target_arch = "aarch64",
-                    all(target_arch = "x86_64", target_feature = "avx512ifma")
-                ))]
-                let result = crate::simd_sumcheck::dispatch::try_simd_ext_evaluate(&ef_evals)
-                    .unwrap_or_else(|| pairwise::evaluate(&ef_evals));
-
-                #[cfg(not(any(
-                    target_arch = "aarch64",
-                    all(target_arch = "x86_64", target_feature = "avx512ifma")
-                )))]
-                let result = pairwise::evaluate(&ef_evals);
-
-                result
-            };
-
-            prover_messages.push(msg);
-            transcript.write(msg.0);
-            transcript.write(msg.1);
-
-            hook(round, transcript);
-
-            let chg = transcript.read();
-            verifier_messages.push(chg);
-
-            // SIMD extension reduce strategies (best picked by size):
-            // 1. Small (≤ 2^17): fused reduce+evaluate in single pass
-            // 2. Any size: SIMD ext reduce (uses ext2/ext3 Karatsuba)
-            // 3. Fallback: generic arkworks Field reduce
-            #[cfg(any(
-                target_arch = "aarch64",
-                all(target_arch = "x86_64", target_feature = "avx512ifma")
-            ))]
-            {
-                // Try fused for small inputs first
-                if ef_evals.len() <= (1 << 17) {
-                    if let Some(next_msg) =
-                        crate::simd_sumcheck::dispatch::try_simd_ext_fused_reduce_evaluate(
-                            &mut ef_evals,
-                            chg,
-                        )
-                    {
-                        pending_eval = Some(next_msg);
-                        continue;
-                    }
-                }
-                // Try SIMD ext reduce — on AVX-512 always, on NEON only for small inputs
-                // (NEON ext reduce is scalar, so rayon-parallel generic reduce is faster at scale)
-                #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-                if crate::simd_sumcheck::dispatch::try_simd_ext_reduce(&mut ef_evals, chg) {
-                    continue;
-                }
-            }
-            pairwise::reduce_evaluations(&mut ef_evals, chg);
-        }
-
-        // After all rounds, ef_evals is length 1: the polynomial evaluated at
-        // the verifier challenge point.
-        debug_assert_eq!(ef_evals.len(), 1);
-        final_evaluation = ef_evals[0];
-    }
-
-    Sumcheck {
-        verifier_messages,
-        prover_messages,
-        final_evaluation,
-    }
+    let num_rounds = if values.is_empty() {
+        0
+    } else {
+        values.len().next_power_of_two().trailing_zeros() as usize
+    };
+    multilinear_sumcheck_partial_with_hook(values, transcript, num_rounds, hook)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ark_ff::{AdditiveGroup, UniformRand};
-    use ark_std::test_rng;
-
-    use crate::tests::F64;
-
-    const NUM_VARS: usize = 4; // vectors of length 2^4 = 16
-
-    #[test]
-    fn test_multilinear_sumcheck_sanity() {
-        use crate::transcript::SanityTranscript;
-
-        let mut rng = test_rng();
-
-        let n = 1 << NUM_VARS;
-        let mut evaluations: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-
-        let mut transcript = SanityTranscript::new(&mut rng);
-        let result = multilinear_sumcheck::<F64, F64>(&mut evaluations, &mut transcript);
-
-        assert_eq!(result.prover_messages.len(), NUM_VARS);
-        assert_eq!(result.verifier_messages.len(), NUM_VARS);
-    }
-
-    #[test]
-    fn test_multilinear_sumcheck_spongefish() {
-        use crate::transcript::SpongefishTranscript;
-
-        let mut rng = test_rng();
-
-        let n = 1 << NUM_VARS;
-        let mut evaluations: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-
-        let domsep = spongefish::domain_separator!("test-multilinear-sumcheck"; module_path!())
-            .instance(b"test");
-
-        let prover_state = domsep.std_prover();
-        let mut transcript = SpongefishTranscript::new(prover_state);
-        let result = multilinear_sumcheck::<F64, F64>(&mut evaluations, &mut transcript);
-
-        assert_eq!(result.prover_messages.len(), NUM_VARS);
-        assert_eq!(result.verifier_messages.len(), NUM_VARS);
-    }
-
-    #[test]
-    fn test_simd_parity_with_generic() {
-        use crate::transcript::SanityTranscript;
-
-        let num_vars = 16;
-        let n = 1 << num_vars;
-
-        let mut rng = test_rng();
-        let evaluations: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-
-        // Run generic sumcheck
-        let mut generic_evals = evaluations.clone();
-        let mut rng1 = test_rng();
-        let mut transcript1 = SanityTranscript::new(&mut rng1);
-        let generic_result = multilinear_sumcheck::<F64, F64>(&mut generic_evals, &mut transcript1);
-
-        // Run SIMD sumcheck (auto-dispatched via multilinear_sumcheck)
-        let mut simd_evals = evaluations.clone();
-        let mut rng2 = test_rng();
-        let mut transcript2 = SanityTranscript::new(&mut rng2);
-        let simd_result = multilinear_sumcheck::<F64, F64>(&mut simd_evals, &mut transcript2);
-
-        // Prover messages must match exactly
-        assert_eq!(
-            generic_result.prover_messages.len(),
-            simd_result.prover_messages.len()
-        );
-        for (i, (g, s)) in generic_result
-            .prover_messages
-            .iter()
-            .zip(simd_result.prover_messages.iter())
-            .enumerate()
-        {
-            assert_eq!(g.0, s.0, "s0 mismatch at round {}", i);
-            assert_eq!(g.1, s.1, "s1 mismatch at round {}", i);
-        }
-
-        // Verifier challenges must match exactly
-        assert_eq!(
-            generic_result.verifier_messages,
-            simd_result.verifier_messages
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "power of 2")]
-    fn test_non_power_of_2_panics() {
-        use crate::transcript::SanityTranscript;
-        let mut rng = test_rng();
-        let mut evals = vec![F64::from(1u64); 7]; // not a power of 2
-        let mut transcript = SanityTranscript::new(&mut rng);
-        multilinear_sumcheck::<F64, F64>(&mut evals, &mut transcript);
-    }
-
-    #[test]
-    fn test_minimal_input() {
-        // n = 2 (1 variable, 1 round)
-        use crate::transcript::SanityTranscript;
-        let mut rng = test_rng();
-        let mut evals = vec![F64::from(3u64), F64::from(7u64)];
-        let mut transcript = SanityTranscript::new(&mut rng);
-        let result = multilinear_sumcheck::<F64, F64>(&mut evals, &mut transcript);
-        assert_eq!(result.prover_messages.len(), 1);
-        assert_eq!(result.prover_messages[0].0, F64::from(3u64)); // s(0)
-        assert_eq!(result.prover_messages[0].1, F64::from(7u64)); // s(1)
-    }
-
-    #[test]
-    fn test_extension_field_sumcheck() {
-        // Test multilinear sumcheck with BF = EF = F64Ext2 (degree-2 extension).
-        // This exercises the SIMD extension evaluate path in rounds 1+.
-        use crate::tests::F64Ext2;
-        use crate::transcript::SanityTranscript;
-
-        let mut rng = test_rng();
-        let n = 1 << 8;
-        let mut evals: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
-
-        // Compute expected sum before sumcheck (which may modify evals in-place)
-        let claimed_sum: F64Ext2 = evals.iter().copied().sum();
-
-        // Run the sumcheck (SIMD extension dispatch for Goldilocks Ext2)
-        let mut transcript = SanityTranscript::new(&mut rng);
-        let result = multilinear_sumcheck::<F64Ext2, F64Ext2>(&mut evals, &mut transcript);
-
-        assert_eq!(result.prover_messages.len(), 8);
-        assert_eq!(result.verifier_messages.len(), 8);
-
-        // Verify round 0: s(0) + s(1) == sum of all evaluations
-        let (s0, s1) = result.prover_messages[0];
-        assert_eq!(s0 + s1, claimed_sum, "round 0 sum mismatch");
-    }
-
-    /// Exercises the rayon-parallel SoA reduce path (n > 2^17 threshold in dispatch).
-    #[test]
-    fn test_ext2_sumcheck_parallel_path_matches_generic() {
-        use crate::multilinear::reductions::pairwise;
-        use crate::tests::F64Ext2;
-        use crate::transcript::SanityTranscript;
-
-        let mut rng = test_rng();
-        let n = 1 << 18; // above EXT_PARALLEL_THRESHOLD
-        let evals: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
-
-        // Generic reference: run the pairwise evaluate+reduce loop directly.
-        let mut rng1 = test_rng();
-        let mut t1 = SanityTranscript::new(&mut rng1);
-        let num_rounds = (n as u64).trailing_zeros() as usize;
-        let mut ef = evals.clone();
-        let mut expected_msgs = Vec::with_capacity(num_rounds);
-        for _ in 0..num_rounds {
-            let (e, o) = pairwise::evaluate(&ef);
-            expected_msgs.push((e, o));
-            t1.write(e);
-            t1.write(o);
-            let chg: F64Ext2 = t1.read();
-            pairwise::reduce_evaluations(&mut ef, chg);
-        }
-
-        // SIMD path (will hit the parallel ext2 SoA kernel).
-        let mut rng2 = test_rng();
-        let mut t2 = SanityTranscript::new(&mut rng2);
-        let mut simd_evals = evals;
-        let simd_result = multilinear_sumcheck::<F64Ext2, F64Ext2>(&mut simd_evals, &mut t2);
-
-        assert_eq!(simd_result.prover_messages.len(), expected_msgs.len());
-        for (i, (exp, got)) in expected_msgs.iter().zip(simd_result.prover_messages.iter()).enumerate() {
-            assert_eq!(exp.0, got.0, "s0 mismatch at round {}", i);
-            assert_eq!(exp.1, got.1, "s1 mismatch at round {}", i);
-        }
-    }
-
-    /// Independent fold: evaluate the multilinear at the verifier challenges
-    /// and compare against `Sumcheck::final_evaluation` populated by the entry point.
-    fn fold_multilinear<F: ark_ff::Field>(evals: &[F], challenges: &[F]) -> F {
-        let mut current = evals.to_vec();
-        for &chg in challenges {
-            let mut next = Vec::with_capacity(current.len() / 2);
-            for pair in current.chunks(2) {
-                next.push(pair[0] + chg * (pair[1] - pair[0]));
-            }
-            current = next;
-        }
-        debug_assert_eq!(current.len(), 1);
-        current[0]
-    }
-
-    #[test]
-    fn test_final_evaluation_matches_independent_fold_base() {
-        use crate::transcript::SanityTranscript;
-
-        let num_vars = 8;
-        let n = 1 << num_vars;
-        let mut rng = test_rng();
-        let evals_orig: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-
-        let mut evals = evals_orig.clone();
-        let mut transcript = SanityTranscript::new(&mut rng);
-        let result = multilinear_sumcheck::<F64, F64>(&mut evals, &mut transcript);
-
-        let expected = fold_multilinear(&evals_orig, &result.verifier_messages);
-        assert_eq!(result.final_evaluation, expected, "ML final_evaluation mismatch");
-    }
-
-    #[test]
-    fn test_final_evaluation_matches_independent_fold_ext2() {
-        use crate::tests::F64Ext2;
-        use crate::transcript::SanityTranscript;
-
-        let num_vars = 8;
-        let n = 1 << num_vars;
-        let mut rng = test_rng();
-        let evals_orig: Vec<F64Ext2> = (0..n).map(|_| F64Ext2::rand(&mut rng)).collect();
-
-        let mut evals = evals_orig.clone();
-        let mut transcript = SanityTranscript::new(&mut rng);
-        let result = multilinear_sumcheck::<F64Ext2, F64Ext2>(&mut evals, &mut transcript);
-
-        let expected = fold_multilinear(&evals_orig, &result.verifier_messages);
-        assert_eq!(result.final_evaluation, expected, "ext2 ML final_evaluation mismatch");
-    }
-
-    #[test]
-    fn test_partial_split_matches_full() {
-        use crate::transcript::SanityTranscript;
-
-        let num_vars = 8;
-        let n = 1 << num_vars;
-        let split_at = 3;
-        let mut rng = test_rng();
-        let evals_orig: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-
-        let mut rng1 = test_rng();
-        let mut evals_full = evals_orig.clone();
-        let mut t_full = SanityTranscript::new(&mut rng1);
-        let full = multilinear_sumcheck::<F64, F64>(&mut evals_full, &mut t_full);
-
-        let mut rng2 = test_rng();
-        let mut evals = evals_orig.clone();
-        let mut t_split = SanityTranscript::new(&mut rng2);
-        let first = multilinear_sumcheck_partial_with_hook(
-            &mut evals,
-            &mut t_split,
-            split_at,
-            |_, _| {},
-        );
-        let second = multilinear_sumcheck_partial_with_hook(
-            &mut evals,
-            &mut t_split,
-            num_vars - split_at,
-            |_, _| {},
-        );
-
-        let mut split_prover_msgs = first.prover_messages.clone();
-        split_prover_msgs.extend(second.prover_messages.iter().copied());
-        let mut split_verifier_msgs = first.verifier_messages.clone();
-        split_verifier_msgs.extend(second.verifier_messages.iter().copied());
-
-        assert_eq!(split_prover_msgs, full.prover_messages, "prover msgs");
-        assert_eq!(split_verifier_msgs, full.verifier_messages, "verifier msgs");
-        assert_eq!(second.final_evaluation, full.final_evaluation, "final");
-        assert_eq!(first.final_evaluation, F64::ZERO, "partial final should be zero");
-    }
-
-    #[test]
-    fn test_with_hook_called_once_per_round() {
-        use crate::transcript::SanityTranscript;
-        use std::cell::RefCell;
-
-        let num_vars = 6;
-        let n = 1 << num_vars;
-        let mut rng = test_rng();
-        let mut evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let mut transcript = SanityTranscript::new(&mut rng);
-
-        let calls = RefCell::new(Vec::<usize>::new());
-        let result = multilinear_sumcheck_with_hook::<F64, F64, _, _>(
-            &mut evals,
-            &mut transcript,
-            |round, _t| calls.borrow_mut().push(round),
-        );
-
-        assert_eq!(result.prover_messages.len(), num_vars);
-        let calls = calls.into_inner();
-        assert_eq!(calls, (0..num_vars).collect::<Vec<_>>(), "hook must be called once per round in order");
-    }
-
-    #[test]
-    fn test_with_hook_injects_into_transcript() {
-        // The hook writes an extra field element between the prover message and
-        // the verifier challenge. Two runs with identical data but different
-        // hook payloads must produce different verifier challenges from round 0
-        // onward — proving the hook's writes actually enter the Fiat-Shamir
-        // state.
-        use crate::transcript::SpongefishTranscript;
-
-        let num_vars = 4;
-        let n = 1 << num_vars;
-
-        let mut rng = test_rng();
-        let evals_a: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-
-        let run = |tag: F64, evals: Vec<F64>| {
-            let mut evals = evals;
-            let domsep = spongefish::domain_separator!("hook-test"; module_path!())
-                .instance(b"test");
-            let prover_state = domsep.std_prover();
-            let mut transcript = SpongefishTranscript::new(prover_state);
-            multilinear_sumcheck_with_hook::<F64, F64, _, _>(
-                &mut evals,
-                &mut transcript,
-                move |_round, t| {
-                    t.write(tag);
-                },
-            )
-        };
-
-        let result_a = run(F64::from(1u64), evals_a.clone());
-        let result_b = run(F64::from(2u64), evals_a);
-
-        assert_ne!(
-            result_a.verifier_messages[0],
-            result_b.verifier_messages[0],
-            "hook writes must affect Fiat-Shamir state"
-        );
-    }
-
-    #[test]
-    fn test_ext3_sumcheck_parallel_path_matches_generic() {
-        use crate::multilinear::reductions::pairwise;
-        use crate::tests::F64Ext3;
-        use crate::transcript::SanityTranscript;
-
-        let mut rng = test_rng();
-        let n = 1 << 18;
-        let evals: Vec<F64Ext3> = (0..n).map(|_| F64Ext3::rand(&mut rng)).collect();
-
-        let mut rng1 = test_rng();
-        let mut t1 = SanityTranscript::new(&mut rng1);
-        let num_rounds = (n as u64).trailing_zeros() as usize;
-        let mut ef = evals.clone();
-        let mut expected_msgs = Vec::with_capacity(num_rounds);
-        for _ in 0..num_rounds {
-            let (e, o) = pairwise::evaluate(&ef);
-            expected_msgs.push((e, o));
-            t1.write(e);
-            t1.write(o);
-            let chg: F64Ext3 = t1.read();
-            pairwise::reduce_evaluations(&mut ef, chg);
-        }
-
-        let mut rng2 = test_rng();
-        let mut t2 = SanityTranscript::new(&mut rng2);
-        let mut simd_evals = evals;
-        let simd_result = multilinear_sumcheck::<F64Ext3, F64Ext3>(&mut simd_evals, &mut t2);
-
-        for (i, (exp, got)) in expected_msgs.iter().zip(simd_result.prover_messages.iter()).enumerate() {
-            assert_eq!(exp.0, got.0, "s0 mismatch at round {}", i);
-            assert_eq!(exp.1, got.1, "s1 mismatch at round {}", i);
-        }
-    }
+/// Full sumcheck with no per-round hook.
+pub fn multilinear_sumcheck<F, T>(values: &mut Vec<F>, transcript: &mut T) -> Sumcheck<F>
+where
+    F: Field,
+    T: Transcript<F>,
+{
+    multilinear_sumcheck_with_hook(values, transcript, |_, _| {})
 }
+
+// ─── Verifier ───────────────────────────────────────────────────────────────
+
+/// Verifier side. Reads `(s0, s1)` per round, checks `s0 + s1 == *sum`,
+/// invokes `hook(round, transcript)`, reads the challenge, and updates
+/// `*sum = s0 + r·(s1 − s0)`. Returns the sampled challenges.
+///
+/// Panics if the consistency check fails.
+pub fn multilinear_sumcheck_verify_with_hook<F, T, H>(
+    transcript: &mut T,
+    sum: &mut F,
+    num_rounds: usize,
+    mut hook: H,
+) -> Vec<F>
+where
+    F: Field,
+    T: Transcript<F>,
+    H: FnMut(usize, &mut T),
+{
+    let mut res = Vec::with_capacity(num_rounds);
+    for round in 0..num_rounds {
+        let s0: F = transcript.read();
+        let s1: F = transcript.read();
+        assert_eq!(s0 + s1, *sum, "sumcheck round {round} consistency");
+
+        hook(round, transcript);
+
+        let r = transcript.read();
+        res.push(r);
+        *sum = s0 + r * (s1 - s0);
+    }
+    res
+}
+
+/// Convenience wrapper over [`multilinear_sumcheck_verify_with_hook`] with no hook.
+pub fn multilinear_sumcheck_verify<F, T>(
+    transcript: &mut T,
+    sum: &mut F,
+    num_rounds: usize,
+) -> Vec<F>
+where
+    F: Field,
+    T: Transcript<F>,
+{
+    multilinear_sumcheck_verify_with_hook(transcript, sum, num_rounds, |_, _| {})
+}
+
+// Tests live in `tests/multilinear_sumcheck.rs` (integration target).
