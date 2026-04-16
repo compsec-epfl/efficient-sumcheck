@@ -374,7 +374,10 @@ fn simd_ext2_product_sum<F: Field, B: crate::simd_fields::SimdBaseField<Scalar =
         let (a, b) = crate::simd_sumcheck::reduce::ext2_soa_product_evaluate::<B>(
             &f_c0, &f_c1, &g_c0, &g_c1, w,
         );
-        return (pack_ext_u64_to_field::<F>(&a), pack_ext_u64_to_field::<F>(&b));
+        return (
+            pack_ext_u64_to_field::<F>(&a),
+            pack_ext_u64_to_field::<F>(&b),
+        );
     }
 
     // Parallel AoS → SoA; one pass each for f and g.
@@ -402,7 +405,10 @@ fn simd_ext2_product_sum<F: Field, B: crate::simd_fields::SimdBaseField<Scalar =
             },
         );
 
-    (pack_ext_u64_to_field::<F>(&a), pack_ext_u64_to_field::<F>(&b))
+    (
+        pack_ext_u64_to_field::<F>(&a),
+        pack_ext_u64_to_field::<F>(&b),
+    )
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
@@ -425,7 +431,10 @@ fn simd_ext3_product_sum<F: Field, B: crate::simd_fields::SimdBaseField<Scalar =
         let (a, b) = crate::simd_sumcheck::reduce::ext3_soa_product_evaluate::<B>(
             &f_c0, &f_c1, &f_c2, &g_c0, &g_c1, &g_c2, w,
         );
-        return (pack_ext_u64_to_field::<F>(&a), pack_ext_u64_to_field::<F>(&b));
+        return (
+            pack_ext_u64_to_field::<F>(&a),
+            pack_ext_u64_to_field::<F>(&b),
+        );
     }
 
     let ((f_c0, f_c1, f_c2), (g_c0, g_c1, g_c2)) =
@@ -462,20 +471,22 @@ fn simd_ext3_product_sum<F: Field, B: crate::simd_fields::SimdBaseField<Scalar =
             },
         );
 
-    (pack_ext_u64_to_field::<F>(&a), pack_ext_u64_to_field::<F>(&b))
+    (
+        pack_ext_u64_to_field::<F>(&a),
+        pack_ext_u64_to_field::<F>(&b),
+    )
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
 #[inline]
 fn pack_ext_u64_to_field<F: Field>(limbs: &[u64]) -> F {
-    debug_assert_eq!(core::mem::size_of::<F>(), limbs.len() * core::mem::size_of::<u64>());
+    debug_assert_eq!(
+        core::mem::size_of::<F>(),
+        limbs.len() * core::mem::size_of::<u64>()
+    );
     unsafe {
         let mut out = core::mem::MaybeUninit::<F>::uninit();
-        core::ptr::copy_nonoverlapping(
-            limbs.as_ptr(),
-            out.as_mut_ptr() as *mut u64,
-            limbs.len(),
-        );
+        core::ptr::copy_nonoverlapping(limbs.as_ptr(), out.as_mut_ptr() as *mut u64, limbs.len());
         out.assume_init()
     }
 }

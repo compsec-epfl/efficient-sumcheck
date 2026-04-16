@@ -9,6 +9,7 @@
 //! Wire format per round: `(s0, s1)` where
 //!   - `s0 = q(0) = Σ v_lo`
 //!   - `s1 = q(1) = Σ v_hi`
+//!
 //! The round polynomial is degree 1: `q(X) = s0 + X·(s1 − s0)`. Consistency
 //! invariant: `s0 + s1 == current_claim`.
 //!
@@ -166,13 +167,7 @@ pub fn fused_fold_and_compute_polynomial<F: Field>(values: &mut Vec<F>, weight: 
         return fold_and_compute_polynomial(values, weight);
     }
 
-    fn kernel<F: Field>(
-        v0: &mut [F],
-        v1: &mut [F],
-        v2: &[F],
-        v3: &[F],
-        weight: F,
-    ) -> (F, F) {
+    fn kernel<F: Field>(v0: &mut [F], v1: &mut [F], v2: &[F], v3: &[F], weight: F) -> (F, F) {
         debug_assert_eq!(v0.len(), v1.len());
         debug_assert_eq!(v0.len(), v2.len());
         debug_assert_eq!(v0.len(), v3.len());

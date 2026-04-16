@@ -93,8 +93,7 @@ fn test_partial_split_matches_full() {
     let mut v = v_orig.clone();
     let mut split_rng = rng();
     let mut t_split = SanityTranscript::new(&mut split_rng);
-    let first =
-        multilinear_sumcheck_partial_with_hook(&mut v, &mut t_split, split_at, |_, _| {});
+    let first = multilinear_sumcheck_partial_with_hook(&mut v, &mut t_split, split_at, |_, _| {});
     let second = multilinear_sumcheck_partial_with_hook(
         &mut v,
         &mut t_split,
@@ -274,7 +273,10 @@ fn test_fused_matches_unfused_reference_pow2() {
         let fused = multilinear_sumcheck(&mut v, &mut t);
 
         assert_eq!(fused.prover_messages, ref_result.prover_messages, "n={n}");
-        assert_eq!(fused.verifier_messages, ref_result.verifier_messages, "n={n}");
+        assert_eq!(
+            fused.verifier_messages, ref_result.verifier_messages,
+            "n={n}"
+        );
         assert_eq!(fused.final_evaluation, ref_result.final_evaluation, "n={n}");
     }
 }
@@ -293,7 +295,10 @@ fn test_fused_matches_unfused_reference_non_pow2() {
         let fused = multilinear_sumcheck(&mut v, &mut t);
 
         assert_eq!(fused.prover_messages, ref_result.prover_messages, "n={n}");
-        assert_eq!(fused.verifier_messages, ref_result.verifier_messages, "n={n}");
+        assert_eq!(
+            fused.verifier_messages, ref_result.verifier_messages,
+            "n={n}"
+        );
         assert_eq!(fused.final_evaluation, ref_result.final_evaluation, "n={n}");
     }
 }

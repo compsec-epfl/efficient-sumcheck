@@ -9,13 +9,15 @@
 //! Wire format per round: `(c0, c2)` in *difference form*, where
 //!   - `c0 = q(0) = Σ a_lo·b_lo`
 //!   - `c2 = [x²] q(x) = Σ (a_hi − a_lo)·(b_hi − b_lo)`
-//! and the verifier derives `c1 = claim − 2·c0 − c2` from the sumcheck
+//!
+//! The verifier derives `c1 = claim − 2·c0 − c2` from the sumcheck
 //! constraint `q(0) + q(1) = claim`.
 //!
 //! The fused kernel rolls the round-`i` fold into the round-`(i+1)` compute,
-//! cutting memory traffic from 12 reads + 4 writes per quadruple to 8 reads
-//! + 4 writes — roughly a 25% reduction on the cold path, with additional
-//! cache-locality gains from reading all four strides simultaneously.
+//! cutting memory traffic from 12 reads + 4 writes per quadruple to
+//! 8 reads + 4 writes — roughly a 25% reduction on the cold path, with
+//! additional cache-locality gains from reading all four strides
+//! simultaneously.
 
 use ark_ff::Field;
 #[cfg(feature = "parallel")]
@@ -166,11 +168,7 @@ pub fn fold<F: Field>(values: &mut Vec<F>, weight: F) {
 }
 
 /// Two-pass fold-then-compute; reference version kept for testing.
-pub fn fold_and_compute_polynomial<F: Field>(
-    a: &mut Vec<F>,
-    b: &mut Vec<F>,
-    weight: F,
-) -> (F, F) {
+pub fn fold_and_compute_polynomial<F: Field>(a: &mut Vec<F>, b: &mut Vec<F>, weight: F) -> (F, F) {
     fold(a, weight);
     fold(b, weight);
     compute_sumcheck_polynomial(a, b)

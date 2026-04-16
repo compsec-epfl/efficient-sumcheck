@@ -101,13 +101,8 @@ fn test_partial_split_matches_full() {
     let mut b = b_orig.clone();
     let mut split_rng = rng();
     let mut t_split = SanityTranscript::new(&mut split_rng);
-    let first = inner_product_sumcheck_partial_with_hook(
-        &mut a,
-        &mut b,
-        &mut t_split,
-        split_at,
-        |_, _| {},
-    );
+    let first =
+        inner_product_sumcheck_partial_with_hook(&mut a, &mut b, &mut t_split, split_at, |_, _| {});
     let second = inner_product_sumcheck_partial_with_hook(
         &mut a,
         &mut b,
@@ -322,8 +317,14 @@ fn test_fused_matches_unfused_reference_pow2() {
         let fused = inner_product_sumcheck(&mut a, &mut b, &mut t);
 
         assert_eq!(fused.prover_messages, ref_result.prover_messages, "n={n}");
-        assert_eq!(fused.verifier_messages, ref_result.verifier_messages, "n={n}");
-        assert_eq!(fused.final_evaluations, ref_result.final_evaluations, "n={n}");
+        assert_eq!(
+            fused.verifier_messages, ref_result.verifier_messages,
+            "n={n}"
+        );
+        assert_eq!(
+            fused.final_evaluations, ref_result.final_evaluations,
+            "n={n}"
+        );
     }
 }
 
@@ -343,8 +344,14 @@ fn test_fused_matches_unfused_reference_non_pow2() {
         let fused = inner_product_sumcheck(&mut a, &mut b, &mut t);
 
         assert_eq!(fused.prover_messages, ref_result.prover_messages, "n={n}");
-        assert_eq!(fused.verifier_messages, ref_result.verifier_messages, "n={n}");
-        assert_eq!(fused.final_evaluations, ref_result.final_evaluations, "n={n}");
+        assert_eq!(
+            fused.verifier_messages, ref_result.verifier_messages,
+            "n={n}"
+        );
+        assert_eq!(
+            fused.final_evaluations, ref_result.final_evaluations,
+            "n={n}"
+        );
     }
 }
 
