@@ -31,6 +31,7 @@ pub mod transcript;
 
 mod inner_product_sumcheck;
 mod multilinear_sumcheck;
+mod whir_sumcheck;
 
 pub use inner_product_sumcheck::{
     accumulate_sparse_evaluations, batched_constraint_poly, inner_product_sumcheck,
@@ -39,6 +40,11 @@ pub use inner_product_sumcheck::{
 pub use multilinear_sumcheck::{
     multilinear_sumcheck, multilinear_sumcheck_partial_with_hook, multilinear_sumcheck_with_hook,
     Sumcheck,
+};
+pub use whir_sumcheck::{
+    whir_sumcheck, whir_sumcheck_fused, whir_sumcheck_fused_partial_with_hook,
+    whir_sumcheck_fused_with_hook, whir_sumcheck_partial_with_hook, whir_sumcheck_verify,
+    whir_sumcheck_verify_with_hook, whir_sumcheck_with_hook,
 };
 
 // ─── Internal / Advanced ─────────────────────────────────────────────────────
