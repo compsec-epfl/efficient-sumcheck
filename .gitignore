@@ -6,3 +6,4 @@
 **/lag-poly-benches/target/
 .vscode
 .DS_Store
+.claude/
