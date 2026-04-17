@@ -5,10 +5,7 @@ use ark_std::rand::{rngs::StdRng, SeedableRng};
 
 use efficient_sumcheck::tests::F64;
 use efficient_sumcheck::transcript::{SanityTranscript, Transcript};
-use efficient_sumcheck::{
-    multilinear_sumcheck, multilinear_sumcheck_partial_with_hook, multilinear_sumcheck_with_hook,
-    Sumcheck,
-};
+use efficient_sumcheck::{multilinear_sumcheck, multilinear_sumcheck_partial, Sumcheck};
 
 const SEED: u64 = 0xA110C8ED;
 
@@ -42,7 +39,7 @@ fn test_power_of_two_roundtrip() {
     let mut prover_rng = rng();
     let mut v = v_orig.clone();
     let mut t_prove = SanityTranscript::new(&mut prover_rng);
-    let result: Sumcheck<F64> = multilinear_sumcheck(&mut v, &mut t_prove);
+    let result: Sumcheck<F64> = multilinear_sumcheck(&mut v, &mut t_prove, |_, _| {});
 
     assert_eq!(v.len(), 1);
     assert_eq!(result.prover_messages.len(), num_vars);
@@ -70,7 +67,7 @@ fn test_non_power_of_two_partial_runs() {
     let mut prover_rng = rng();
     let mut v = v_orig.clone();
     let mut t = SanityTranscript::new(&mut prover_rng);
-    let result = multilinear_sumcheck_partial_with_hook(&mut v, &mut t, num_rounds, |_, _| {});
+    let result = multilinear_sumcheck_partial(&mut v, &mut t, num_rounds, |_, _| {});
     assert_eq!(result.prover_messages.len(), num_rounds);
     assert_eq!(result.verifier_messages.len(), num_rounds);
     assert_eq!(v.len(), 1);
@@ -88,18 +85,13 @@ fn test_partial_split_matches_full() {
     let mut v_full = v_orig.clone();
     let mut full_rng = rng();
     let mut t_full = SanityTranscript::new(&mut full_rng);
-    let full = multilinear_sumcheck(&mut v_full, &mut t_full);
+    let full = multilinear_sumcheck(&mut v_full, &mut t_full, |_, _| {});
 
     let mut v = v_orig.clone();
     let mut split_rng = rng();
     let mut t_split = SanityTranscript::new(&mut split_rng);
-    let first = multilinear_sumcheck_partial_with_hook(&mut v, &mut t_split, split_at, |_, _| {});
-    let second = multilinear_sumcheck_partial_with_hook(
-        &mut v,
-        &mut t_split,
-        num_vars - split_at,
-        |_, _| {},
-    );
+    let first = multilinear_sumcheck_partial(&mut v, &mut t_split, split_at, |_, _| {});
+    let second = multilinear_sumcheck_partial(&mut v, &mut t_split, num_vars - split_at, |_, _| {});
 
     let mut split_prover = first.prover_messages.clone();
     split_prover.extend(second.prover_messages.iter().copied());
@@ -124,7 +116,7 @@ fn test_hook_called_once_per_round() {
     let mut t = SanityTranscript::new(&mut trng);
 
     let calls = RefCell::new(Vec::<usize>::new());
-    let result = multilinear_sumcheck_with_hook(&mut v, &mut t, |round, _| {
+    let result = multilinear_sumcheck(&mut v, &mut t, |round, _| {
         calls.borrow_mut().push(round);
     });
     assert_eq!(result.prover_messages.len(), num_vars);
@@ -139,7 +131,7 @@ fn test_zero_rounds_is_identity() {
     let mut trng = rng();
     let mut t = SanityTranscript::new(&mut trng);
 
-    let result = multilinear_sumcheck_partial_with_hook(&mut v, &mut t, 0, |_, _| {});
+    let result = multilinear_sumcheck_partial(&mut v, &mut t, 0, |_, _| {});
     assert!(result.prover_messages.is_empty());
     assert!(result.verifier_messages.is_empty());
     assert_eq!(v, v_orig);
@@ -154,7 +146,7 @@ fn test_round0_msg_is_half_sums() {
     let mut v_mut = v.clone();
     let mut trng = rng();
     let mut t = SanityTranscript::new(&mut trng);
-    let result = multilinear_sumcheck_partial_with_hook(&mut v_mut, &mut t, 1, |_, _| {});
+    let result = multilinear_sumcheck_partial(&mut v_mut, &mut t, 1, |_, _| {});
     let (s0, s1) = result.prover_messages[0];
 
     let half = n / 2;
@@ -174,7 +166,7 @@ fn test_deterministic_under_same_seed() {
         let mut v = v_orig.clone();
         let mut trng = rng();
         let mut t = SanityTranscript::new(&mut trng);
-        multilinear_sumcheck(&mut v, &mut t)
+        multilinear_sumcheck(&mut v, &mut t, |_, _| {})
     };
     let r1 = run();
     let r2 = run();
@@ -270,7 +262,7 @@ fn test_fused_matches_unfused_reference_pow2() {
         let mut v = v_orig.clone();
         let mut trng = rng();
         let mut t = SanityTranscript::new(&mut trng);
-        let fused = multilinear_sumcheck(&mut v, &mut t);
+        let fused = multilinear_sumcheck(&mut v, &mut t, |_, _| {});
 
         assert_eq!(fused.prover_messages, ref_result.prover_messages, "n={n}");
         assert_eq!(
@@ -292,7 +284,7 @@ fn test_fused_matches_unfused_reference_non_pow2() {
         let mut v = v_orig.clone();
         let mut trng = rng();
         let mut t = SanityTranscript::new(&mut trng);
-        let fused = multilinear_sumcheck(&mut v, &mut t);
+        let fused = multilinear_sumcheck(&mut v, &mut t, |_, _| {});
 
         assert_eq!(fused.prover_messages, ref_result.prover_messages, "n={n}");
         assert_eq!(

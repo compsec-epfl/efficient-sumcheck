@@ -34,7 +34,7 @@ fn time_ml<F: Field>(v: &[F]) -> f64 {
     let mut trng = StdRng::seed_from_u64(SEED);
     let mut t = SanityTranscript::new(&mut trng);
     let start = Instant::now();
-    let _ = multilinear_sumcheck(&mut v, &mut t);
+    let _ = multilinear_sumcheck(&mut v, &mut t, |_, _| {});
     start.elapsed().as_secs_f64()
 }
 
@@ -44,7 +44,7 @@ fn time_ip<F: Field>(a: &[F], b: &[F]) -> f64 {
     let mut trng = StdRng::seed_from_u64(SEED);
     let mut t = SanityTranscript::new(&mut trng);
     let start = Instant::now();
-    let _ = inner_product_sumcheck(&mut f, &mut g, &mut t);
+    let _ = inner_product_sumcheck(&mut f, &mut g, &mut t, |_, _| {});
     start.elapsed().as_secs_f64()
 }
 

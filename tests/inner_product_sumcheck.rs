@@ -5,10 +5,7 @@ use ark_std::rand::{rngs::StdRng, SeedableRng};
 
 use efficient_sumcheck::tests::F64;
 use efficient_sumcheck::transcript::{SanityTranscript, Transcript};
-use efficient_sumcheck::{
-    inner_product_sumcheck, inner_product_sumcheck_partial_with_hook,
-    inner_product_sumcheck_with_hook, ProductSumcheck,
-};
+use efficient_sumcheck::{inner_product_sumcheck, inner_product_sumcheck_partial, ProductSumcheck};
 
 const SEED: u64 = 0xA110C8ED;
 
@@ -46,7 +43,8 @@ fn test_power_of_two_roundtrip() {
     let mut a = a_orig.clone();
     let mut b = b_orig.clone();
     let mut t_prove = SanityTranscript::new(&mut prover_rng);
-    let result: ProductSumcheck<F64> = inner_product_sumcheck(&mut a, &mut b, &mut t_prove);
+    let result: ProductSumcheck<F64> =
+        inner_product_sumcheck(&mut a, &mut b, &mut t_prove, |_, _| {});
 
     assert_eq!(a.len(), 1);
     assert_eq!(b.len(), 1);
@@ -73,8 +71,7 @@ fn test_non_power_of_two_partial_runs() {
     let mut a = a_orig.clone();
     let mut b = b_orig.clone();
     let mut t = SanityTranscript::new(&mut prover_rng);
-    let result =
-        inner_product_sumcheck_partial_with_hook(&mut a, &mut b, &mut t, num_rounds, |_, _| {});
+    let result = inner_product_sumcheck_partial(&mut a, &mut b, &mut t, num_rounds, |_, _| {});
     assert_eq!(result.prover_messages.len(), num_rounds);
     assert_eq!(result.verifier_messages.len(), num_rounds);
     assert_eq!(a.len(), 1);
@@ -95,15 +92,14 @@ fn test_partial_split_matches_full() {
     let mut b_full = b_orig.clone();
     let mut full_rng = rng();
     let mut t_full = SanityTranscript::new(&mut full_rng);
-    let full = inner_product_sumcheck(&mut a_full, &mut b_full, &mut t_full);
+    let full = inner_product_sumcheck(&mut a_full, &mut b_full, &mut t_full, |_, _| {});
 
     let mut a = a_orig.clone();
     let mut b = b_orig.clone();
     let mut split_rng = rng();
     let mut t_split = SanityTranscript::new(&mut split_rng);
-    let first =
-        inner_product_sumcheck_partial_with_hook(&mut a, &mut b, &mut t_split, split_at, |_, _| {});
-    let second = inner_product_sumcheck_partial_with_hook(
+    let first = inner_product_sumcheck_partial(&mut a, &mut b, &mut t_split, split_at, |_, _| {});
+    let second = inner_product_sumcheck_partial(
         &mut a,
         &mut b,
         &mut t_split,
@@ -136,7 +132,7 @@ fn test_hook_called_once_per_round() {
     let mut t = SanityTranscript::new(&mut trng);
 
     let calls = RefCell::new(Vec::<usize>::new());
-    let result = inner_product_sumcheck_with_hook(&mut a, &mut b, &mut t, |round, _| {
+    let result = inner_product_sumcheck(&mut a, &mut b, &mut t, |round, _| {
         calls.borrow_mut().push(round);
     });
     assert_eq!(result.prover_messages.len(), num_vars);
@@ -153,7 +149,7 @@ fn test_zero_rounds_is_identity() {
     let mut trng = rng();
     let mut t = SanityTranscript::new(&mut trng);
 
-    let result = inner_product_sumcheck_partial_with_hook(&mut a, &mut b, &mut t, 0, |_, _| {});
+    let result = inner_product_sumcheck_partial(&mut a, &mut b, &mut t, 0, |_, _| {});
     assert!(result.prover_messages.is_empty());
     assert!(result.verifier_messages.is_empty());
     assert_eq!(a, a_orig);
@@ -174,8 +170,7 @@ fn test_prover_msg_is_difference_form() {
     let mut b_mut = b.clone();
     let mut trng = rng();
     let mut t = SanityTranscript::new(&mut trng);
-    let result =
-        inner_product_sumcheck_partial_with_hook(&mut a_mut, &mut b_mut, &mut t, 1, |_, _| {});
+    let result = inner_product_sumcheck_partial(&mut a_mut, &mut b_mut, &mut t, 1, |_, _| {});
     let (c0, c2) = result.prover_messages[0];
 
     let half = n / 2;
@@ -202,7 +197,7 @@ fn test_deterministic_under_same_seed() {
         let mut b = b_orig.clone();
         let mut trng = rng();
         let mut t = SanityTranscript::new(&mut trng);
-        inner_product_sumcheck(&mut a, &mut b, &mut t)
+        inner_product_sumcheck(&mut a, &mut b, &mut t, |_, _| {})
     };
     let r1 = run();
     let r2 = run();
@@ -314,7 +309,7 @@ fn test_fused_matches_unfused_reference_pow2() {
         let mut b = b_orig.clone();
         let mut trng = rng();
         let mut t = SanityTranscript::new(&mut trng);
-        let fused = inner_product_sumcheck(&mut a, &mut b, &mut t);
+        let fused = inner_product_sumcheck(&mut a, &mut b, &mut t, |_, _| {});
 
         assert_eq!(fused.prover_messages, ref_result.prover_messages, "n={n}");
         assert_eq!(
@@ -341,7 +336,7 @@ fn test_fused_matches_unfused_reference_non_pow2() {
         let mut b = b_orig.clone();
         let mut trng = rng();
         let mut t = SanityTranscript::new(&mut trng);
-        let fused = inner_product_sumcheck(&mut a, &mut b, &mut t);
+        let fused = inner_product_sumcheck(&mut a, &mut b, &mut t, |_, _| {});
 
         assert_eq!(fused.prover_messages, ref_result.prover_messages, "n={n}");
         assert_eq!(
