@@ -228,7 +228,7 @@ pub fn fused_fold_and_compute_polynomial<F: Field>(values: &mut Vec<F>, weight: 
 ///
 /// On return, if `num_rounds == log2(next_pow2(len))` then `values.len() == 1`
 /// and `final_evaluation = values[0]`; otherwise `F::ZERO`.
-pub fn multilinear_sumcheck_partial_with_hook<F, T, H>(
+pub fn multilinear_sumcheck_partial<F, T, H>(
     values: &mut Vec<F>,
     transcript: &mut T,
     num_rounds: usize,
@@ -285,7 +285,7 @@ where
 }
 
 /// Full sumcheck (`log2(next_pow2(len))` rounds) with a per-round hook.
-pub fn multilinear_sumcheck_with_hook<F, T, H>(
+pub fn multilinear_sumcheck<F, T, H>(
     values: &mut Vec<F>,
     transcript: &mut T,
     hook: H,
@@ -300,16 +300,7 @@ where
     } else {
         values.len().next_power_of_two().trailing_zeros() as usize
     };
-    multilinear_sumcheck_partial_with_hook(values, transcript, num_rounds, hook)
-}
-
-/// Full sumcheck with no per-round hook.
-pub fn multilinear_sumcheck<F, T>(values: &mut Vec<F>, transcript: &mut T) -> Sumcheck<F>
-where
-    F: Field,
-    T: Transcript<F>,
-{
-    multilinear_sumcheck_with_hook(values, transcript, |_, _| {})
+    multilinear_sumcheck_partial(values, transcript, num_rounds, hook)
 }
 
 // ─── Verifier ───────────────────────────────────────────────────────────────
@@ -319,7 +310,7 @@ where
 /// `*sum = s0 + r·(s1 − s0)`. Returns the sampled challenges.
 ///
 /// Panics if the consistency check fails.
-pub fn multilinear_sumcheck_verify_with_hook<F, T, H>(
+pub fn multilinear_sumcheck_verify<F, T, H>(
     transcript: &mut T,
     sum: &mut F,
     num_rounds: usize,
@@ -343,19 +334,6 @@ where
         *sum = s0 + r * (s1 - s0);
     }
     res
-}
-
-/// Convenience wrapper over [`multilinear_sumcheck_verify_with_hook`] with no hook.
-pub fn multilinear_sumcheck_verify<F, T>(
-    transcript: &mut T,
-    sum: &mut F,
-    num_rounds: usize,
-) -> Vec<F>
-where
-    F: Field,
-    T: Transcript<F>,
-{
-    multilinear_sumcheck_verify_with_hook(transcript, sum, num_rounds, |_, _| {})
 }
 
 // Tests live in `tests/multilinear_sumcheck.rs` (integration target).

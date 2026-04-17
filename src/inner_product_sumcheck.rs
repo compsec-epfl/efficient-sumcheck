@@ -290,7 +290,7 @@ pub fn fused_fold_and_compute_polynomial<F: Field>(
 /// On return, if `num_rounds == log2(next_pow2(len))` then `a` and `b` have
 /// length 1 and `final_evaluations = (a[0], b[0])`; otherwise
 /// `(F::ZERO, F::ZERO)`.
-pub fn inner_product_sumcheck_partial_with_hook<F, T, H>(
+pub fn inner_product_sumcheck_partial<F, T, H>(
     a: &mut Vec<F>,
     b: &mut Vec<F>,
     transcript: &mut T,
@@ -351,7 +351,7 @@ where
 }
 
 /// Full sumcheck (`log2(next_pow2(len))` rounds) with a per-round hook.
-pub fn inner_product_sumcheck_with_hook<F, T, H>(
+pub fn inner_product_sumcheck<F, T, H>(
     a: &mut Vec<F>,
     b: &mut Vec<F>,
     transcript: &mut T,
@@ -367,31 +367,18 @@ where
     } else {
         a.len().next_power_of_two().trailing_zeros() as usize
     };
-    inner_product_sumcheck_partial_with_hook(a, b, transcript, num_rounds, hook)
-}
-
-/// Full sumcheck with no per-round hook.
-pub fn inner_product_sumcheck<F, T>(
-    a: &mut Vec<F>,
-    b: &mut Vec<F>,
-    transcript: &mut T,
-) -> ProductSumcheck<F>
-where
-    F: Field,
-    T: Transcript<F>,
-{
-    inner_product_sumcheck_with_hook(a, b, transcript, |_, _| {})
+    inner_product_sumcheck_partial(a, b, transcript, num_rounds, hook)
 }
 
 // ─── Verifier ───────────────────────────────────────────────────────────────
 
-/// Verifier side of [`inner_product_sumcheck_with_hook`].
+/// Verifier side of [`inner_product_sumcheck`].
 ///
 /// Reads `(c0, c2)` per round, derives `c1 = sum − 2·c0 − c2`, calls
 /// `hook(round, transcript)`, reads the challenge, and updates `sum` by
 /// Horner evaluation `(c2·r + c1)·r + c0`. Returns the sampled challenges;
 /// `*sum` is the claim reduced to the final folded point.
-pub fn inner_product_sumcheck_verify_with_hook<F, T, H>(
+pub fn inner_product_sumcheck_verify<F, T, H>(
     transcript: &mut T,
     sum: &mut F,
     num_rounds: usize,
@@ -415,19 +402,6 @@ where
         *sum = (c2 * r + c1) * r + c0;
     }
     res
-}
-
-/// Convenience wrapper over [`inner_product_sumcheck_verify_with_hook`] with no hook.
-pub fn inner_product_sumcheck_verify<F, T>(
-    transcript: &mut T,
-    sum: &mut F,
-    num_rounds: usize,
-) -> Vec<F>
-where
-    F: Field,
-    T: Transcript<F>,
-{
-    inner_product_sumcheck_verify_with_hook(transcript, sum, num_rounds, |_, _| {})
 }
 
 // Tests live in `tests/inner_product_sumcheck.rs` (integration target) —
