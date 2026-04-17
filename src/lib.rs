@@ -21,6 +21,9 @@
 //! Fiat-Shamir, or [`SanityTranscript`](transcript::SanityTranscript) for
 //! testing with seeded random challenges.
 //!
+//! Every entry point takes a per-round `hook: FnMut(round, &mut transcript)`
+//! argument. Pass `|_, _| {}` when no hook is needed.
+//!
 //! ## Layout note
 //!
 //! The half-split (MSB) layout folds the top-most remaining variable each
@@ -37,13 +40,11 @@ mod inner_product_sumcheck;
 mod multilinear_sumcheck;
 
 pub use inner_product_sumcheck::{
-    inner_product_sumcheck, inner_product_sumcheck_partial_with_hook,
-    inner_product_sumcheck_verify, inner_product_sumcheck_verify_with_hook,
-    inner_product_sumcheck_with_hook, ProductSumcheck,
+    inner_product_sumcheck, inner_product_sumcheck_partial, inner_product_sumcheck_verify,
+    ProductSumcheck,
 };
 pub use multilinear_sumcheck::{
-    multilinear_sumcheck, multilinear_sumcheck_partial_with_hook, multilinear_sumcheck_verify,
-    multilinear_sumcheck_verify_with_hook, multilinear_sumcheck_with_hook, Sumcheck,
+    multilinear_sumcheck, multilinear_sumcheck_partial, multilinear_sumcheck_verify, Sumcheck,
 };
 
 // ─── Internal / Advanced ─────────────────────────────────────────────────────
