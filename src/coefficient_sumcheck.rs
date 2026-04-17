@@ -497,7 +497,8 @@ mod tests {
         let num_rounds = 3;
         let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
 
-        let domsep = spongefish::domain_separator!("test-coefficient-sumcheck"; module_path!())
+        let domsep = spongefish::domain_separator!("test-coefficient-sumcheck")
+            .without_session()
             .instance(b"test");
 
         let prover_state = domsep.std_prover();
