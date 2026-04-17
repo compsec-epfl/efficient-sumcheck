@@ -11,6 +11,7 @@ pub mod avx512;
 /// Operates on Montgomery-form values as stored by arkworks (`SmallFp.value`
 /// or `Fp64.0.0[0]`) — zero-cost transmute from `&[Field]` to `&[u64]`.
 #[cfg(target_arch = "aarch64")]
+#[allow(unused_imports)]
 pub use neon::GoldilocksNeon;
 
 /// Goldilocks AVX-512 IFMA backend (x86_64).

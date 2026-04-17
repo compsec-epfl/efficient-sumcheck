@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! SIMD auto-dispatch for the multilinear sumcheck protocol.
 //!
 //! When `BF == EF` and both are a Goldilocks field (p = 2^64 − 2^32 + 1)

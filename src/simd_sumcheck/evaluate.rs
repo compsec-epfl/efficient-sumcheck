@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! SIMD-vectorized pairwise evaluation: computes (sum_even, sum_odd).
 //!
 //! Uses an 8-accumulator unroll for instruction-level parallelism,
