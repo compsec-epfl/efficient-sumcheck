@@ -1,10 +1,81 @@
-//! SIMD-vectorized pairwise reduce: folds evaluations with a challenge.
+//! SIMD-vectorized reduce kernels: fold evaluations with a challenge.
 //!
-//! For each adjacent pair `(a, b)`: `result = a + challenge * (b - a)`
+//! Two layout variants:
+//!   - **Half-split (MSB)**: pairs `data[k]` with `data[k + L/2]`. This is
+//!     the layout used by the public sumcheck entry points and by WHIR.
+//!   - **Pair-split (LSB)**: pairs `data[2k]` with `data[2k+1]`. Used by the
+//!     legacy `Prover` trait and `coefficient_sumcheck`.
 //!
-//! This is the base-field reduce used when base = extension (EXT_DEGREE = 1).
+//! The MSB kernel (`reduce_msb_in_place`) uses plain contiguous `F::load`
+//! from each half — simpler and faster than the LSB `load_deinterleaved`.
 
 use crate::simd_fields::SimdBaseField;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Half-split (MSB) reduce
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// SIMD-vectorized MSB (half-split) reduce, in-place.
+///
+/// `new[k] = src[k] + challenge * (src[k + half] − src[k])` for `k` in
+/// `0..half`, where `half = next_power_of_two(n) / 2`. Elements in the low
+/// half beyond `n − half` (the "tail") have no partner in the high half and
+/// are folded as `src[k] * (1 − challenge)`.
+///
+/// Returns the output length `half`.
+pub fn reduce_msb_in_place<F: SimdBaseField>(src: &mut [F::Scalar], challenge: F::Scalar) -> usize {
+    let n = src.len();
+    if n <= 1 {
+        return n;
+    }
+
+    let half = n.next_power_of_two() >> 1;
+    let paired = n - half; // elements that have a partner in the high half
+    let lanes = F::LANES;
+    let challenge_v = F::splat(challenge);
+
+    // ── SIMD main loop over paired portion ──
+    let step = 4 * lanes;
+    let aligned = (paired / step) * step;
+
+    let lo_ptr = src.as_ptr();
+    let hi_ptr = unsafe { src.as_ptr().add(half) };
+    let out_ptr = src.as_mut_ptr();
+
+    let mut i = 0;
+    while i < aligned {
+        unsafe {
+            for g in 0..4 {
+                let off = i + g * lanes;
+                let a = F::load(lo_ptr.add(off));
+                let b = F::load(hi_ptr.add(off));
+                let r = F::add(a, F::mul(challenge_v, F::sub(b, a)));
+                F::store(out_ptr.add(off), r);
+            }
+        }
+        i += step;
+    }
+
+    // ── Scalar tail of paired portion ──
+    while i < paired {
+        let a = src[i];
+        let b = src[i + half];
+        src[i] = F::scalar_add(a, F::scalar_mul(challenge, F::scalar_sub(b, a)));
+        i += 1;
+    }
+
+    // ── Unpaired tail: data[k] *= (1 − challenge) for k in paired..half ──
+    let one_minus = F::scalar_sub(F::ONE, challenge);
+    for v in src.iter_mut().take(half).skip(paired) {
+        *v = F::scalar_mul(*v, one_minus);
+    }
+
+    half
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pair-split (LSB) reduce — legacy, used by coefficient_sumcheck
+// ═══════════════════════════════════════════════════════════════════════════
 
 /// SIMD-vectorized pairwise reduce, producing a new Vec.
 ///

@@ -100,48 +100,6 @@ fn is_goldilocks_based<F: Field>() -> bool {
     limbs[0] == GOLDILOCKS_P && limbs[1..].iter().all(|&x| x == 0)
 }
 
-/// Extract the degree-2 nonresidue `w` from the extension field config.
-/// Computes `(0, 1) * (0, 1) = (w, 0)` so `w` is at component 0.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
-))]
-#[inline]
-pub(crate) fn extract_nonresidue_ext2<
-    EF: Field,
-    S: crate::simd_fields::SimdBaseField<Scalar = u64>,
->() -> u64 {
-    let one_x = unsafe {
-        let mut tmp = [0u64; 2];
-        tmp[1] = S::ONE;
-        let one_x: EF = core::mem::transmute_copy(&tmp);
-        one_x
-    };
-    let nr = one_x * one_x;
-    unsafe { *((&nr) as *const EF as *const u64) }
-}
-
-/// Extract the degree-3 nonresidue `w` from the extension field config.
-/// Computes `(0, 1, 0)^3 = X^3 = w` so `w` is at component 0.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
-))]
-#[inline]
-pub(crate) fn extract_nonresidue_ext3<
-    EF: Field,
-    S: crate::simd_fields::SimdBaseField<Scalar = u64>,
->() -> u64 {
-    let one_x = unsafe {
-        let mut tmp = [0u64; 3];
-        tmp[1] = S::ONE;
-        let one_x: EF = core::mem::transmute_copy(&tmp);
-        one_x
-    };
-    let nr = one_x * one_x * one_x;
-    unsafe { *((&nr) as *const EF as *const u64) }
-}
-
 // ─── Standalone SIMD reduce (Field-level API) ──────────────────────────────
 
 /// SIMD-accelerated pairwise reduce on a `Vec<F>`.
@@ -169,6 +127,35 @@ pub(crate) fn try_simd_reduce<F: Field>(evals: &mut Vec<F>, challenge: F) -> boo
         unsafe { core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, evals.len()) };
     let chg: u64 = field_to_u64(challenge);
     let new_len = reduce_in_place::<Backend>(buf, chg);
+    evals.truncate(new_len);
+    true
+}
+
+/// SIMD-accelerated MSB (half-split) reduce on a `Vec<F>`.
+///
+/// Like [`try_simd_reduce`] but uses the half-split layout:
+/// `new[k] = v[k] + challenge * (v[k + L/2] − v[k])`.
+/// Returns `false` for non-Goldilocks fields.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+pub(crate) fn try_simd_reduce_msb<F: Field>(evals: &mut Vec<F>, challenge: F) -> bool {
+    if !is_goldilocks::<F>() {
+        return false;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
+    type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
+
+    use crate::simd_sumcheck::reduce::reduce_msb_in_place;
+
+    let buf: &mut [u64] =
+        unsafe { core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, evals.len()) };
+    let chg: u64 = field_to_u64(challenge);
+    let new_len = reduce_msb_in_place::<Backend>(buf, chg);
     evals.truncate(new_len);
     true
 }
@@ -249,96 +236,26 @@ pub(crate) fn try_simd_ext_evaluate<EF: Field>(evals: &[EF]) -> Option<(EF, EF)>
     let (even_comps, odd_comps) =
         crate::simd_sumcheck::evaluate::ext_evaluate_parallel::<Backend>(buf, d);
 
-    // Reconstruct extension field elements from component vectors
-    let even: EF = unsafe { ext_components_to_field(&even_comps) };
-    let odd: EF = unsafe { ext_components_to_field(&odd_comps) };
+    // Reconstruct extension field elements from component vectors.
+    // Safety: components are valid Montgomery-form u64s and EF has
+    // size_of == components.len() * 8 (verified by is_goldilocks_based).
+    let ext_from_comps = |comps: &[u64]| -> EF {
+        debug_assert_eq!(core::mem::size_of::<EF>(), core::mem::size_of_val(comps));
+        unsafe {
+            let mut out = core::mem::MaybeUninit::<EF>::uninit();
+            core::ptr::copy_nonoverlapping(
+                comps.as_ptr(),
+                out.as_mut_ptr() as *mut u64,
+                comps.len(),
+            );
+            out.assume_init()
+        }
+    };
+
+    let even: EF = ext_from_comps(&even_comps);
+    let odd: EF = ext_from_comps(&odd_comps);
 
     Some((even, odd))
-}
-
-/// Reconstruct an extension field element from its raw u64 components.
-///
-/// # Safety
-///
-/// Components must be valid Montgomery-form u64 values and `F` must be
-/// a Goldilocks extension with `size_of::<F>() == components.len() * 8`.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
-))]
-#[inline(always)]
-unsafe fn ext_components_to_field<F: Field>(components: &[u64]) -> F {
-    debug_assert_eq!(core::mem::size_of::<F>(), components.len() * 8);
-    let mut val = core::mem::MaybeUninit::<F>::uninit();
-    core::ptr::copy_nonoverlapping(
-        components.as_ptr(),
-        val.as_mut_ptr() as *mut u64,
-        components.len(),
-    );
-    val.assume_init()
-}
-
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
-))]
-pub(crate) fn try_simd_ext_reduce<EF: Field>(evals: &mut Vec<EF>, challenge: EF) -> bool {
-    if !is_goldilocks_based::<EF>() {
-        return false;
-    }
-
-    let d = EF::extension_degree() as usize;
-
-    if d == 1 {
-        // Base field — use existing reduce
-        return try_simd_reduce(evals, challenge);
-    }
-
-    if d == 2 {
-        #[cfg(target_arch = "aarch64")]
-        type Backend = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-        type Backend = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
-
-        let chg_raw: [u64; 2] = unsafe {
-            let ptr = &challenge as *const EF as *const u64;
-            [*ptr, *ptr.add(1)]
-        };
-        let w = extract_nonresidue_ext2::<EF, Backend>();
-
-        // In-place reduce: first half gets results, then truncate.
-        let n_u64 = evals.len() * d;
-        let buf: &mut [u64] =
-            unsafe { core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, n_u64) };
-        crate::simd_sumcheck::reduce::ext2_reduce_in_place::<Backend>(buf, chg_raw, w);
-        let new_len = evals.len() / 2;
-        evals.truncate(new_len);
-        return true;
-    }
-
-    if d == 3 {
-        #[cfg(target_arch = "aarch64")]
-        type Backend3 = crate::simd_fields::goldilocks::neon::GoldilocksNeon;
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-        type Backend3 = crate::simd_fields::goldilocks::avx512::GoldilocksAvx512;
-
-        let chg_raw: [u64; 3] = unsafe {
-            let ptr = &challenge as *const EF as *const u64;
-            [*ptr, *ptr.add(1), *ptr.add(2)]
-        };
-        let w = extract_nonresidue_ext3::<EF, Backend3>();
-
-        let n_u64 = evals.len() * d;
-        let buf: &mut [u64] =
-            unsafe { core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, n_u64) };
-        crate::simd_sumcheck::reduce::ext3_reduce_in_place::<Backend3>(buf, chg_raw, w);
-        let new_len = evals.len() / 2;
-        evals.truncate(new_len);
-        return true;
-    }
-
-    // degree 4+: fall through to generic
-    false
 }
 
 /// SIMD-accelerated degree-1 pairwise evaluate: returns `[s0, s1 - s0]`.
@@ -409,12 +326,6 @@ pub fn is_goldilocks_pub<F: Field>() -> bool {
     is_goldilocks::<F>()
 }
 
-/// Public wrapper — accepts base Goldilocks or any Goldilocks-based extension.
-#[cfg(all(target_arch = "x86_64", target_feature = "avx512ifma"))]
-pub fn is_goldilocks_based_pub<F: Field>() -> bool {
-    is_goldilocks_based::<F>()
-}
-
 /// Reinterpret a Montgomery-form `u64` as a field element (public wrapper).
 #[cfg(any(
     target_arch = "aarch64",
@@ -423,14 +334,4 @@ pub fn is_goldilocks_based_pub<F: Field>() -> bool {
 #[inline(always)]
 pub fn u64_to_field_pub<F: Field>(raw: u64) -> F {
     u64_to_field(raw)
-}
-
-/// Reinterpret a field element as its Montgomery-form `u64` (public wrapper).
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
-))]
-#[inline(always)]
-pub fn field_to_u64_pub<F: Field>(val: F) -> u64 {
-    field_to_u64(val)
 }
