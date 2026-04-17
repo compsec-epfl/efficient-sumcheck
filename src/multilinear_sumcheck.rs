@@ -115,10 +115,24 @@ pub fn compute_sumcheck_polynomial<F: Field>(values: &[F]) -> (F, F) {
     (s0 + tail, s1)
 }
 
-/// In-place half-split fold: `new[k] = v[k] + (v[k+L/2] − v[k]) · weight`.
+/// In-place half-split (MSB) fold: `new[k] = v[k] + (v[k+L/2] − v[k]) · weight`.
 ///
 /// Implicit zero padding on the high half collapses the tail to `v[k] * (1 − w)`.
+///
+/// SIMD-accelerated for Goldilocks base field on NEON and AVX-512 IFMA.
+/// Falls back to a scalar recursive `rayon::join` fold for other fields.
 pub fn fold<F: Field>(values: &mut Vec<F>, weight: F) {
+    // SIMD fast path for base-field Goldilocks (MSB layout).
+    #[cfg(any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    ))]
+    {
+        if crate::simd_sumcheck::dispatch::try_simd_reduce_msb(values, weight) {
+            values.shrink_to_fit();
+            return;
+        }
+    }
     fn recurse_both<F: Field>(low: &mut [F], high: &[F], weight: F) {
         #[cfg(feature = "parallel")]
         if low.len() > workload_size::<F>() {

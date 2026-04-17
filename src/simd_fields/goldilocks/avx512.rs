@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Montgomery-form Goldilocks AVX-512 IFMA backend.
 //!
 //! Operates directly on Montgomery-form values (as stored by arkworks `Fp64`),

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! SIMD-vectorized field arithmetic using native intrinsics.
 //!
 //! Each base field provides platform-specific implementations of add, sub, mul

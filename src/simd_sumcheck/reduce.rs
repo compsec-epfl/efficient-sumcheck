@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! SIMD-vectorized reduce kernels: fold evaluations with a challenge.
 //!
 //! Two layout variants:
