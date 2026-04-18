@@ -41,6 +41,8 @@ pub enum SumcheckError {
     FinalEvaluation { expected: String, got: String },
     /// Transcript error (e.g., malformed prover message).
     TranscriptError { round: usize, detail: String },
+    /// Per-round hook failed (e.g., proof-of-work verification).
+    HookError { round: usize, detail: String },
 }
 
 impl fmt::Display for SumcheckError {
@@ -70,6 +72,9 @@ impl fmt::Display for SumcheckError {
             }
             SumcheckError::TranscriptError { round, detail } => {
                 write!(f, "round {round}: transcript error: {detail}")
+            }
+            SumcheckError::HookError { round, detail } => {
+                write!(f, "round {round}: hook error: {detail}")
             }
         }
     }

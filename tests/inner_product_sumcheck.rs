@@ -4,7 +4,7 @@ use ark_ff::{AdditiveGroup, Field, UniformRand};
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 
 use effsc::tests::F64;
-use effsc::transcript::{SanityTranscript, Transcript};
+use effsc::transcript::{SanityTranscript, ProverTranscript};
 use effsc::{inner_product_sumcheck, inner_product_sumcheck_partial, ProductSumcheck};
 
 const SEED: u64 = 0xA110C8ED;

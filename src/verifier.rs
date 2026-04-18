@@ -11,7 +11,7 @@
 
 use crate::field::SumcheckField;
 use crate::proof::SumcheckError;
-use crate::transcript::Transcript;
+use crate::transcript::VerifierTranscript;
 
 /// Verify a sum-check proof against a claimed sum.
 ///
@@ -33,7 +33,7 @@ pub fn sumcheck_verify<F, T, H>(
 ) -> Result<(F, Vec<F>), SumcheckError>
 where
     F: SumcheckField,
-    T: Transcript<F>,
+    T: VerifierTranscript<F>,
     H: FnMut(usize, &mut T) -> Result<(), SumcheckError>,
 {
     let mut claim = claimed_sum;

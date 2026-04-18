@@ -88,7 +88,7 @@ One verifier for any degree $d$:
 ```rust
 use effsc::verifier::sumcheck_verify;
 
-let result = sumcheck_verify(claimed_sum, degree, num_rounds, &mut transcript, no_hook);
+let result = sumcheck_verify(claimed_sum, degree, num_rounds, &mut transcript, no_hook_verify);
 match result {
     Ok((final_claim, challenges)) => { /* caller checks final_claim = g(r) */ }
     Err(e) => { /* consistency check failed */ }

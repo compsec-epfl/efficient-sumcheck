@@ -6,7 +6,7 @@ use ark_poly::Polynomial;
 use rayon::prelude::*;
 
 use crate::reductions::{pairwise, tablewise};
-use crate::transcript::Transcript;
+use crate::transcript::{ProverTranscript, VerifierTranscript};
 
 #[derive(Debug)]
 pub struct CoefficientSumcheck<F: Field> {
@@ -239,7 +239,7 @@ pub fn coefficient_sumcheck<F: Field>(
     tablewise: &mut [Vec<Vec<F>>],
     pairwise: &mut [Vec<F>],
     n_rounds: usize,
-    transcript: &mut impl Transcript<F>,
+    transcript: &mut impl ProverTranscript<F>,
 ) -> CoefficientSumcheck<F> {
     let mut prover_messages = Vec::with_capacity(n_rounds);
     let mut verifier_messages = Vec::with_capacity(n_rounds);
@@ -355,7 +355,7 @@ pub fn coefficient_sumcheck<F: Field>(
 pub fn sumcheck_verify<F: Field>(
     claim: &mut F,
     prover_messages: &[DensePolynomial<F>],
-    transcript: &mut impl Transcript<F>,
+    transcript: &mut impl VerifierTranscript<F>,
 ) -> Option<Vec<F>> {
     let mut challenges = Vec::with_capacity(prover_messages.len());
 

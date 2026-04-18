@@ -1,10 +1,13 @@
 use ark_ff::Field;
 use ark_std::rand::Rng;
 
-use crate::transcript::Transcript;
+use crate::transcript::{ProverTranscript, VerifierTranscript};
 
 /// Test transcript: sends are no-ops, receives return `Ok(random)`,
 /// challenges return random values from the RNG.
+///
+/// Implements both [`ProverTranscript`] and [`VerifierTranscript`] for
+/// convenience in tests that run prover + verifier with the same RNG.
 #[derive(Debug)]
 pub struct TestTranscript<'a, R> {
     pub rng: &'a mut R,
@@ -16,7 +19,21 @@ impl<'a, R> TestTranscript<'a, R> {
     }
 }
 
-impl<'a, F, R> Transcript<F> for TestTranscript<'a, R>
+impl<'a, F, R> ProverTranscript<F> for TestTranscript<'a, R>
+where
+    F: Field,
+    R: Rng,
+{
+    fn send(&mut self, _value: F) {
+        // no-op
+    }
+
+    fn challenge(&mut self) -> F {
+        F::rand(&mut self.rng)
+    }
+}
+
+impl<'a, F, R> VerifierTranscript<F> for TestTranscript<'a, R>
 where
     F: Field,
     R: Rng,
@@ -36,5 +53,4 @@ where
     }
 }
 
-// Keep the old name as a type alias for backwards compatibility.
 pub type SanityTranscript<'a, R> = TestTranscript<'a, R>;

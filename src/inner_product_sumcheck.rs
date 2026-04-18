@@ -25,7 +25,7 @@ use rayon::join;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::transcript::Transcript;
+use crate::transcript::{ProverTranscript, VerifierTranscript};
 
 /// Legacy return type for `inner_product_sumcheck`.
 #[derive(Debug, PartialEq)]
@@ -305,7 +305,7 @@ pub fn inner_product_sumcheck_partial<F, T, H>(
 ) -> ProductSumcheck<F>
 where
     F: Field,
-    T: Transcript<F>,
+    T: ProverTranscript<F>,
     H: FnMut(usize, &mut T),
 {
     assert_eq!(a.len(), b.len());
@@ -365,7 +365,7 @@ pub fn inner_product_sumcheck<F, T, H>(
 ) -> ProductSumcheck<F>
 where
     F: Field,
-    T: Transcript<F>,
+    T: ProverTranscript<F>,
     H: FnMut(usize, &mut T),
 {
     let num_rounds = if a.is_empty() {
@@ -392,7 +392,7 @@ pub fn inner_product_sumcheck_verify<F, T, H>(
 ) -> Result<Vec<F>, crate::proof::SumcheckError>
 where
     F: Field,
-    T: Transcript<F>,
+    T: VerifierTranscript<F>,
     H: FnMut(usize, &mut T) -> Result<(), crate::proof::SumcheckError>,
 {
     let mut res = Vec::with_capacity(num_rounds);

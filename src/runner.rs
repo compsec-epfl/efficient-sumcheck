@@ -12,7 +12,7 @@
 use crate::field::SumcheckField;
 use crate::proof::SumcheckProof;
 use crate::sumcheck_prover::SumcheckProver;
-use crate::transcript::Transcript;
+use crate::transcript::ProverTranscript;
 
 /// Run the sum-check protocol for `num_rounds` rounds.
 ///
@@ -32,7 +32,7 @@ pub fn sumcheck<F, T, H, P>(
 ) -> SumcheckProof<F>
 where
     F: SumcheckField,
-    T: Transcript<F>,
+    T: ProverTranscript<F>,
     H: FnMut(usize, &mut T),
     P: SumcheckProver<F>,
 {

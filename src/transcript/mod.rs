@@ -5,4 +5,4 @@ mod transcript;
 
 pub use sanity::{SanityTranscript, TestTranscript};
 pub use spongefish::SpongefishTranscript;
-pub use transcript::Transcript;
+pub use transcript::{ProverTranscript, VerifierTranscript};
