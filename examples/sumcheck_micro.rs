@@ -14,11 +14,11 @@ use std::time::Instant;
 use ark_ff::Field;
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 
-use efficient_sumcheck::provers::inner_product::InnerProductProver;
-use efficient_sumcheck::provers::multilinear::MultilinearProver;
-use efficient_sumcheck::runner::sumcheck;
-use efficient_sumcheck::tests::{F64, F64Ext2, F64Ext3};
-use efficient_sumcheck::transcript::SanityTranscript;
+use effsc::provers::inner_product::InnerProductProver;
+use effsc::provers::multilinear::MultilinearProver;
+use effsc::runner::sumcheck;
+use effsc::tests::{F64Ext2, F64Ext3, F64};
+use effsc::transcript::SanityTranscript;
 
 const SEED: u64 = 0xA110C8ED;
 

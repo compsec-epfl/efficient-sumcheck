@@ -76,13 +76,20 @@ pub trait SumcheckField:
         1
     }
 
-    /// SIMD configuration hint (crate-internal, not part of the public API).
+    /// SIMD configuration (internal dispatch hook).
     ///
-    /// Returns `Some(config)` if this field's elements can be processed by
-    /// the SIMD acceleration layer. The default returns `None` (no SIMD).
+    /// For **arkworks types**: overridden by the blanket impl to auto-detect
+    /// Goldilocks from the modulus. Const-folded by LLVM.
     ///
-    /// For Goldilocks base field: return `Some(SimdFieldConfig { modulus: 0xFFFF_FFFF_0000_0001, element_bytes: 8 })`.
-    /// For Goldilocks extensions: the base prime field's config is used.
+    /// For **non-arkworks types**: override this to return the config from
+    /// your [`SimdRepr`] implementation. Or simply implement `SimdRepr` and
+    /// override this method to call [`simd_config_from_repr`]:
+    ///
+    /// ```ignore
+    /// fn _simd_field_config() -> Option<SimdFieldConfig> {
+    ///     Some(simd_config_from_repr::<Self>())
+    /// }
+    /// ```
     #[doc(hidden)]
     #[inline(always)]
     fn _simd_field_config() -> Option<SimdFieldConfig> {
@@ -90,19 +97,103 @@ pub trait SumcheckField:
     }
 }
 
-/// SIMD field configuration hint.
+// ─── SIMD memory layout contract ────────────────────────────────────────────
+
+/// Goldilocks modulus: p = 2^64 - 2^32 + 1.
+pub const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
+
+/// Opt-in trait for SIMD acceleration.
 ///
-/// Returned by [`SumcheckField::_simd_field_config`] to tell the SIMD
-/// dispatch layer how to handle this field's elements.
-#[doc(hidden)]
+/// Implementing this trait declares that the field type's in-memory
+/// representation is compatible with the SIMD kernels: each element is
+/// `extension_degree()` consecutive `u64` values in Montgomery form.
+///
+/// # Layout safety
+///
+/// The memory layout guarantee is enforced by the **zerocopy** bounds
+/// (`IntoBytes + FromBytes + Immutable`). These are verified at compile
+/// time by zerocopy's derive macros — no `unsafe` needed from the
+/// implementor. If your type's layout doesn't support safe byte
+/// reinterpretation, the derive will fail to compile.
+///
+/// The only thing the implementor declares is the **modulus value**.
+/// A wrong modulus produces wrong arithmetic results (logic bug), not
+/// undefined behavior.
+///
+/// # Example: non-arkworks Goldilocks
+///
+/// ```ignore
+/// #[derive(Clone, Copy, Debug, PartialEq,
+///          zerocopy::IntoBytes, zerocopy::FromBytes, zerocopy::Immutable)]
+/// #[repr(transparent)]
+/// struct MyGoldilocks(u64);
+///
+/// impl SumcheckField for MyGoldilocks {
+///     // ... arithmetic ...
+///     fn _simd_field_config() -> Option<SimdFieldConfig> {
+///         Some(SimdFieldConfig { modulus: GOLDILOCKS_P, element_bytes: 8 })
+///     }
+/// }
+///
+/// impl SimdRepr for MyGoldilocks {
+///     fn modulus() -> u64 { GOLDILOCKS_P }
+/// }
+/// ```
+///
+/// # Example: Goldilocks cubic extension
+///
+/// ```ignore
+/// #[derive(Clone, Copy, Debug, PartialEq,
+///          zerocopy::IntoBytes, zerocopy::FromBytes, zerocopy::Immutable)]
+/// #[repr(transparent)]
+/// struct MyExt3([u64; 3]);
+///
+/// impl SumcheckField for MyExt3 {
+///     fn extension_degree() -> u64 { 3 }
+///     fn _simd_field_config() -> Option<SimdFieldConfig> {
+///         Some(SimdFieldConfig { modulus: GOLDILOCKS_P, element_bytes: 8 })
+///     }
+///     // ...
+/// }
+///
+/// impl SimdRepr for MyExt3 {
+///     fn modulus() -> u64 { GOLDILOCKS_P }
+/// }
+/// ```
+pub trait SimdRepr:
+    SumcheckField + zerocopy::IntoBytes + zerocopy::FromBytes + zerocopy::Immutable
+{
+    /// The base prime field modulus as a single `u64` limb.
+    ///
+    /// For the Goldilocks SIMD kernels to fire, this must equal
+    /// [`GOLDILOCKS_P`] (`0xFFFF_FFFF_0000_0001`).
+    fn modulus() -> u64;
+}
+
+/// SIMD field configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SimdFieldConfig {
-    /// The prime field modulus as a single `u64` limb.
-    /// Only meaningful when `element_bytes == 8` (single-limb field).
+    /// The base prime field modulus as a single `u64` limb.
     pub modulus: u64,
-
     /// Size of one base prime field element in bytes.
     pub element_bytes: usize,
+}
+
+/// Query SIMD configuration for a field type.
+///
+/// Returns `Some(config)` if the field's memory layout is SIMD-compatible.
+///
+/// Two paths to SIMD:
+///
+/// 1. **Arkworks types** (automatic): the `arkworks` feature detects
+///    Goldilocks from the modulus at compile time. Zero overhead.
+///
+/// 2. **Non-arkworks types** (explicit): implement [`SimdRepr`] (requires
+///    `zerocopy::IntoBytes + FromBytes + Immutable` — compiler-verified
+///    layout) and override `_simd_field_config()`.
+#[inline(always)]
+pub fn simd_config<F: SumcheckField>() -> Option<SimdFieldConfig> {
+    F::_simd_field_config()
 }
 
 /// Marker trait for cross-field (base field → extension field) sumcheck.

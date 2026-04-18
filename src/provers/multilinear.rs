@@ -101,8 +101,11 @@ mod tests {
         let mut old_evals = evals.clone();
         let mut trng = StdRng::seed_from_u64(99);
         let mut t_old = SanityTranscript::new(&mut trng);
-        let old_result =
-            crate::multilinear_sumcheck::multilinear_sumcheck(&mut old_evals, &mut t_old, |_, _| {});
+        let old_result = crate::multilinear_sumcheck::multilinear_sumcheck(
+            &mut old_evals,
+            &mut t_old,
+            |_, _| {},
+        );
 
         // New API.
         let mut prover = MultilinearProver::new(evals);
@@ -112,21 +115,18 @@ mod tests {
         let new_result = sumcheck(&mut prover, num_rounds, &mut t_new, |_, _| {});
 
         // Compare round polynomials.
-        assert_eq!(old_result.prover_messages.len(), new_result.round_polys.len());
+        assert_eq!(
+            old_result.prover_messages.len(),
+            new_result.round_polys.len()
+        );
         for (i, (old_msg, new_evals)) in old_result
             .prover_messages
             .iter()
             .zip(&new_result.round_polys)
             .enumerate()
         {
-            assert_eq!(
-                old_msg.0, new_evals[0],
-                "round {i}: s0 mismatch"
-            );
-            assert_eq!(
-                old_msg.1, new_evals[1],
-                "round {i}: s1 mismatch"
-            );
+            assert_eq!(old_msg.0, new_evals[0], "round {i}: s0 mismatch");
+            assert_eq!(old_msg.1, new_evals[1], "round {i}: s1 mismatch");
         }
 
         // Compare challenges.

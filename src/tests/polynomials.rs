@@ -84,13 +84,7 @@ impl<F: Field> Polynomial<F> for SparsePolynomial<F, SparseTerm> {
         for index in 0..total_points {
             // Convert index bits to field elements.
             let point: Vec<F> = (0..num_vars)
-                .map(|j| {
-                    if index >> j & 1 == 1 {
-                        F::ONE
-                    } else {
-                        F::ZERO
-                    }
-                })
+                .map(|j| if index >> j & 1 == 1 { F::ONE } else { F::ZERO })
                 .collect();
             let mut val = F::ZERO;
             for (coefficient, term) in self.terms().iter() {

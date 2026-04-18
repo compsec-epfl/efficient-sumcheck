@@ -176,7 +176,10 @@ mod tests {
         let new_result = sumcheck(&mut prover, num_rounds, &mut t_new, |_, _| {});
 
         // Compare round-by-round consistency.
-        assert_eq!(old_result.prover_messages.len(), new_result.round_polys.len());
+        assert_eq!(
+            old_result.prover_messages.len(),
+            new_result.round_polys.len()
+        );
         for (i, (old_msg, new_evals)) in old_result
             .prover_messages
             .iter()

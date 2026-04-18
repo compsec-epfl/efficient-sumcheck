@@ -3,9 +3,9 @@
 use ark_ff::{AdditiveGroup, Field, UniformRand};
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 
-use efficient_sumcheck::tests::F64;
-use efficient_sumcheck::transcript::{SanityTranscript, Transcript};
-use efficient_sumcheck::{inner_product_sumcheck, inner_product_sumcheck_partial, ProductSumcheck};
+use effsc::tests::F64;
+use effsc::transcript::{SanityTranscript, Transcript};
+use effsc::{inner_product_sumcheck, inner_product_sumcheck_partial, ProductSumcheck};
 
 const SEED: u64 = 0xA110C8ED;
 

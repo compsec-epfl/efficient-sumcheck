@@ -1,5 +1,5 @@
 [package]
-name = "efficient-sumcheck"
+name = "effsc"
 version = "0.0.2"
 authors = ["arkworks maintainers"]
 description = "TODO"
@@ -16,6 +16,7 @@ memmap2 = "0.9.5"
 nohash-hasher = "0.2.0"
 rayon = { version = "1.10", optional = true }
 spongefish = { git = "https://github.com/z-tech/spongefish.git", branch = "smallfp-support", features = ["ark-ff"], optional = true }
+zerocopy = { version = "0.8", features = ["derive"] }
 
 [dev-dependencies]
 criterion = "0.8"

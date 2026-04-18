@@ -6,11 +6,11 @@
 use ark_ff::{AdditiveGroup, Field, UniformRand};
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 
-use efficient_sumcheck::provers::inner_product::InnerProductProver;
-use efficient_sumcheck::provers::multilinear::MultilinearProver;
-use efficient_sumcheck::runner::sumcheck;
-use efficient_sumcheck::tests::F64;
-use efficient_sumcheck::transcript::SanityTranscript;
+use effsc::provers::inner_product::InnerProductProver;
+use effsc::provers::multilinear::MultilinearProver;
+use effsc::runner::sumcheck;
+use effsc::tests::F64;
+use effsc::transcript::SanityTranscript;
 
 const SEED: u64 = 0xDEAD_BEEF;
 
@@ -53,12 +53,7 @@ fn lagrange_eval(evals: &[F64], r: F64) -> F64 {
 }
 
 /// Verify a SumcheckProof by checking consistency equations.
-fn verify_proof(
-    claimed_sum: F64,
-    round_polys: &[Vec<F64>],
-    challenges: &[F64],
-    final_value: F64,
-) {
+fn verify_proof(claimed_sum: F64, round_polys: &[Vec<F64>], challenges: &[F64], final_value: F64) {
     let num_rounds = round_polys.len();
     assert_eq!(challenges.len(), num_rounds);
 
@@ -97,7 +92,12 @@ fn multilinear_full_roundtrip() {
     }
 
     // Verify consistency.
-    verify_proof(claimed_sum, &proof.round_polys, &proof.challenges, proof.final_value);
+    verify_proof(
+        claimed_sum,
+        &proof.round_polys,
+        &proof.challenges,
+        proof.final_value,
+    );
 
     // Final value matches independent MLE evaluation.
     assert_eq!(proof.final_value, mle_eval(&evals, &proof.challenges));
@@ -202,7 +202,12 @@ fn inner_product_full_roundtrip() {
     }
 
     // Verify consistency.
-    verify_proof(claimed_sum, &proof.round_polys, &proof.challenges, proof.final_value);
+    verify_proof(
+        claimed_sum,
+        &proof.round_polys,
+        &proof.challenges,
+        proof.final_value,
+    );
 
     // Final value == f(r) * g(r).
     let (fa, fb) = prover.final_evaluations();

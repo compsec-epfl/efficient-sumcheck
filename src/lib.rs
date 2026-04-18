@@ -1,17 +1,17 @@
-//! # efficient-sumcheck
+//! # effsc
 //!
 //! Sumcheck protocol (Thaler Proposition 4.1) with SIMD acceleration.
 //!
 //! ## Quick Start
 //!
 //! ```text
-//! use efficient_sumcheck::field::SumcheckField;
-//! use efficient_sumcheck::sumcheck_prover::SumcheckProver;
-//! use efficient_sumcheck::runner::sumcheck;
-//! use efficient_sumcheck::verifier::sumcheck_verify;
-//! use efficient_sumcheck::provers::multilinear::MultilinearProver;
-//! use efficient_sumcheck::provers::inner_product::InnerProductProver;
-//! use efficient_sumcheck::fold;
+//! use effsc::field::SumcheckField;
+//! use effsc::sumcheck_prover::SumcheckProver;
+//! use effsc::runner::sumcheck;
+//! use effsc::verifier::sumcheck_verify;
+//! use effsc::provers::multilinear::MultilinearProver;
+//! use effsc::provers::inner_product::InnerProductProver;
+//! use effsc::fold;
 //! ```
 //!
 //! The library is generic over any type implementing [`SumcheckField`](field::SumcheckField).
@@ -35,11 +35,18 @@ pub mod proof;
 
 // ─── New canonical API (Thaler §4.1) ────────────────────────────────────────
 
-pub mod sumcheck_prover;
-pub mod runner;
-pub mod verifier;
 pub mod fold;
 pub mod provers;
+pub mod runner;
+pub mod sumcheck_prover;
+pub mod verifier;
+
+/// No-op per-round hook. Pass to `sumcheck()` when no hook is needed.
+///
+/// ```ignore
+/// let proof = sumcheck(&mut prover, n, &mut t, no_hook);
+/// ```
+pub fn no_hook<T>(_round: usize, _transcript: &mut T) {}
 
 // ─── Primary API (legacy, to be replaced by the above) ─────────────────────
 

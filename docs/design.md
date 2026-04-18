@@ -88,31 +88,120 @@ The prover is passed as `&mut P` to the protocol runner. After sumcheck
 completes, the caller retains ownership and can query prover-specific
 post-state (e.g., for GKR: the two claimed W values at b* and c*).
 
-## 4. Three prover strategies
+## 4. Prover strategies and streaming
 
-Per Thaler &sect;4.4.3 and our prior work (CTY11, VSBW13, CFFZ24, BCFFMMZ25):
+### Two axes: space strategy and variable ordering
 
-| Strategy | Space     | Total time   | Input        | Ref                     |
-|----------|-----------|--------------|--------------|-------------------------|
-| Time     | O(2^v)   | O(2^v)       | Vec\<F\>     | VSBW13, Lemma 4.3       |
-| Space    | O(v)     | O(v * 2^v)   | Stream\<F\>  | CTY11                   |
-| Blendy   | O(2^k)   | O(2^v)       | Stream\<F\>  | CFFZ24, BCFFMMZ25       |
+The prover has two independent design choices:
 
-All three implement `SumcheckProver<F>`. The difference is internal:
+1. **Space strategy** &mdash; how much memory to budget:
+   - *Time*: O(2^v) space, O(2^v) total time. Holds all evaluations.
+   - *Blendy*: O(2^k) space, O(2^v) total time (k &lt; v). Partitions
+     variables into stages of size k, recomputes per stage.
+   - *Space*: O(v) space, O(v &middot; 2^v) total time. Academic only.
+
+2. **Variable ordering** &mdash; which variable to fold each round:
+   - *MSB* (half-split): fold the topmost variable. Pairs `(v[k], v[k+L/2])`.
+     Best for in-memory and random-access-streaming workloads.
+   - *LSB* (pair-split): fold the bottommost variable. Pairs `(v[2k], v[2k+1])`.
+     Best for sequential-streaming workloads where data arrives incrementally.
+
+These choices are orthogonal: you can use blendy with MSB ordering (large
+witness on SSD) or blendy with LSB ordering (Jolt CPU trace).
+
+### Streaming taxonomy
+
+The choice of variable ordering depends on how data is available:
+
+| Scenario | Data availability | Access | Best ordering | Strategy |
+|----------|-------------------|--------|---------------|----------|
+| In-memory | Full table in RAM | Random | MSB | Time |
+| Random-access stream | Exists on disk, too big for RAM | Seekable | MSB | Blendy |
+| Sequential stream | Generated incrementally | Forward-only | LSB | Blendy |
+
+**Random-access streaming** (e.g., large witness mmap'd from SSD): the data
+exists but doesn't fit in RAM. MSB ordering has better cache behavior because
+it reads two contiguous half-table regions; the blendy working set fits in
+cache while the full table is paged in as needed.
+
+**Sequential streaming** (e.g., Jolt CPU trace): evaluations are computed
+on-the-fly and arrive in index order (0, 1, 2, ...). LSB ordering is optimal
+because adjacent pairs `(f[2k], f[2k+1])` are immediately available &mdash;
+the prover can begin folding before the full table exists.
+
+In both streaming cases, blendy is used because the full table doesn't fit
+in the working set. Blendy is the *space strategy*; MSB vs LSB is the
+*traversal order*. They are independent.
+
+### Blendy stage scheduling
+
+Standard blendy (CFFZ24) partitions v variables into stages of fixed size k,
+recomputing the partial-sum table once per stage. The optimal k depends on
+the ratio of cache sizes to element size.
+
+Jolt's `HalfSplitSchedule` (based on BCFFMMZ25, eprint 2025/1473) takes a
+different approach: **cost-model-driven, non-uniform window sizes**.
+
+For a degree-d sumcheck, the cost of processing a window of w variables
+starting at round i is `(d+1)^w / 2^(w+i) * T` where T is the trace
+length. Setting cost ~ 1 gives optimal window size:
+
+```
+w(i) = round(ratio * i)    where ratio = ln(2) / ln((d+1)/2)
+```
+
+This produces growing windows: early rounds use small windows (the
+hypercube is large), later rounds use larger windows (the residual sum is
+small). For degree 2, the windows grow as 1, 2, 5, 14, ...
+
+| Degree | Ratio | Example window sequence |
+|--------|-------|------------------------|
+| 2 | 1.71 | 1, 2, 5, 14, ... |
+| 3 | 1.00 | 1, 1, 2, 3, 4, ... |
+| 4 | 0.76 | 1, 1, 1, 2, 2, 3, ... |
+
+The schedule is parameterized by a `StreamingSchedule` trait, not a fixed
+constant:
+
+```rust
+pub trait StreamingSchedule {
+    fn num_rounds(&self) -> usize;
+    fn switch_over_point(&self) -> usize;
+    fn is_window_start(&self, round: usize) -> bool;
+    fn num_unbound_vars(&self, round: usize) -> usize;
+}
+```
+
+This allows tuning per deployment target and polynomial degree.
+
+### Strategies table
+
+Per Thaler &sect;4.4.3 and prior work (CTY11, VSBW13, CFFZ24, BCFFMMZ25):
+
+| Strategy | Space     | Total time   | Input        | Ordering | Ref              |
+|----------|-----------|--------------|--------------|----------|------------------|
+| Time     | O(2^v)   | O(2^v)       | Vec\<F\>     | MSB      | VSBW13           |
+| Blendy   | O(2^k)   | O(2^v)       | Stream\<F\>  | MSB or LSB | CFFZ24, BCFFMMZ25 |
+| Space    | O(v)     | O(v * 2^v)   | Stream\<F\>  | MSB or LSB | CTY11            |
+
+All implement `SumcheckProver<F>`. The difference is internal:
 how `round()` computes the polynomial from the data.
 
 ### Construction
 
 ```rust
-impl<F: Field> MultilinearProver<F> {
-    /// Time prover: O(2^v) space, O(2^v) total time.
+// In-memory (MSB, time strategy).
+impl<F: SumcheckField> MultilinearProver<F> {
     pub fn new(evals: Vec<F>) -> Self;
+}
 
-    /// Space prover: O(v) space, O(v * 2^v) total time.
-    pub fn from_stream<S: Stream<F>>(stream: S) -> Self;
+// Streaming (LSB or MSB, blendy strategy).
+impl<F: SumcheckField> StreamingMultilinearProver<F> {
+    /// Random-access stream, MSB ordering. Best for mmap'd data.
+    pub fn new_msb<S: Stream<F>>(stream: S, k: usize) -> Self;
 
-    /// Blendy prover: O(2^k) space, O(2^v) total time (k < v).
-    pub fn blended<S: Stream<F>>(stream: S, k: usize) -> Self;
+    /// Sequential stream, LSB ordering. Best for incremental data (Jolt).
+    pub fn new_lsb<S: Stream<F>>(stream: S, k: usize) -> Self;
 }
 ```
 
@@ -179,6 +268,38 @@ p(x_1, ..., x_l) = x_1 * p(1, x_2, ..., x_l) + (1 - x_1) * p(0, x_2, ..., x_l)
 ```
 
 where `p(1, ...)` is the upper half and `p(0, ...)` is the lower half.
+
+### SIMD opt-in for non-arkworks types (`SimdRepr`)
+
+Non-arkworks Goldilocks implementations opt into SIMD via the `SimdRepr`
+trait, whose memory layout guarantee is enforced at compile time by
+`zerocopy`:
+
+```rust
+pub trait SimdRepr:
+    SumcheckField + zerocopy::IntoBytes + zerocopy::FromBytes + zerocopy::Immutable
+{
+    fn modulus() -> u64;
+}
+```
+
+The zerocopy bounds verify at derive time that the type supports safe byte
+reinterpretation. No `unsafe` needed from the implementor. A wrong
+`modulus()` produces wrong arithmetic (logic bug), not UB.
+
+```rust
+#[derive(zerocopy::IntoBytes, zerocopy::FromBytes, zerocopy::Immutable)]
+#[repr(transparent)]
+struct JoltGoldilocks(u64);
+
+impl SimdRepr for JoltGoldilocks {
+    fn modulus() -> u64 { GOLDILOCKS_P }
+}
+```
+
+Arkworks types bypass `SimdRepr` &mdash; the blanket `SumcheckField` impl
+auto-detects Goldilocks from `BasePrimeField::MODULUS` and the detection
+is const-folded by LLVM.
 
 ## 7. The protocol runner
 
@@ -369,7 +490,71 @@ Key requirements satisfied:
 - **Post-state**: prover retains folded vectors after partial execution.
 - **MSB fold**: `fold()` used independently for WHIR's `multilinear_fold`.
 
-## 12. Advanced optimizations (Bagad-Dao-Domb-Thaler, ePrint 2025/1117)
+## 12. Jolt integration
+
+Jolt (a16z/jolt) uses its own `SumcheckInstanceProver` trait, which
+splits the round into two calls:
+
+```rust
+// Jolt's trait (simplified)
+trait SumcheckInstanceProver<F, T> {
+    fn compute_message(&mut self, round: usize, previous_claim: F) -> UniPoly<F>;
+    fn ingest_challenge(&mut self, r_j: F::Challenge, round: usize);
+    fn finalize(&mut self);
+}
+```
+
+Our `SumcheckProver::round(challenge)` merges fold and compute into one
+call. An adapter in Jolt's codebase bridges the two:
+
+```rust
+struct Adapter<P: SumcheckProver<F>> {
+    inner: P,
+    pending: Option<F>,
+}
+
+impl SumcheckInstanceProver<F, T> for Adapter<P> {
+    fn compute_message(&mut self, _round: usize, _claim: F) -> UniPoly<F> {
+        let c = self.pending.take();
+        UniPoly::from_evals(&self.inner.round(c))
+    }
+    fn ingest_challenge(&mut self, r_j: F::Challenge, _round: usize) {
+        self.pending = Some(r_j.into());
+    }
+    fn finalize(&mut self) {
+        if let Some(c) = self.pending.take() {
+            self.inner.finalize(c);
+        }
+    }
+}
+```
+
+### Key compatibility points
+
+- **Variable ordering**: Jolt defaults to LSB (`BindingOrder::LowToHigh`).
+  Use `MultilinearProverLSB` for this path. Spartan outer sumcheck uses
+  MSB (`HighToLow`) &mdash; use `MultilinearProver`.
+
+- **Challenge type**: Jolt uses a narrow 128-bit `F::Challenge` type for
+  performance. The adapter converts via `Into<F>` at the boundary.
+
+- **Return type**: Jolt expects `UniPoly<F>` (coefficients). Our trait
+  returns evaluations at {0, 1, ..., d}. Convert via interpolation or
+  have the prover return coefficients directly.
+
+- **Batching**: Jolt's `BatchedSumcheck::prove` combines multiple instances
+  with random linear combinations. The orchestrator handles batching &mdash;
+  each instance just implements `SumcheckInstanceProver`.
+
+- **Streaming schedule**: Jolt's `HalfSplitSchedule` (BCFFMMZ25) uses
+  cost-model-driven window sizes. Our blendy implementation can adopt the
+  same `StreamingSchedule` trait for stage sizing.
+
+The adapter lives in Jolt's repository (or a thin integration crate), not
+in this library. Our responsibility is keeping the trait surface clean
+enough that the adapter is trivial.
+
+## 13. Advanced optimizations (Bagad-Dao-Domb-Thaler, ePrint 2025/1117)
 
 The `SumcheckProver` trait cleanly separates *what the protocol sends*
 (round polynomials, final evaluation) from *how the prover computes them*.
@@ -470,7 +655,7 @@ transcript, verifier) stays fixed; everything below it (prover strategy,
 SIMD kernels, table layout, multiplication tricks) is implementation
 freedom.
 
-## 13. What is NOT in scope
+## 14. What is NOT in scope
 
 - **Generic IP trait**: sumcheck is a specific protocol, not an instance
   of a generic framework. The `Transcript` trait already captures the
@@ -488,7 +673,7 @@ freedom.
 - **Reduce-to-one**: a separate composable sub-protocol (&sect;4.5.2),
   not part of sumcheck itself.
 
-## 14. Migration from current API
+## 15. Migration from current API
 
 | Current                                   | New                                            |
 |-------------------------------------------|------------------------------------------------|
@@ -506,7 +691,7 @@ The `Sumcheck` and `ProductSumcheck` return types unify into one
 `ProductSumcheck` becomes a prover-specific accessor on
 `InnerProductProver` post-state.
 
-## 15. Benchmarking
+## 16. Benchmarking
 
 ### Three benchmark layers
 
@@ -560,7 +745,7 @@ fold × {F64, F64Ext3} × {2^16, 2^20, 2^24}
 
 ~20 benchmark points, ~5 minutes on AVX-512 hardware.
 
-## 16. Summary
+## 17. Summary
 
 The design follows Thaler's formalization exactly:
 

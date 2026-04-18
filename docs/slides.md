@@ -42,7 +42,7 @@ The library grew to **10,800 LOC** through incremental SIMD + WHIR integration.
 - 3 separate protocol runners (multilinear, inner-product, coefficient)
 - 4 order strategies (ascending, descending, graycode, MSB)
 - Old `Prover` trait with 6 associated types
-- SIMD dispatch graph not wired to the new MSB entry points (~2,000 lines unused)
+- SIMD dispatch graph (benchmarked at 2-6x speedup) superseded by fused MSB kernels
 - Duplicate `_with_hook` entry points
 
 **The code was correct. The architecture was not.**
@@ -224,11 +224,22 @@ Goldilocks field (p = 2^64 - 2^32 + 1):
 | NEON | 2-wide | aarch64 (Apple M-series, Graviton) |
 | AVX-512 IFMA | 8-wide | x86_64 (Sapphire Rapids) |
 
-Detection via `SumcheckField::_simd_field_config()`:
-- Returns `Some(SimdFieldConfig { modulus, element_bytes })` for Goldilocks
-- Returns `None` for everything else
-- LLVM const-folds the branch after monomorphization
-- **Zero overhead on non-Goldilocks fields**
+Two paths to SIMD:
+
+**Arkworks** (automatic): blanket impl detects Goldilocks from modulus.
+LLVM const-folds the branch. Zero overhead on non-Goldilocks.
+
+**Non-arkworks** (explicit): implement `SimdRepr` with `zerocopy` bounds:
+
+```rust
+pub trait SimdRepr:
+    SumcheckField + zerocopy::IntoBytes + zerocopy::FromBytes
+{
+    fn modulus() -> u64;  // GOLDILOCKS_P for SIMD
+}
+```
+
+Layout safety is **compiler-verified** via zerocopy derives. No `unsafe`.
 
 ---
 
@@ -319,23 +330,112 @@ Composable building blocks, not monolithic protocols.
 
 ---
 
-## Slide 16: Three Prover Strategies
+## Slide 16: Two Orthogonal Axes
 
-| Strategy | Space | Time | Input | Status |
-|----------|-------|------|-------|--------|
-| Time | O(2^v) | O(2^v) | Vec | Implemented |
-| Space | O(v) | O(v * 2^v) | Stream | Framework ready |
-| Blendy | O(2^k) | O(2^v) | Stream | Deferred (LSB investigation) |
+Prover design has two independent choices:
 
-**Blendy note:** Jolt found LSB ordering optimal for Lagrange polynomial
-updates. Investigating whether internal LSB traversal can be decoupled
-from the MSB round ordering before implementing.
+**Space strategy** -- how much memory to budget:
+- Time: O(2^v) -- hold all evaluations
+- Blendy: O(2^k) -- partition into stages, recompute per stage
+- Space: O(v) -- recompute everything (academic only)
 
-All three produce identical round polynomials.
+**Variable ordering** -- which variable to fold each round:
+- MSB (half-split): pairs `(v[k], v[k+L/2])` -- in-memory and seekable streams
+- LSB (pair-split): pairs `(v[2k], v[2k+1])` -- sequential/incremental streams
+
+These are orthogonal. Blendy + MSB and Blendy + LSB are both valid.
 
 ---
 
-## Slide 17: Advanced Optimizations Fit the Trait
+## Slide 17: Streaming Taxonomy
+
+| Scenario | Data | Access | Ordering | Example |
+|----------|------|--------|----------|---------|
+| In-memory | Full table in RAM | Random | MSB | WHIR |
+| Random-access stream | On disk, too big for RAM | Seekable | MSB | Large witness (mmap) |
+| Sequential stream | Generated incrementally | Forward-only | LSB | Jolt CPU trace |
+
+**Random-access** (mmap'd SSD): data exists but doesn't fit in RAM.
+MSB reads two contiguous half-table regions -- good cache behavior.
+
+**Sequential** (Jolt trace): evaluations arrive in index order.
+LSB pairs `(f[2k], f[2k+1])` are immediately available --
+folding begins before the full table exists.
+
+Both streaming cases use blendy. The ordering choice depends on the data source.
+
+---
+
+## Slide 18: Blendy Stage Scheduling (BCFFMMZ25)
+
+Jolt's `HalfSplitSchedule` uses **cost-model-driven, non-uniform windows**:
+
+```
+w(i) = round(ratio * i)    where ratio = ln(2) / ln((d+1)/2)
+```
+
+Windows grow with round number: early rounds (large hypercube) get small
+windows; later rounds (small residual) get large windows.
+
+| Degree | Ratio | Window sequence |
+|--------|-------|-----------------|
+| 2 | 1.71 | 1, 2, 5, 14, ... |
+| 3 | 1.00 | 1, 1, 2, 3, 4, ... |
+| 4 | 0.76 | 1, 1, 1, 2, 2, 3, ... |
+
+**Two-phase structure:**
+1. Streaming phase (first half): cost-optimal windows, one trace pass per window
+2. Linear phase (second half): materialized mode, every round is its own window
+
+Parameterized by `StreamingSchedule` trait -- not a fixed constant.
+
+Based on BCFFMMZ25 (eprint 2025/1473): O(kN) time, O(N^{1/k}) space.
+
+---
+
+## Slide 19: Jolt Compatibility
+
+Jolt's `SumcheckInstanceProver` trait:
+
+```rust
+fn compute_message(&mut self, round: usize, claim: F) -> UniPoly<F>;
+fn ingest_challenge(&mut self, r_j: F::Challenge, round: usize);
+fn finalize(&mut self);
+```
+
+Our `SumcheckProver` maps cleanly via adapter:
+
+```rust
+fn compute_message(&mut self, round: usize, _claim: F) -> UniPoly<F> {
+    let challenge = self.pending.take().map(Into::into);
+    UniPoly::from_evals(&self.inner.round(challenge))
+}
+fn ingest_challenge(&mut self, r_j: F::Challenge, _round: usize) {
+    self.pending = Some(r_j);
+}
+```
+
+LSB multilinear prover + this adapter = drop-in replacement for Jolt.
+
+---
+
+## Slide 20: What We Deleted
+
+| Module | LOC | Why |
+|--------|-----|-----|
+| multilinear/provers/ | 1,190 | Old Prover trait scaffolding |
+| multilinear_product/provers/ | 1,175 | Same |
+| order_strategy/ | 315 | 4 strategies -> MSB only |
+| SIMD dispatch (product paths) | ~500 | Superseded by fused MSB kernels |
+| messages/, interpolation/ | 327 | Unused / graycode-coupled |
+| Old test harness | ~800 | Legacy prover tests |
+| prover/core.rs | 24 | Old trait definition |
+
+**Total: 4,518 lines deleted across 86 files.**
+
+---
+
+## Slide 21: Advanced Optimizations Fit the Trait
 
 From Bagad-Dao-Domb-Thaler (ePrint 2025/1117):
 
@@ -354,25 +454,7 @@ Each optimization is a different `SumcheckProver` implementation.
 
 ---
 
-## Slide 18: What We Deleted
-
-| Module | LOC | Why |
-|--------|-----|-----|
-| multilinear/provers/ | 1,190 | Old Prover trait scaffolding |
-| multilinear_product/provers/ | 1,175 | Same |
-| order_strategy/ | 315 | 4 strategies -> MSB only |
-| messages/ | 130 | Unused |
-| interpolation/ | 197 | Graycode-coupled (blendy dependency) |
-| tests/multilinear/ | ~400 | Old test harness |
-| tests/multilinear_product/ | ~400 | Same |
-| prover/core.rs | 24 | Old trait definition |
-| Various dead SIMD code | ~500 | Orphaned dispatch paths |
-
-**Total: 4,518 lines deleted across 86 files.**
-
----
-
-## Slide 19: Feature Gate Architecture
+## Slide 22: Feature Gate Architecture
 
 ```toml
 [features]
@@ -390,7 +472,7 @@ parallel = ["rayon", "ark-ff?/parallel", ...]
 
 ---
 
-## Slide 20: Benchmarking Strategy
+## Slide 23: Benchmarking Strategy
 
 ### Layer 1: Kernel Throughput
 - fold elements/sec vs memory bandwidth ceiling
@@ -408,7 +490,7 @@ parallel = ["rayon", "ark-ff?/parallel", ...]
 
 ---
 
-## Slide 21: CI Benchmark Infrastructure
+## Slide 24: CI Benchmark Infrastructure
 
 ```yaml
 # .github/workflows/bench.yml
@@ -433,7 +515,7 @@ parallel = ["rayon", "ark-ff?/parallel", ...]
 
 ---
 
-## Slide 22: Current Benchmark Matrix
+## Slide 25: Current Benchmark Matrix
 
 18 benchmark points across 6 groups:
 
@@ -451,7 +533,7 @@ Criterion harness with `Throughput::Elements(n)` annotations.
 
 ---
 
-## Slide 23: Migration Table
+## Slide 26: Migration Table
 
 | Old | New |
 |-----|-----|
@@ -464,7 +546,7 @@ Criterion harness with `Throughput::Elements(n)` annotations.
 
 ---
 
-## Slide 24: What's NOT in Scope
+## Slide 27: What's NOT in Scope
 
 Explicit non-goals (from Thaler's framing):
 
@@ -477,7 +559,7 @@ These can be added later without changing the core trait or runner.
 
 ---
 
-## Slide 25: Design Principles
+## Slide 28: Design Principles
 
 1. **One protocol, one trait, many implementations.**
    Three polynomial shapes are three `SumcheckProver` impls, not three runners.
@@ -497,20 +579,23 @@ These can be added later without changing the core trait or runner.
 
 ---
 
-## Slide 26: Next Steps
+## Slide 29: Next Steps
 
 | Item | Status | Notes |
 |------|--------|-------|
 | CoefficientProver | Deferred | Port from coefficient_sumcheck.rs |
 | Blendy prover | Deferred | Pending LSB vs MSB investigation (Jolt) |
 | Port utilities to SumcheckField | Pending | eq_evals, poly_ops, streams |
+| LSB multilinear prover | In progress | Sequential streaming (Jolt) |
+| Jolt adapter | In progress | Drop-in `SumcheckInstanceProver` impl |
+| StreamingSchedule trait | Investigating | Cost-model windows (BCFFMMZ25) |
 | Self-hosted CI runner | Pending | EC2 Sapphire Rapids for AVX-512 |
 | WHIR integration test | Pending | Point WHIR at rewrite branch |
 | README update | Pending | New API docs + examples |
 
 ---
 
-## Slide 27: Summary
+## Slide 30: Summary
 
 **The sum-check protocol is one protocol.**
 

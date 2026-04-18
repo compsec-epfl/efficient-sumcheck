@@ -8,27 +8,30 @@
 
 use ark_ff::UniformRand;
 use ark_std::{hint::black_box, time::Duration};
-use criterion::{
-    criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
-use efficient_sumcheck::provers::inner_product::InnerProductProver;
-use efficient_sumcheck::provers::multilinear::MultilinearProver;
-use efficient_sumcheck::runner::sumcheck;
-use efficient_sumcheck::tests::{F64, F64Ext3};
-use efficient_sumcheck::transcript::SanityTranscript;
+use effsc::provers::inner_product::InnerProductProver;
+use effsc::provers::multilinear::MultilinearProver;
+use effsc::runner::sumcheck;
+use effsc::tests::{F64Ext3, F64};
+use effsc::transcript::SanityTranscript;
 
 const SIZES: [usize; 3] = [16, 20, 24];
 
 fn multilinear_f64(c: &mut Criterion) {
     let mut g = c.benchmark_group("multilinear/F64");
-    g.sample_size(10).warm_up_time(Duration::from_secs(1)).measurement_time(Duration::from_secs(5));
+    g.sample_size(10)
+        .warm_up_time(Duration::from_secs(1))
+        .measurement_time(Duration::from_secs(5));
     for nv in SIZES {
         let n = 1usize << nv;
         g.throughput(Throughput::Elements(n as u64));
         g.bench_function(BenchmarkId::from_parameter(format!("2^{nv}")), |b| {
             b.iter_with_setup(
-                || { let mut rng = ark_std::test_rng(); (0..n).map(|_| F64::rand(&mut rng)).collect::<Vec<_>>() },
+                || {
+                    let mut rng = ark_std::test_rng();
+                    (0..n).map(|_| F64::rand(&mut rng)).collect::<Vec<_>>()
+                },
                 |evals| {
                     let mut p = MultilinearProver::new(evals);
                     let mut rng = ark_std::test_rng();
@@ -43,13 +46,18 @@ fn multilinear_f64(c: &mut Criterion) {
 
 fn multilinear_ext3(c: &mut Criterion) {
     let mut g = c.benchmark_group("multilinear/F64Ext3");
-    g.sample_size(10).warm_up_time(Duration::from_secs(1)).measurement_time(Duration::from_secs(5));
+    g.sample_size(10)
+        .warm_up_time(Duration::from_secs(1))
+        .measurement_time(Duration::from_secs(5));
     for nv in SIZES {
         let n = 1usize << nv;
         g.throughput(Throughput::Elements(n as u64));
         g.bench_function(BenchmarkId::from_parameter(format!("2^{nv}")), |b| {
             b.iter_with_setup(
-                || { let mut rng = ark_std::test_rng(); (0..n).map(|_| F64Ext3::rand(&mut rng)).collect::<Vec<_>>() },
+                || {
+                    let mut rng = ark_std::test_rng();
+                    (0..n).map(|_| F64Ext3::rand(&mut rng)).collect::<Vec<_>>()
+                },
                 |evals| {
                     let mut p = MultilinearProver::new(evals);
                     let mut rng = ark_std::test_rng();
@@ -64,7 +72,9 @@ fn multilinear_ext3(c: &mut Criterion) {
 
 fn inner_product_f64(c: &mut Criterion) {
     let mut g = c.benchmark_group("inner_product/F64");
-    g.sample_size(10).warm_up_time(Duration::from_secs(1)).measurement_time(Duration::from_secs(5));
+    g.sample_size(10)
+        .warm_up_time(Duration::from_secs(1))
+        .measurement_time(Duration::from_secs(5));
     for nv in SIZES {
         let n = 1usize << nv;
         g.throughput(Throughput::Elements(n as u64));
@@ -90,7 +100,9 @@ fn inner_product_f64(c: &mut Criterion) {
 
 fn inner_product_ext3(c: &mut Criterion) {
     let mut g = c.benchmark_group("inner_product/F64Ext3");
-    g.sample_size(10).warm_up_time(Duration::from_secs(1)).measurement_time(Duration::from_secs(5));
+    g.sample_size(10)
+        .warm_up_time(Duration::from_secs(1))
+        .measurement_time(Duration::from_secs(5));
     for nv in SIZES {
         let n = 1usize << nv;
         g.throughput(Throughput::Elements(n as u64));
@@ -116,7 +128,9 @@ fn inner_product_ext3(c: &mut Criterion) {
 
 fn fold_f64(c: &mut Criterion) {
     let mut g = c.benchmark_group("fold/F64");
-    g.sample_size(10).warm_up_time(Duration::from_secs(1)).measurement_time(Duration::from_secs(5));
+    g.sample_size(10)
+        .warm_up_time(Duration::from_secs(1))
+        .measurement_time(Duration::from_secs(5));
     for nv in SIZES {
         let n = 1usize << nv;
         g.throughput(Throughput::Elements(n as u64));
@@ -129,7 +143,7 @@ fn fold_f64(c: &mut Criterion) {
                     (evals, w)
                 },
                 |(mut evals, w)| {
-                    efficient_sumcheck::fold(&mut evals, w);
+                    effsc::fold(&mut evals, w);
                     black_box(evals);
                 },
             );
@@ -140,7 +154,9 @@ fn fold_f64(c: &mut Criterion) {
 
 fn fold_ext3(c: &mut Criterion) {
     let mut g = c.benchmark_group("fold/F64Ext3");
-    g.sample_size(10).warm_up_time(Duration::from_secs(1)).measurement_time(Duration::from_secs(5));
+    g.sample_size(10)
+        .warm_up_time(Duration::from_secs(1))
+        .measurement_time(Duration::from_secs(5));
     for nv in SIZES {
         let n = 1usize << nv;
         g.throughput(Throughput::Elements(n as u64));
@@ -153,7 +169,7 @@ fn fold_ext3(c: &mut Criterion) {
                     (evals, w)
                 },
                 |(mut evals, w)| {
-                    efficient_sumcheck::fold(&mut evals, w);
+                    effsc::fold(&mut evals, w);
                     black_box(evals);
                 },
             );
