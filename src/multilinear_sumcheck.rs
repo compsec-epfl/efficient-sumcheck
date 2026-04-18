@@ -326,34 +326,50 @@ where
 // ─── Verifier ───────────────────────────────────────────────────────────────
 
 /// Verifier side. Reads `(s0, s1)` per round, checks `s0 + s1 == *sum`,
-/// invokes `hook(round, transcript)`, reads the challenge, and updates
-/// `*sum = s0 + r·(s1 − s0)`. Returns the sampled challenges.
-///
-/// Panics if the consistency check fails.
+/// invokes `hook(round, transcript)?`, reads the challenge, and updates
+/// `*sum = s0 + r·(s1 − s0)`. Returns the sampled challenges on success.
 pub fn multilinear_sumcheck_verify<F, T, H>(
     transcript: &mut T,
     sum: &mut F,
     num_rounds: usize,
     mut hook: H,
-) -> Vec<F>
+) -> Result<Vec<F>, crate::proof::SumcheckError>
 where
     F: Field,
     T: Transcript<F>,
-    H: FnMut(usize, &mut T),
+    H: FnMut(usize, &mut T) -> Result<(), crate::proof::SumcheckError>,
 {
     let mut res = Vec::with_capacity(num_rounds);
     for round in 0..num_rounds {
-        let s0: F = transcript.receive().expect("transcript read failed");
-        let s1: F = transcript.receive().expect("transcript read failed");
-        assert_eq!(s0 + s1, *sum, "sumcheck round {round} consistency");
+        let s0: F =
+            transcript
+                .receive()
+                .map_err(|e| crate::proof::SumcheckError::TranscriptError {
+                    round,
+                    detail: format!("{:?}", e),
+                })?;
+        let s1: F =
+            transcript
+                .receive()
+                .map_err(|e| crate::proof::SumcheckError::TranscriptError {
+                    round,
+                    detail: format!("{:?}", e),
+                })?;
+        if s0 + s1 != *sum {
+            return Err(crate::proof::SumcheckError::ConsistencyCheck {
+                round,
+                expected: format!("{:?}", *sum),
+                got: format!("{:?}", s0 + s1),
+            });
+        }
 
-        hook(round, transcript);
+        hook(round, transcript)?;
 
         let r = transcript.challenge();
         res.push(r);
         *sum = s0 + r * (s1 - s0);
     }
-    res
+    Ok(res)
 }
 
 // Tests live in `tests/multilinear_sumcheck.rs` (integration target).

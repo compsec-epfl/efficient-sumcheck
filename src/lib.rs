@@ -41,12 +41,24 @@ pub mod runner;
 pub mod sumcheck_prover;
 pub mod verifier;
 
-/// No-op per-round hook. Pass to `sumcheck()` when no hook is needed.
+/// No-op per-round hook for the prover. Pass to `sumcheck()` when no hook is needed.
 ///
 /// ```ignore
 /// let proof = sumcheck(&mut prover, n, &mut t, no_hook);
 /// ```
 pub fn no_hook<T>(_round: usize, _transcript: &mut T) {}
+
+/// No-op per-round hook for the verifier. Pass to `sumcheck_verify()` when no hook is needed.
+///
+/// ```ignore
+/// let result = sumcheck_verify(sum, deg, n, &mut t, no_hook_verify);
+/// ```
+pub fn no_hook_verify<T>(
+    _round: usize,
+    _transcript: &mut T,
+) -> Result<(), crate::proof::SumcheckError> {
+    Ok(())
+}
 
 // ─── Primary API (legacy, to be replaced by the above) ─────────────────────
 

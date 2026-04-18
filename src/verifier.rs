@@ -34,7 +34,7 @@ pub fn sumcheck_verify<F, T, H>(
 where
     F: SumcheckField,
     T: Transcript<F>,
-    H: FnMut(usize, &mut T),
+    H: FnMut(usize, &mut T) -> Result<(), SumcheckError>,
 {
     let mut claim = claimed_sum;
     let mut challenges = Vec::with_capacity(num_rounds);
@@ -63,16 +63,14 @@ where
             });
         }
 
-        // Per-round hook.
-        hook(round, transcript);
+        // Per-round hook (e.g., PoW verification for WHIR).
+        hook(round, transcript)?;
 
         // Squeeze verifier challenge.
         let r = transcript.challenge();
         challenges.push(r);
 
-        // Update claim: g_j(r_j) via Horner's method.
-        // evals = [g(0), g(1), ..., g(d)]
-        // We need to interpolate and evaluate at r.
+        // Update claim: g_j(r_j) via Lagrange interpolation.
         claim = evaluate_from_evals(&evals, r);
     }
 

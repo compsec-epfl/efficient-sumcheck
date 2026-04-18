@@ -389,25 +389,37 @@ pub fn inner_product_sumcheck_verify<F, T, H>(
     sum: &mut F,
     num_rounds: usize,
     mut hook: H,
-) -> Vec<F>
+) -> Result<Vec<F>, crate::proof::SumcheckError>
 where
     F: Field,
     T: Transcript<F>,
-    H: FnMut(usize, &mut T),
+    H: FnMut(usize, &mut T) -> Result<(), crate::proof::SumcheckError>,
 {
     let mut res = Vec::with_capacity(num_rounds);
     for round in 0..num_rounds {
-        let c0: F = transcript.receive().expect("transcript read failed");
-        let c2: F = transcript.receive().expect("transcript read failed");
+        let c0: F =
+            transcript
+                .receive()
+                .map_err(|e| crate::proof::SumcheckError::TranscriptError {
+                    round,
+                    detail: format!("{:?}", e),
+                })?;
+        let c2: F =
+            transcript
+                .receive()
+                .map_err(|e| crate::proof::SumcheckError::TranscriptError {
+                    round,
+                    detail: format!("{:?}", e),
+                })?;
         let c1 = *sum - c0.double() - c2;
 
-        hook(round, transcript);
+        hook(round, transcript)?;
 
         let r = transcript.challenge();
         res.push(r);
         *sum = (c2 * r + c1) * r + c0;
     }
-    res
+    Ok(res)
 }
 
 // Tests live in `tests/inner_product_sumcheck.rs` (integration target) —
