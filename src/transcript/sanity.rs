@@ -40,10 +40,6 @@ where
 {
     type Error = core::convert::Infallible;
 
-    fn send(&mut self, _value: F) {
-        // no-op
-    }
-
     fn receive(&mut self) -> Result<F, Self::Error> {
         Ok(F::rand(&mut self.rng))
     }

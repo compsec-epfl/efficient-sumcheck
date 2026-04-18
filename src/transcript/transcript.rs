@@ -30,15 +30,10 @@ pub trait ProverTranscript<T> {
 pub trait VerifierTranscript<T> {
     type Error: core::fmt::Debug;
 
-    /// Absorb a value into the transcript (for re-absorbing known prover data).
-    ///
-    /// Used when the verifier has already decoded the prover message and
-    /// needs to absorb it to stay in sync with the sponge state.
-    fn send(&mut self, value: T);
-
     /// Read a prover message from the transcript.
     ///
-    /// Returns `Err` if the transcript data is malformed or exhausted.
+    /// Absorbs + decodes the next prover message. Returns `Err` if the
+    /// transcript data is malformed or exhausted.
     fn receive(&mut self) -> Result<T, Self::Error>;
 
     /// Squeeze a verifier challenge from the transcript.
