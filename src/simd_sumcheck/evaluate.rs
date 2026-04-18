@@ -618,7 +618,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_matches_pairwise() {
-        use crate::multilinear::reductions::pairwise;
+        use crate::reductions::pairwise;
 
         let mut rng = test_rng();
         let n = 1 << 16;
@@ -637,7 +637,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_parallel_matches_pairwise() {
-        use crate::multilinear::reductions::pairwise;
+        use crate::reductions::pairwise;
 
         let mut rng = test_rng();
         let n = 1 << 20;
@@ -657,7 +657,7 @@ mod tests {
 
     #[test]
     fn test_product_evaluate_matches_generic() {
-        use crate::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate;
+        use crate::reductions::pairwise::pairwise_product_evaluate;
 
         let mut rng = test_rng();
         let n = 1 << 16;
@@ -676,7 +676,7 @@ mod tests {
 
     #[test]
     fn test_product_evaluate_parallel_matches_generic() {
-        use crate::multilinear_product::provers::time::reductions::pairwise::pairwise_product_evaluate;
+        use crate::reductions::pairwise::pairwise_product_evaluate;
 
         let mut rng = test_rng();
         let n = 1 << 20;

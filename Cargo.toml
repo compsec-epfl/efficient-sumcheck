@@ -8,35 +8,37 @@ include = ["Cargo.toml", "src", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
 edition = "2021"
 
 [dependencies]
-ark-ff = "0.5.0"
-ark-poly = "0.5.0"
-ark-serialize = "0.5.0"
-ark-std ="0.5.0"
+ark-ff = { version = "0.5.0", optional = true }
+ark-poly = { version = "0.5.0", optional = true }
+ark-serialize = { version = "0.5.0", optional = true }
+ark-std = { version = "0.5.0", optional = true }
 memmap2 = "0.9.5"
 nohash-hasher = "0.2.0"
 rayon = { version = "1.10", optional = true }
-spongefish = { git = "https://github.com/z-tech/spongefish.git", branch = "smallfp-support", features = ["ark-ff"] }
+spongefish = { git = "https://github.com/z-tech/spongefish.git", branch = "smallfp-support", features = ["ark-ff"], optional = true }
 
 [dev-dependencies]
 criterion = "0.8"
 
 [features]
-default = ["parallel"]
+default = ["arkworks", "parallel"]
+arkworks = [
+  "dep:ark-ff",
+  "dep:ark-poly",
+  "dep:ark-serialize",
+  "dep:ark-std",
+  "dep:spongefish",
+]
 parallel = [
   "dep:rayon",
-  "ark-ff/parallel",
-  "ark-poly/parallel",
-  "ark-std/parallel",
+  "ark-ff?/parallel",
+  "ark-poly?/parallel",
+  "ark-std?/parallel",
 ]
 
 [[bench]]
-name = "provers"
-path = "benches/provers.rs"
-harness = false
-
-[[bench]]
-name = "simd_vs_generic"
-path = "benches/simd_vs_generic.rs"
+name = "sumcheck"
+path = "benches/sumcheck.rs"
 harness = false
 
 [patch.crates-io]

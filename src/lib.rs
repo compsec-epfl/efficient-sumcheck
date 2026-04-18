@@ -1,30 +1,47 @@
 //! # efficient-sumcheck
 //!
-//! Sumcheck protocol implementations with Fiat-Shamir support.
+//! Sumcheck protocol (Thaler Proposition 4.1) with SIMD acceleration.
 //!
 //! ## Quick Start
 //!
 //! ```text
-//! use efficient_sumcheck::{multilinear_sumcheck, inner_product_sumcheck, fold};
-//! use efficient_sumcheck::transcript::{Transcript, SpongefishTranscript, SanityTranscript};
+//! use efficient_sumcheck::field::SumcheckField;
+//! use efficient_sumcheck::sumcheck_prover::SumcheckProver;
+//! use efficient_sumcheck::runner::sumcheck;
+//! use efficient_sumcheck::verifier::sumcheck_verify;
+//! use efficient_sumcheck::provers::multilinear::MultilinearProver;
+//! use efficient_sumcheck::provers::inner_product::InnerProductProver;
+//! use efficient_sumcheck::fold;
 //! ```
 //!
-//! - [`multilinear_sumcheck()`] — `∑_x v(x)` over a multilinear polynomial.
-//! - [`inner_product_sumcheck()`] — `∑_x f(x)·g(x)` for two multilinears.
-//! - [`fold()`] — MSB half-split fold, SIMD-accelerated for Goldilocks.
+//! The library is generic over any type implementing [`SumcheckField`](field::SumcheckField).
+//! A blanket implementation for arkworks `Field` types is provided when the
+//! `arkworks` feature is enabled (default).
 //!
-//! Every entry point takes a per-round `hook: FnMut(round, &mut transcript)`
-//! argument. Pass `|_, _| {}` when no hook is needed.
+//! ## Architecture
 //!
-//! ## Layout
-//!
-//! All operations use a half-split (MSB) layout: round `i` folds the
-//! top-most remaining variable, splitting `v[0..L/2]` vs `v[L/2..L]`.
-//! SIMD acceleration for Goldilocks (p = 2^64 − 2^32 + 1) is transparent —
-//! no code changes needed. LLVM constant-folds the field detection at compile
-//! time, so the non-SIMD path has zero overhead.
+//! - **One protocol** (`runner::sumcheck`) parameterized by a `SumcheckProver`.
+//! - **One verifier** (`verifier::sumcheck_verify`) for any degree.
+//! - **Concrete provers**: `MultilinearProver` (d=1), `InnerProductProver` (d=2).
+//! - **One fold** (Lemma 4.3), SIMD-accelerated for Goldilocks.
+//! - MSB (half-split) layout throughout.
+//! - SIMD for Goldilocks (NEON on aarch64, AVX-512 IFMA on x86_64) is
+//!   transparent — zero overhead on non-Goldilocks fields.
 
-// ─── Primary API ─────────────────────────────────────────────────────────────
+// ─── Generic field trait ─────────────────────────────────────────────────────
+
+pub mod field;
+pub mod proof;
+
+// ─── New canonical API (Thaler §4.1) ────────────────────────────────────────
+
+pub mod sumcheck_prover;
+pub mod runner;
+pub mod verifier;
+pub mod fold;
+pub mod provers;
+
+// ─── Primary API (legacy, to be replaced by the above) ─────────────────────
 
 /// Transcript trait and backends (Spongefish, Sanity).
 pub mod transcript;
@@ -43,15 +60,10 @@ pub use multilinear_sumcheck::{
 
 // ─── Internal / Advanced ─────────────────────────────────────────────────────
 
-pub mod multilinear;
-pub mod multilinear_product;
-pub mod prover;
 pub mod streams;
 
 pub mod hypercube;
-pub mod interpolation;
-pub mod messages;
-pub mod order_strategy;
+pub(crate) mod reductions;
 
 pub mod coefficient_sumcheck;
 pub mod folding;

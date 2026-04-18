@@ -1,37 +1,30 @@
 #![allow(dead_code)]
 //! SIMD auto-dispatch for the multilinear sumcheck protocol.
 //!
-//! When `BF == EF` and both are a Goldilocks field (p = 2^64 − 2^32 + 1)
-//! stored as a single `u64` in Montgomery form, the sumcheck is transparently
-//! routed to a SIMD-accelerated backend:
+//! When `F` is a Goldilocks field (p = 2^64 − 2^32 + 1) stored as a single
+//! `u64` in Montgomery form, the sumcheck is transparently routed to a
+//! SIMD-accelerated backend:
 //!
 //! - **aarch64**: NEON backend (2-wide, scalar mul fallback)
 //! - **x86_64 + AVX-512 IFMA**: AVX-512 backend (8-wide, true IFMA mul)
 //!
-//! Detection uses [`Field::BasePrimeField::MODULUS`] from arkworks — no
-//! concrete type names are referenced. After monomorphization the check
-//! is constant-folded by LLVM, so the dead branch is eliminated entirely.
+//! Detection uses [`SumcheckField::_simd_field_config()`] — the arkworks
+//! blanket impl returns the actual modulus, non-arkworks fields return
+//! `None` by default (no SIMD). After monomorphization the check is
+//! constant-folded by LLVM, so the dead branch is eliminated entirely.
 //!
-//! # Safety: `transmute_copy` between `Field` and `u64`
+//! # Safety: `transmute_copy` between `SumcheckField` and `u64`
 //!
 //! The `u64_to_field` and `field_to_u64` helpers use `transmute_copy` to
-//! reinterpret between arkworks field elements and raw Montgomery-form `u64`
-//! values. This is safe for Goldilocks because:
-//!
-//! 1. `is_goldilocks()` verifies: extension degree == 1, `size_of::<F>()` == 8,
-//!    modulus bits == 64, and modulus value == `0xFFFF_FFFF_0000_0001`.
-//! 2. Both `SmallFp<P>` and `Fp64<MontBackend<_, 1>>` store a single `u64`
-//!    as their only non-ZST field (`value: u64` resp. `BigInt<1>([u64; 1])`).
-//!
-//! This invariant is NOT guaranteed by `#[repr(transparent)]` in arkworks.
-//! If arkworks changes the internal layout of these types, the SIMD path
-//! must be updated. The `size_of` check provides a compile-time safety net.
+//! reinterpret between field elements and raw Montgomery-form `u64` values.
+//! This is safe for Goldilocks because `_simd_field_config()` verifies
+//! `element_bytes == 8` and the modulus matches.
 
 #[cfg(any(
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-use ark_ff::Field;
+use crate::field::SumcheckField;
 
 /// Goldilocks modulus: p = 2^64 − 2^32 + 1.
 #[cfg(any(
@@ -43,13 +36,7 @@ const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
 /// Returns `true` when `F` is a Goldilocks prime field stored as a
 /// single `u64` in Montgomery form.
 ///
-/// The check uses only the [`Field`] trait (via `BasePrimeField: PrimeField`):
-///
-/// 1. `extension_degree() == 1` — must be a prime field, not an extension.
-/// 2. `size_of::<F>() == 8` — the element must be a single `u64`
-///    (true for both `SmallFp<P>` and `Fp64<MontBackend<_, 1>>`).
-/// 3. The modulus value equals `GOLDILOCKS_P`.
-///
+/// Uses [`SumcheckField::_simd_field_config()`] for detection.
 /// After monomorphization every operand is a compile-time constant,
 /// so LLVM folds the entire function to `true` or `false`.
 #[cfg(any(
@@ -57,21 +44,14 @@ const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[inline(always)]
-fn is_goldilocks<F: Field>() -> bool {
-    use ark_ff::PrimeField;
-
+fn is_goldilocks<F: SumcheckField>() -> bool {
     if F::extension_degree() != 1 {
         return false;
     }
-    if core::mem::size_of::<F>() != core::mem::size_of::<u64>() {
-        return false;
+    match F::_simd_field_config() {
+        Some(cfg) => cfg.modulus == GOLDILOCKS_P && cfg.element_bytes == 8,
+        None => false,
     }
-    if F::BasePrimeField::MODULUS_BIT_SIZE != 64 {
-        return false;
-    }
-    let modulus = F::BasePrimeField::MODULUS;
-    let limbs: &[u64] = modulus.as_ref();
-    limbs[0] == GOLDILOCKS_P && limbs[1..].iter().all(|&x| x == 0)
 }
 
 /// Returns `true` when `F` has Goldilocks as its base prime field,
@@ -85,20 +65,17 @@ fn is_goldilocks<F: Field>() -> bool {
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[inline(always)]
-fn is_goldilocks_based<F: Field>() -> bool {
-    use ark_ff::PrimeField;
-
-    if F::BasePrimeField::MODULUS_BIT_SIZE != 64 {
-        return false;
+fn is_goldilocks_based<F: SumcheckField>() -> bool {
+    match F::_simd_field_config() {
+        Some(cfg) => {
+            if cfg.modulus != GOLDILOCKS_P || cfg.element_bytes != 8 {
+                return false;
+            }
+            let d = F::extension_degree() as usize;
+            core::mem::size_of::<F>() == d * 8
+        }
+        None => false,
     }
-    // Check element size matches d * 8 bytes (d u64 components)
-    let d = F::extension_degree() as usize;
-    if core::mem::size_of::<F>() != d * core::mem::size_of::<u64>() {
-        return false;
-    }
-    let modulus = F::BasePrimeField::MODULUS;
-    let limbs: &[u64] = modulus.as_ref();
-    limbs[0] == GOLDILOCKS_P && limbs[1..].iter().all(|&x| x == 0)
 }
 
 // ─── Standalone SIMD reduce (Field-level API) ──────────────────────────────
@@ -112,7 +89,7 @@ fn is_goldilocks_based<F: Field>() -> bool {
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-pub(crate) fn try_simd_reduce<F: Field>(evals: &mut Vec<F>, challenge: F) -> bool {
+pub(crate) fn try_simd_reduce<F: SumcheckField>(evals: &mut Vec<F>, challenge: F) -> bool {
     if !is_goldilocks::<F>() {
         return false;
     }
@@ -141,7 +118,7 @@ pub(crate) fn try_simd_reduce<F: Field>(evals: &mut Vec<F>, challenge: F) -> boo
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-pub(crate) fn try_simd_reduce_msb<F: Field>(evals: &mut Vec<F>, challenge: F) -> bool {
+pub(crate) fn try_simd_reduce_msb<F: SumcheckField>(evals: &mut Vec<F>, challenge: F) -> bool {
     if !is_goldilocks::<F>() {
         return false;
     }
@@ -171,7 +148,7 @@ pub(crate) fn try_simd_reduce_msb<F: Field>(evals: &mut Vec<F>, challenge: F) ->
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: Field>(
+pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: SumcheckField>(
     pw: &mut Vec<F>,
     challenge: F,
 ) -> Option<Vec<F>> {
@@ -210,7 +187,7 @@ pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: Field>(
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-pub(crate) fn try_simd_ext_evaluate<EF: Field>(evals: &[EF]) -> Option<(EF, EF)> {
+pub(crate) fn try_simd_ext_evaluate<EF: SumcheckField>(evals: &[EF]) -> Option<(EF, EF)> {
     if !is_goldilocks_based::<EF>() {
         return None;
     }
@@ -268,7 +245,7 @@ pub(crate) fn try_simd_ext_evaluate<EF: Field>(evals: &[EF]) -> Option<(EF, EF)>
     target_arch = "aarch64",
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
-pub(crate) fn try_simd_evaluate_degree1<F: Field>(pw: &[F]) -> Option<Vec<F>> {
+pub(crate) fn try_simd_evaluate_degree1<F: SumcheckField>(pw: &[F]) -> Option<Vec<F>> {
     if !is_goldilocks::<F>() {
         return None;
     }
@@ -297,7 +274,7 @@ pub(crate) fn try_simd_evaluate_degree1<F: Field>(pw: &[F]) -> Option<Vec<F>> {
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[inline(always)]
-fn u64_to_field<F: Field>(raw: u64) -> F {
+fn u64_to_field<F: SumcheckField>(raw: u64) -> F {
     debug_assert_eq!(core::mem::size_of::<F>(), 8);
     unsafe { core::mem::transmute_copy(&raw) }
 }
@@ -310,12 +287,12 @@ fn u64_to_field<F: Field>(raw: u64) -> F {
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[inline(always)]
-fn field_to_u64<F: Field>(val: F) -> u64 {
+fn field_to_u64<F: SumcheckField>(val: F) -> u64 {
     debug_assert_eq!(core::mem::size_of::<F>(), 8);
     unsafe { core::mem::transmute_copy(&val) }
 }
 
-// ─── Public helpers for simd_ops ────────────────────────────────────────────
+// ─── Public helpers ────────────────────────────────────────────────────────
 
 /// Check if `F` is a Goldilocks prime field (degree 1, size 8, matching modulus).
 #[cfg(any(
@@ -323,7 +300,7 @@ fn field_to_u64<F: Field>(val: F) -> u64 {
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[inline(always)]
-pub fn is_goldilocks_pub<F: Field>() -> bool {
+pub fn is_goldilocks_pub<F: SumcheckField>() -> bool {
     is_goldilocks::<F>()
 }
 
@@ -333,6 +310,6 @@ pub fn is_goldilocks_pub<F: Field>() -> bool {
     all(target_arch = "x86_64", target_feature = "avx512ifma")
 ))]
 #[inline(always)]
-pub fn u64_to_field_pub<F: Field>(raw: u64) -> F {
+pub fn u64_to_field_pub<F: SumcheckField>(raw: u64) -> F {
     u64_to_field(raw)
 }

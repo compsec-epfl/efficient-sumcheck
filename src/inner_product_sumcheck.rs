@@ -27,7 +27,13 @@ use rayon::prelude::*;
 
 use crate::transcript::Transcript;
 
-pub use crate::multilinear_product::ProductSumcheck;
+/// Legacy return type for `inner_product_sumcheck`.
+#[derive(Debug, PartialEq)]
+pub struct ProductSumcheck<F: Field> {
+    pub prover_messages: Vec<(F, F)>,
+    pub verifier_messages: Vec<F>,
+    pub final_evaluations: (F, F),
+}
 
 // ─── Workload threshold ─────────────────────────────────────────────────────
 

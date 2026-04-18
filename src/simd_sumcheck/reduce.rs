@@ -898,7 +898,7 @@ mod tests {
 
     #[test]
     fn test_reduce_and_evaluate_matches() {
-        use crate::multilinear::reductions::pairwise;
+        use crate::reductions::pairwise;
 
         let mut rng = test_rng();
         let n = 1 << 16;
@@ -934,7 +934,7 @@ mod tests {
 
     #[test]
     fn test_reduce_and_evaluate_large() {
-        use crate::multilinear::reductions::pairwise;
+        use crate::reductions::pairwise;
 
         let mut rng = test_rng();
         let n = 1 << 20;

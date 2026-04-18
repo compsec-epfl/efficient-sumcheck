@@ -25,7 +25,13 @@ use rayon::prelude::*;
 
 use crate::transcript::Transcript;
 
-pub use crate::multilinear::Sumcheck;
+/// Legacy return type for `multilinear_sumcheck`.
+#[derive(Debug)]
+pub struct Sumcheck<F: Field> {
+    pub prover_messages: Vec<(F, F)>,
+    pub verifier_messages: Vec<F>,
+    pub final_evaluation: F,
+}
 
 // ─── Workload threshold ─────────────────────────────────────────────────────
 

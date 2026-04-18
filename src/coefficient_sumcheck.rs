@@ -5,7 +5,7 @@ use ark_poly::Polynomial;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::multilinear::reductions::{pairwise, tablewise};
+use crate::reductions::{pairwise, tablewise};
 use crate::transcript::Transcript;
 
 #[derive(Debug)]
