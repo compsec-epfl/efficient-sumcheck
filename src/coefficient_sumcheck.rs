@@ -301,12 +301,12 @@ pub fn coefficient_sumcheck<F: Field>(
         // Send only the first d coefficients (omit the leading one).
         let d = round_poly.coeffs.len().saturating_sub(1);
         for coeff in &round_poly.coeffs[..d] {
-            transcript.write(*coeff);
+            transcript.send(*coeff);
         }
 
         prover_messages.push(round_poly);
 
-        let c = transcript.read();
+        let c = transcript.challenge();
         verifier_messages.push(c);
 
         // ── Reduce ──
@@ -364,7 +364,7 @@ pub fn sumcheck_verify<F: Field>(
 
         // Absorb only the first d coefficients (leading one is derived).
         for coeff in &h.coeffs[..d] {
-            transcript.write(*coeff);
+            transcript.send(*coeff);
         }
 
         // Derive leading coefficient: c_d = claim - 2*c_0 - c_1 - ... - c_{d-1}
@@ -376,7 +376,7 @@ pub fn sumcheck_verify<F: Field>(
             return None;
         }
 
-        let c = transcript.read();
+        let c = transcript.challenge();
         *claim = h.evaluate(&c);
         challenges.push(c);
     }

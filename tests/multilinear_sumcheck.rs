@@ -196,9 +196,9 @@ fn reference_unfused(v_orig: &[F64]) -> Sumcheck<F64> {
         }
         let (s0, s1) = compute_ref(&v);
         prover_messages.push((s0, s1));
-        t.write(s0);
-        t.write(s1);
-        let r: F64 = t.read();
+        t.send(s0);
+        t.send(s1);
+        let r: F64 = t.challenge();
         verifier_messages.push(r);
         w = Some(r);
     }

@@ -40,9 +40,18 @@ where
     let mut challenges = Vec::with_capacity(num_rounds);
 
     for round in 0..num_rounds {
-        // Read round polynomial evaluations.
+        // Receive round polynomial evaluations from the prover.
         let num_evals = expected_degree + 1;
-        let evals: Vec<F> = (0..num_evals).map(|_| transcript.read()).collect();
+        let mut evals = Vec::with_capacity(num_evals);
+        for _ in 0..num_evals {
+            let v = transcript
+                .receive()
+                .map_err(|e| SumcheckError::TranscriptError {
+                    round,
+                    detail: format!("{:?}", e),
+                })?;
+            evals.push(v);
+        }
 
         // Consistency check: g_j(0) + g_j(1) == claim.
         let sum_01 = evals[0] + evals[1];
@@ -57,8 +66,8 @@ where
         // Per-round hook.
         hook(round, transcript);
 
-        // Read verifier challenge.
-        let r = transcript.read();
+        // Squeeze verifier challenge.
+        let r = transcript.challenge();
         challenges.push(r);
 
         // Update claim: g_j(r_j) via Horner's method.

@@ -6,8 +6,9 @@ use crate::transcript::Transcript;
 
 /// Newtype wrapper around spongefish's [`ProverState`] so we can implement [`Transcript`].
 ///
-/// Uses the codec-level API (`prover_message` / `verifier_message`) which is compatible
-/// with the new spongefish `domain_separator!` macro.
+/// Maps `send` → `prover_message`, `challenge` → `verifier_message`.
+/// `receive` also uses `verifier_message` (for test/sanity use on the prover side);
+/// a proper verifier transcript wrapping `VerifierState` would use `prover_message()?`.
 pub struct SpongefishTranscript<R: RngCore + CryptoRng = ark_std::rand::rngs::StdRng>(
     pub ProverState<StdHash, R>,
 );
@@ -17,12 +18,20 @@ where
     F: Field + Encoding<[u8]> + Decoding<[u8]>,
     R: RngCore + CryptoRng,
 {
-    fn read(&mut self) -> F {
-        self.0.verifier_message::<F>()
+    type Error = core::convert::Infallible;
+
+    fn send(&mut self, value: F) {
+        self.0.prover_message(&value);
     }
 
-    fn write(&mut self, value: F) {
-        self.0.prover_message(&value);
+    fn receive(&mut self) -> Result<F, Self::Error> {
+        // On the prover side, "receive" doesn't make semantic sense —
+        // this is here for trait completeness. Returns a challenge.
+        Ok(self.0.verifier_message::<F>())
+    }
+
+    fn challenge(&mut self) -> F {
+        self.0.verifier_message::<F>()
     }
 }
 
@@ -33,15 +42,21 @@ where
     H: spongefish::DuplexSpongeInterface,
     R: RngCore + CryptoRng,
 {
-    fn read(&mut self) -> F {
-        self.verifier_message::<F>()
-    }
-    fn write(&mut self, value: F) {
+    type Error = core::convert::Infallible;
+
+    fn send(&mut self, value: F) {
         self.prover_message(&value);
+    }
+
+    fn receive(&mut self) -> Result<F, Self::Error> {
+        Ok(self.verifier_message::<F>())
+    }
+
+    fn challenge(&mut self) -> F {
+        self.verifier_message::<F>()
     }
 }
 
-// Optional helpers so it's easy to get the prover state back out.
 impl<R> SpongefishTranscript<R>
 where
     R: RngCore + CryptoRng,

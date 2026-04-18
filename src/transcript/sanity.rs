@@ -3,7 +3,8 @@ use ark_std::rand::Rng;
 
 use crate::transcript::Transcript;
 
-/// Test transcript: writes are no-ops, reads return random challenges from the RNG.
+/// Test transcript: sends are no-ops, receives return `Ok(random)`,
+/// challenges return random values from the RNG.
 #[derive(Debug)]
 pub struct TestTranscript<'a, R> {
     pub rng: &'a mut R,
@@ -20,11 +21,17 @@ where
     F: Field,
     R: Rng,
 {
-    fn write(&mut self, _value: F) {
+    type Error = core::convert::Infallible;
+
+    fn send(&mut self, _value: F) {
         // no-op
     }
 
-    fn read(&mut self) -> F {
+    fn receive(&mut self) -> Result<F, Self::Error> {
+        Ok(F::rand(&mut self.rng))
+    }
+
+    fn challenge(&mut self) -> F {
         F::rand(&mut self.rng)
     }
 }

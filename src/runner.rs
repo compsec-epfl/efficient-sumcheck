@@ -43,17 +43,17 @@ where
     for round in 0..num_rounds {
         let evals = prover.round(prev_challenge);
 
-        // Write evaluations to transcript.
+        // Send evaluations to transcript.
         for &v in &evals {
-            transcript.write(v);
+            transcript.send(v);
         }
         round_polys.push(evals);
 
         // Per-round hook (e.g., proof-of-work grinding for WHIR).
         hook(round, transcript);
 
-        // Read verifier challenge.
-        let r = transcript.read();
+        // Squeeze verifier challenge.
+        let r = transcript.challenge();
         challenges.push(r);
         prev_challenge = Some(r);
     }

@@ -231,9 +231,9 @@ fn reference_unfused(a_orig: &[F64], b_orig: &[F64]) -> ProductSumcheck<F64> {
         }
         let (c0, c2) = compute_ref(&a, &b);
         prover_messages.push((c0, c2));
-        t.write(c0);
-        t.write(c2);
-        let r: F64 = t.read();
+        t.send(c0);
+        t.send(c2);
+        let r: F64 = t.challenge();
         verifier_messages.push(r);
         w = Some(r);
     }

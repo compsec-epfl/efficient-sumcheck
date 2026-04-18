@@ -39,6 +39,8 @@ pub enum SumcheckError {
     },
     /// Final evaluation mismatch.
     FinalEvaluation { expected: String, got: String },
+    /// Transcript error (e.g., malformed prover message).
+    TranscriptError { round: usize, detail: String },
 }
 
 impl fmt::Display for SumcheckError {
@@ -65,6 +67,9 @@ impl fmt::Display for SumcheckError {
                     f,
                     "final evaluation mismatch: expected {expected}, got {got}"
                 )
+            }
+            SumcheckError::TranscriptError { round, detail } => {
+                write!(f, "round {round}: transcript error: {detail}")
             }
         }
     }

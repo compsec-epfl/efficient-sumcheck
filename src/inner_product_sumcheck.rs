@@ -328,12 +328,12 @@ where
         };
 
         prover_messages.push((c0, c2));
-        transcript.write(c0);
-        transcript.write(c2);
+        transcript.send(c0);
+        transcript.send(c2);
 
         hook(round, transcript);
 
-        let r = transcript.read();
+        let r = transcript.challenge();
         verifier_messages.push(r);
         folding_randomness = Some(r);
     }
@@ -397,13 +397,13 @@ where
 {
     let mut res = Vec::with_capacity(num_rounds);
     for round in 0..num_rounds {
-        let c0: F = transcript.read();
-        let c2: F = transcript.read();
+        let c0: F = transcript.receive().expect("transcript read failed");
+        let c2: F = transcript.receive().expect("transcript read failed");
         let c1 = *sum - c0.double() - c2;
 
         hook(round, transcript);
 
-        let r = transcript.read();
+        let r = transcript.challenge();
         res.push(r);
         *sum = (c2 * r + c1) * r + c0;
     }

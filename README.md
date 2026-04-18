@@ -1,6 +1,8 @@
-<h1 align="center">EffSc (Efficient Sumcheck)</h1>
+<h1 align="center">Efficient Sumcheck</h1>
 
 A high-performance sumcheck library with transparent SIMD acceleration, built-in Fiat-Shamir support, streaming capability, and correctness fuzzed against an [oracle](https://github.com/z-tech/sumcheck-lean4) with formalized completeness and soundness.
+
+This library was built for [arkworks](https://github.com/arkworks-rs) and compatible with any ecosystem that implements the [`SumcheckField`](#generic-field) trait.
 
 **Security:** This library has not undergone a security audit.
 
@@ -255,25 +257,11 @@ Benchmark matrix: `{multilinear, inner_product} x {F64, F64Ext3} x {2^16, 2^20, 
 
 ## Prover Strategies
 
-**Multilinear** ($\deg = 1$, single polynomial), $N = 2^v$:
-
-| Strategy | Space | Time | Reference |
-|----------|-------|------|-----------|
-| Time | $O(N)$ | $O(N)$ | [VSBW13] |
-| Blendy | $O(N^{1/k})$ | $O(kN)$ | [CFFZ24], [BCFFMMZ25] |
-| Space | $O(\log N)$ | $O(N \log N)$ | [CTY11] |
-
-**Inner product** ($\deg = 2$, product of two multilinears):
-
-| Strategy | Space | Time | Reference |
-|----------|-------|------|-----------|
-| Time | $O(N)$ | $O(N)$ | [VSBW13] |
-| Blendy | $O(N^{2/k})$ | $O(N^{1+1/k})$ | [BCFFMMZ25] |
-| Space | $O(\log N)$ | $O(N \log N)$ | [CTY11] |
-
-Blendy space for inner product is $O(N^{2/k})$ rather than $O(N^{1/k})$ because the precomputed table is a matrix of partial-sum pairs. [BCFFMMZ25] Section 7.3 describes an improved substaging technique that brings the time closer to linear.
-
-The blendy strategy supports tunable stage scheduling per [BCFFMMZ25], including Jolt's cost-model-driven `HalfSplitSchedule`.
+| Strategy | Reference |
+|----------|-----------|
+| Time (linear time, linear space) | [VSBW13] |
+| Blendy (linear time, sublinear space) | [CFFZ24], [BCFFMMZ25] |
+| Space (quasilinear time, logarithmic space) | [CTY11] |
 
 ## References
 
