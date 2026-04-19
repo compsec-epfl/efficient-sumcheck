@@ -1,13 +1,15 @@
 use ark_ff::Field;
 
+use super::Ascending;
+
 /// Compute eq(point, ·) over {0,1}^num_variables.
 ///
 /// `eq(x, y) = Π_j (x_j · y_j + (1 - x_j)(1 - y_j))`.
 pub fn compute_hypercube_eq_evals<F: Field>(num_variables: usize, point: &[F]) -> Vec<F> {
-    (0..1usize << num_variables)
-        .map(|index| {
+    Ascending::new(num_variables)
+        .map(|p| {
             (0..num_variables).fold(F::one(), |acc, j| {
-                let bit = F::from((index >> j & 1) as u64);
+                let bit = F::from(p.bit(j) as u64);
                 acc * (point[j] * bit + (F::one() - point[j]) * (F::one() - bit))
             })
         })

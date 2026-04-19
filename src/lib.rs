@@ -36,6 +36,7 @@ pub mod proof;
 // ─── New canonical API (Thaler §4.1) ────────────────────────────────────────
 
 pub mod fold;
+pub mod polynomial;
 pub mod provers;
 pub mod runner;
 pub mod sumcheck_prover;
@@ -86,7 +87,6 @@ pub use multilinear_sumcheck::{
 pub mod coefficient_sumcheck;
 #[cfg(feature = "arkworks")]
 pub mod folding;
-#[cfg(feature = "arkworks")]
 pub mod hypercube;
 #[cfg(feature = "arkworks")]
 pub mod poly_ops;

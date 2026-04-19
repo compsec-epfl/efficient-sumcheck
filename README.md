@@ -186,7 +186,11 @@ All provers auto-dispatch to SIMD-accelerated backends. Supported fields:
 | NEON | 2-wide | aarch64 (Apple M-series, Graviton) |
 | AVX-512 IFMA | 8-wide | x86_64 (Sapphire Rapids) |
 
-Detection is constant-folded by LLVM after monomorphization. Zero overhead on non-Goldilocks fields.
+NEON dispatches automatically on aarch64. AVX-512 IFMA requires a compile-time flag:
+
+```bash
+RUSTFLAGS="-C target-feature=+avx512ifma" cargo build --release
+```
 
 Non-arkworks Goldilocks types opt into SIMD via the `SimdRepr` trait, whose layout safety is compiler-verified by `zerocopy`:
 
@@ -200,24 +204,38 @@ impl SimdRepr for MyGoldilocks {
 }
 ```
 
-To enable AVX-512:
-```bash
-RUSTFLAGS="-C target-feature=+avx512ifma" cargo build --release
-```
+## Polynomial Toolkit
 
-## Zero-Allocation Polynomial Arithmetic
+> **Note:** This module will be upstreamed to `ark-poly` soon.
 
-> **Note:** `poly_ops` will be upstreamed to arkworks soon.
-
-The `poly_ops` module provides slice-based polynomial arithmetic:
+The `polynomial` module provides evaluation, interpolation, and arithmetic — all on `SumcheckField`, no arkworks required.
 
 ```rust
-use effsc::poly_ops;
+use effsc::polynomial::{eval_horner, eval_from_evals, BarycentricWeights};
+use effsc::polynomial::{mul_into, add_scaled, eval_at};
+use effsc::polynomial::SequentialLagrange;
 
+// Evaluate from coefficients (Horner, O(d))
+let val = eval_horner(&coeffs, challenge);
+
+// Evaluate from evaluations at {0, 1, ..., d} (barycentric Lagrange, O(d))
+let val = eval_from_evals(&evals, challenge);
+
+// Precompute weights once per degree, reuse across rounds
+let weights = BarycentricWeights::new(degree);
+let val = weights.eval(&evals, challenge);
+
+// Zero-allocation dense arithmetic
 let mut out = [F::ZERO; 3];
-poly_ops::mul_into(&mut out, &a, &b);
-poly_ops::add_scaled(&mut out, scalar, &c);
-let val = poly_ops::eval_at(&out, challenge);
+mul_into(&mut out, &a, &b);
+add_scaled(&mut out, scalar, &c);
+
+// Sequential eq polynomial over the hypercube (amortized O(1) per step)
+let mut lag = SequentialLagrange::new(&point);
+for p in effsc::hypercube::Ascending::new(num_vars) {
+    lag.advance_to(p.index);
+    let eq_val = lag.value();
+}
 ```
 
 ## Features
