@@ -135,7 +135,7 @@ Falls back to scalar for other fields. See [`SECURITY.md`](SECURITY.md#unsafe-co
 
 ## Integrations
 
-Integrated into [WHIR](https://github.com/WizardOfMenlo/whir) ([PR](https://github.com/WizardOfMenlo/whir/pull/250)) and [WARP](https://github.com/compsec-epfl/warp) ([PR](https://github.com/compsec-epfl/warp/pull/24)) with measured performance improvements. Integration capability for streaming contexts like [Jolt](https://github.com/a16z/jolt) is described in [`docs/design.md`](docs/design.md).
+Integrated into Whir ([PR](https://github.com/WizardOfMenlo/whir/pull/250)) and Warp ([PR](https://github.com/compsec-epfl/warp/pull/24)) with measured performance improvements. Integration capability for streaming contexts like [Jolt](https://github.com/a16z/jolt) is described in [`docs/design.md`](docs/design.md).
 
 ## Correctness
 
