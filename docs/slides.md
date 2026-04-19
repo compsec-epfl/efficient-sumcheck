@@ -61,7 +61,7 @@ Reduce complexity without losing functionality.
 | Lines of code | 10,800 | 7,448 |
 | Source files | ~100 | 43 |
 | Public entry points | 10+ | 4 |
-| Order strategies | 4 | 1 (MSB) |
+| Order strategies | 4 | 2 (MSB, LSB) |
 | Protocol runners | 3 | 1 |
 | Verifiers | 2 | 1 |
 | Return types | 2 | 1 |
@@ -606,14 +606,15 @@ These can be added later without changing the core trait or runner.
 |------|--------|-------|
 | CoefficientProver | Done | MSB + LSB variants |
 | GkrProver | Done | Reference impl, O(2^{2k}) |
+| LSB ordering | Done | All provers have MSB + LSB variants |
 | WHIR integration | Done | [PR #250](https://github.com/WizardOfMenlo/whir/pull/250) |
 | SECURITY.md | Done | Threat model, unsafe scope, disclosure policy |
 | ark-sumcheck migration guide | Done | docs/migration.md |
 | GkrProver O(2^k · k) optimization | Future | Incremental eq-polynomial bookkeeping |
-| Blendy prover | Deferred | Pending LSB vs MSB investigation (Jolt) |
+| Blendy space strategy | Future | O(2^k) memory with stage scheduling |
 | Jolt adapter | Future | Drop-in `SumcheckInstanceProver` impl |
 | StreamingSchedule trait | Investigating | Cost-model windows (BCFFMMZ25) |
-| Additional field support | Future | M31, BabyBear, KoalaBear |
+| Additional SIMD support | Future | M31, BabyBear, KoalaBear |
 
 ---
 
@@ -629,5 +630,5 @@ We made the code match that fact.
 - SIMD transparent for Goldilocks (AVX-512 IFMA, NEON)
 - Integrated into [WHIR](https://github.com/WizardOfMenlo/whir/pull/250) and [WARP](https://github.com/compsec-epfl/warp/pull/24) with measured performance improvements
 - Superset of arkworks-rs/sumcheck functionality (see docs/migration.md)
-- Correctness-fuzzed against a formally verified oracle
+- Correctness-fuzzed against a formally verified oracle *(in progress)*
 - All known optimizations fit below the trait boundary
