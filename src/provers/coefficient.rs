@@ -91,9 +91,12 @@ impl<'a, F: Field, E: RoundPolyEvaluator<F>> CoefficientProver<'a, F, E> {
     fn reduce(&mut self, challenge: F) {
         // Pairwise tables: MSB fold.
         for table in self.pairwise.iter_mut() {
-            #[cfg(any(
-                target_arch = "aarch64",
-                all(target_arch = "x86_64", target_feature = "avx512ifma")
+            #[cfg(all(
+                feature = "simd",
+                any(
+                    target_arch = "aarch64",
+                    all(target_arch = "x86_64", target_feature = "avx512ifma")
+                )
             ))]
             if crate::simd_sumcheck::dispatch::try_simd_reduce_msb(table, challenge) {
                 continue;

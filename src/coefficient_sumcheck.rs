@@ -82,9 +82,12 @@ pub trait RoundPolyEvaluator<F: Field>: Sync {
 /// Returns `[sum_even, sum_odd - sum_even]` = coefficients of `h(x) = c0 + c1*x`.
 fn simd_evaluate_degree1<F: Field>(pw: &[F]) -> Vec<F> {
     // Try SIMD dispatch for Goldilocks
-    #[cfg(any(
-        target_arch = "aarch64",
-        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "aarch64",
+            all(target_arch = "x86_64", target_feature = "avx512ifma")
+        )
     ))]
     {
         if let Some(coeffs) = try_simd_evaluate_degree1(pw) {
@@ -103,9 +106,12 @@ fn simd_evaluate_degree1<F: Field>(pw: &[F]) -> Vec<F> {
 }
 
 /// SIMD implementation of degree-1 evaluate.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 ))]
 fn try_simd_evaluate_degree1<F: ark_ff::Field>(pw: &[F]) -> Option<Vec<F>> {
     crate::simd_sumcheck::dispatch::try_simd_evaluate_degree1(pw)
@@ -116,17 +122,23 @@ fn try_simd_evaluate_degree1<F: ark_ff::Field>(pw: &[F]) -> Option<Vec<F>> {
 /// Returns `Some([s0, s1 - s0])` if SIMD dispatch succeeded (reduces in-place
 /// and computes next round's coefficients). Returns `None` to fall back to
 /// separate reduce + evaluate.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 ))]
 fn try_simd_fused_reduce_evaluate<F: Field>(pw: &mut Vec<F>, challenge: F) -> Option<Vec<F>> {
     crate::simd_sumcheck::dispatch::try_simd_fused_reduce_evaluate_degree1(pw, challenge)
 }
 
-#[cfg(not(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(not(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 )))]
 fn try_simd_fused_reduce_evaluate<F: Field>(_pw: &mut Vec<F>, _challenge: F) -> Option<Vec<F>> {
     None
@@ -325,9 +337,12 @@ pub fn coefficient_sumcheck<F: Field>(
             }
         } else {
             for table in pairwise.iter_mut() {
-                #[cfg(any(
-                    target_arch = "aarch64",
-                    all(target_arch = "x86_64", target_feature = "avx512ifma")
+                #[cfg(all(
+                    feature = "simd",
+                    any(
+                        target_arch = "aarch64",
+                        all(target_arch = "x86_64", target_feature = "avx512ifma")
+                    )
                 ))]
                 if crate::simd_sumcheck::dispatch::try_simd_reduce(table, c) {
                     continue;

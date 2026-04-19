@@ -26,18 +26,12 @@ use alloc::vec::Vec;
 /// If `num_rounds == v` (full execution), `proof.final_value` is the
 /// prover's claimed evaluation at the random point. For partial execution,
 /// the caller retains `prover` and can continue or inspect post-state.
-pub fn sumcheck<F, T, H, P>(
-    prover: &mut P,
+pub fn sumcheck<F: SumcheckField, T: ProverTranscript<F>>(
+    prover: &mut impl SumcheckProver<F>,
     num_rounds: usize,
     transcript: &mut T,
-    mut hook: H,
-) -> SumcheckProof<F>
-where
-    F: SumcheckField,
-    T: ProverTranscript<F>,
-    H: FnMut(usize, &mut T),
-    P: SumcheckProver<F>,
-{
+    mut hook: impl FnMut(usize, &mut T),
+) -> SumcheckProof<F> {
     let mut round_polys: Vec<Vec<F>> = Vec::with_capacity(num_rounds);
     let mut challenges: Vec<F> = Vec::with_capacity(num_rounds);
     let mut prev_challenge: Option<F> = None;

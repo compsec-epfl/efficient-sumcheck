@@ -136,9 +136,12 @@ impl<'a, F: Field, E: RoundPolyEvaluator<F>> CoefficientProverLSB<'a, F, E> {
         }
 
         for table in self.pairwise.iter_mut() {
-            #[cfg(any(
-                target_arch = "aarch64",
-                all(target_arch = "x86_64", target_feature = "avx512ifma")
+            #[cfg(all(
+                feature = "simd",
+                any(
+                    target_arch = "aarch64",
+                    all(target_arch = "x86_64", target_feature = "avx512ifma")
+                )
             ))]
             if crate::simd_sumcheck::dispatch::try_simd_reduce(table, challenge) {
                 continue;
@@ -236,9 +239,12 @@ fn eval_poly_at<F: Field>(coeffs: &[F], x: F) -> F {
 // ─── Evaluate strategies (same as coefficient_sumcheck.rs) ─────────────────
 
 fn simd_evaluate_degree1<F: Field>(pw: &[F]) -> Vec<F> {
-    #[cfg(any(
-        target_arch = "aarch64",
-        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "aarch64",
+            all(target_arch = "x86_64", target_feature = "avx512ifma")
+        )
     ))]
     {
         if let Some(coeffs) = crate::simd_sumcheck::dispatch::try_simd_evaluate_degree1(pw) {
@@ -255,16 +261,22 @@ fn simd_evaluate_degree1<F: Field>(pw: &[F]) -> Vec<F> {
 }
 
 fn try_simd_fused_reduce_evaluate<F: Field>(pw: &mut Vec<F>, challenge: F) -> Option<Vec<F>> {
-    #[cfg(any(
-        target_arch = "aarch64",
-        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "aarch64",
+            all(target_arch = "x86_64", target_feature = "avx512ifma")
+        )
     ))]
     {
         crate::simd_sumcheck::dispatch::try_simd_fused_reduce_evaluate_degree1(pw, challenge)
     }
-    #[cfg(not(any(
-        target_arch = "aarch64",
-        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    #[cfg(not(all(
+        feature = "simd",
+        any(
+            target_arch = "aarch64",
+            all(target_arch = "x86_64", target_feature = "avx512ifma")
+        )
     )))]
     {
         let _ = (pw, challenge);

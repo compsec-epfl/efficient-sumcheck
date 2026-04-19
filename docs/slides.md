@@ -29,27 +29,30 @@ style: |
   }
 ---
 
-# efficient-sumcheck: Canonical Redesign
+# Efficient Sumcheck
 
-A trait-based sumcheck library grounded in Thaler's formalization.
-
----
-
-## Slide 1: The Problem
-
-The library grew to **10,800 LOC** through incremental SIMD + WHIR integration.
-
-- 3 separate protocol runners (multilinear, inner-product, coefficient)
-- 4 order strategies (ascending, descending, graycode, MSB)
-- Old `Prover` trait with 6 associated types
-- SIMD dispatch graph (benchmarked at 2-6x speedup) superseded by fused MSB kernels
-- Duplicate `_with_hook` entry points
-
-**The code was correct. The architecture was not.**
+A sumcheck library built for Arkworks grounded in textbook formalization.
 
 ---
 
-## Slide 2: The Goal
+## The Problem
+
+The sumcheck protocol is **one protocol** parameterized by the polynomial shape.
+The old library treated each shape as a separate implementation:
+
+- 3 protocol runners, 2 verifiers, 2 return types
+- 10+ public entry points with inconsistent signatures
+- Adding a new polynomial shape meant duplicating the entire stack
+
+This made integration hard (WHIR needed hooks, GKR needed partial execution,
+Jolt needed a different variable ordering) and every new feature touched
+every runner.
+
+**10,800 LOC. The code was correct. The architecture was not.**
+
+---
+
+## The Goal
 
 Reduce complexity without losing functionality.
 
@@ -67,7 +70,7 @@ Reduce complexity without losing functionality.
 
 ---
 
-## Slide 3: The Authoritative Source
+## The Authoritative Source
 
 Justin Thaler, *Proofs, Arguments, and Zero-Knowledge*, Chapter 4.
 
@@ -83,7 +86,7 @@ Three "different" sumchecks are three instantiations.
 
 ---
 
-## Slide 4: One Protocol, Three Instantiations
+## One Protocol, Three Instantiations
 
 | Use case | g | Degree | Reference |
 |----------|---|--------|-----------|
@@ -99,7 +102,7 @@ This motivates **one runner + one trait**, not three functions.
 
 ---
 
-## Slide 5: The Prover Trait
+## The Prover Trait
 
 ```rust
 pub trait SumcheckProver<F: SumcheckField> {
@@ -123,14 +126,14 @@ final_value()        -> g(r_0, ..., r_{v-1}) // oracle value
 
 ---
 
-## Slide 6: The Protocol Runner
+## The Protocol Runner
 
 ```rust
-pub fn sumcheck<F, T, H, P>(
-    prover: &mut P,
+pub fn sumcheck<F: SumcheckField, T: ProverTranscript<F>>(
+    prover: &mut impl SumcheckProver<F>,
     num_rounds: usize,
     transcript: &mut T,
-    hook: H,
+    hook: impl FnMut(usize, &mut T),
 ) -> SumcheckProof<F>
 ```
 
@@ -144,26 +147,36 @@ One function handles:
 
 ---
 
-## Slide 7: The Verifier
+## The Verifier
 
 ```rust
-pub fn sumcheck_verify<F, T, H>(
+pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
     claimed_sum: F,
     expected_degree: usize,
     num_rounds: usize,
     transcript: &mut T,
-    hook: H,
-) -> Result<(F, Vec<F>), SumcheckError>
+    hook: impl FnMut(usize, &mut T) -> Result<(), SumcheckError>,
+    oracle_check: impl FnOnce(F, &[F]) -> Result<(), SumcheckError>,
+) -> Result<Vec<F>, SumcheckError>
 ```
 
 - Checks g_j(0) + g_j(1) = claim each round
 - Evaluates g_j(r_j) via Lagrange interpolation (any degree)
-- Does NOT perform the final oracle check (Thaler Remark 4.2)
-- Returns (final_claim, challenges) for caller to verify
+- Calls `oracle_check(final_claim, challenges)` after all rounds pass
+
+The verifier doesn't know g (Thaler Remark 4.2), so the oracle check
+is the caller's responsibility. Making it a required parameter means the
+check cannot be accidentally omitted — the API forces a conscious decision:
+
+```rust
+default_oracle_check(proof.final_value)       // standalone
+|claim, _| pcs.verify(claim, commitment)    // WHIR (PCS opening)
+|claim, _| Ok(())                           // GKR (deferred to next layer)
+```
 
 ---
 
-## Slide 8: Unified Proof Type
+## Unified Proof Type
 
 ```rust
 pub struct SumcheckProof<F: SumcheckField> {
@@ -180,28 +193,22 @@ lives on the prover via `&mut P` ownership, not in the proof.
 
 ---
 
-## Slide 9: Concrete Provers
+## Concrete Provers
 
-### MultilinearProver (degree 1)
+| Prover | Degree | Post-state |
+|--------|--------|------------|
+| `MultilinearProver` | 1 | — |
+| `InnerProductProver` | 2 | `final_evaluations() -> (F, F)` |
+| `CoefficientProver` | d | — |
+| `GkrProver` | 2 | `claimed_w_values() -> (F, F)` |
 
-```rust
-let mut prover = MultilinearProver::new(evals);
-let proof = sumcheck(&mut prover, v, &mut t, |_, _| {});
-```
-
-### InnerProductProver (degree 2)
-
-```rust
-let mut prover = InnerProductProver::new(a, b);
-let proof = sumcheck(&mut prover, v, &mut t, |_, _| {});
-let (f_r, g_r) = prover.final_evaluations();
-```
+Each has MSB and LSB variants (except GkrProver: MSB only).
 
 Same runner. Same verifier. Same proof type.
 
 ---
 
-## Slide 10: The Fold Primitive (Lemma 4.3)
+## The Fold Primitive (Lemma 4.3)
 
 ```
 new[k] = v[k] + weight * (v[k + L/2] - v[k])
@@ -215,7 +222,7 @@ new[k] = v[k] + weight * (v[k + L/2] - v[k])
 
 ---
 
-## Slide 11: SIMD Acceleration
+## SIMD Acceleration
 
 Goldilocks field (p = 2^64 - 2^32 + 1):
 
@@ -243,7 +250,7 @@ Layout safety is **compiler-verified** via zerocopy derives. No `unsafe`.
 
 ---
 
-## Slide 12: Generic Field Trait
+## Generic Field Trait
 
 ```rust
 pub trait SumcheckField:
@@ -267,7 +274,7 @@ pub trait SumcheckField:
 
 ---
 
-## Slide 13: Cross-Field Support (BF -> EF)
+## Cross-Field Support (BF -> EF) *(TODO)*
 
 Evaluations in base field BF (e.g., Goldilocks).
 Challenges from extension field EF (e.g., Goldilocks^3) for soundness.
@@ -283,7 +290,7 @@ The transition is prover-internal:
 
 ---
 
-## Slide 14: WHIR Integration
+## WHIR Integration ([PR](https://github.com/WizardOfMenlo/whir/pull/250))
 
 ```rust
 for round_config in &self.round_configs {
@@ -306,31 +313,27 @@ Three features exercised: partial execution, per-round hook, post-state.
 
 ---
 
-## Slide 15: GKR Integration
+## GKR Integration
 
-GKR runs d sumcheck invocations (one per circuit layer).
+`GkrProver` implements `SumcheckProver` for the GKR round polynomial:
 
-```rust
-let proof = sumcheck(
-    &mut gkr_prover,
-    num_rounds,
-    &mut t,
-    |_, _| {},
-);
-let (w_b, w_c) = gkr_prover.claimed_w_values();
+```text
+f_r(b, c) = add_i(r, b, c) · (W(b) + W(c)) + mult_i(r, b, c) · (W(b) · W(c))
 ```
 
-Then reduce-to-one (separate sub-protocol, not baked into sumcheck):
-
 ```rust
-let (point, value) = reduce_to_one(b, c, v0, v1, &mut t);
+let mut prover = GkrProver::new(add_evals, mult_evals, w_evals);
+let proof = sumcheck(&mut prover, 2 * k, &mut t, noop_hook);
+let (w_b, w_c) = prover.claimed_w_values();  // for reduce-to-one
 ```
 
-Composable building blocks, not monolithic protocols.
+Same runner, same verifier, same proof type. GKR is just another prover.
+
+Reduce-to-one is a separate composable sub-protocol (Thaler §4.5.2).
 
 ---
 
-## Slide 16: Two Orthogonal Axes
+## Two Orthogonal Axes
 
 Prover design has two independent choices:
 
@@ -347,7 +350,7 @@ These are orthogonal. Blendy + MSB and Blendy + LSB are both valid.
 
 ---
 
-## Slide 17: Streaming Taxonomy
+## Streaming Taxonomy
 
 | Scenario | Data | Access | Ordering | Example |
 |----------|------|--------|----------|---------|
@@ -366,7 +369,7 @@ Both streaming cases use blendy. The ordering choice depends on the data source.
 
 ---
 
-## Slide 18: Blendy Stage Scheduling (BCFFMMZ25)
+## Blendy Stage Scheduling (BCFFMMZ25) *(TODO)*
 
 Jolt's `HalfSplitSchedule` uses **cost-model-driven, non-uniform windows**:
 
@@ -393,7 +396,7 @@ Based on BCFFMMZ25 (eprint 2025/1473): O(kN) time, O(N^{1/k}) space.
 
 ---
 
-## Slide 19: Jolt Compatibility
+## Jolt Compatibility *(description of possible integration)*
 
 Jolt's `SumcheckInstanceProver` trait:
 
@@ -419,7 +422,7 @@ LSB multilinear prover + this adapter = drop-in replacement for Jolt.
 
 ---
 
-## Slide 20: What We Deleted
+## What We Deleted
 
 | Module | LOC | Why |
 |--------|-----|-----|
@@ -435,9 +438,9 @@ LSB multilinear prover + this adapter = drop-in replacement for Jolt.
 
 ---
 
-## Slide 21: Advanced Optimizations Fit the Trait
+## Advanced Optimizations Fit the Trait
 
-From Bagad-Dao-Domb-Thaler (ePrint 2025/1117):
+From Bagad-Dao-Domb-Thaler, [*Sumcheck Optimizations*](https://eprint.iacr.org/2025/1117) (ePrint 2025/1117):
 
 | Optimization | Changes protocol? | Changes wire format? |
 |--------------|-------------------|---------------------|
@@ -454,25 +457,27 @@ Each optimization is a different `SumcheckProver` implementation.
 
 ---
 
-## Slide 22: Feature Gate Architecture
+## Feature Gate Architecture
 
 ```toml
 [features]
-default = ["arkworks", "parallel"]
+default = ["arkworks", "parallel", "simd"]
 
 arkworks = ["ark-ff", "ark-poly", "ark-serialize",
             "ark-std", "spongefish"]
 parallel = ["rayon", "ark-ff?/parallel", ...]
+simd     = []
 ```
 
-- `--no-default-features`: pure `SumcheckField` library, no arkworks
+- `--no-default-features`: pure `SumcheckField` library, no arkworks, no SIMD
 - `--features arkworks`: blanket impl for `ark_ff::Field`
 - `--features parallel`: rayon parallelism for fold and round computation
-- SIMD: always compiled in, dispatched at const-fold time
+- `--features simd`: SIMD backends (NEON, AVX-512 IFMA) for Goldilocks
+- SIMD dispatch is const-folded by LLVM -- zero overhead when field doesn't match
 
 ---
 
-## Slide 23: Benchmarking Strategy
+## Benchmarking Strategy — TODO
 
 ### Layer 1: Kernel Throughput
 - fold elements/sec vs memory bandwidth ceiling
@@ -490,7 +495,7 @@ parallel = ["rayon", "ark-ff?/parallel", ...]
 
 ---
 
-## Slide 24: CI Benchmark Infrastructure
+## CI Benchmark Infrastructure — TODO
 
 ```yaml
 # .github/workflows/bench.yml
@@ -515,7 +520,7 @@ parallel = ["rayon", "ark-ff?/parallel", ...]
 
 ---
 
-## Slide 25: Current Benchmark Matrix
+## Current Benchmark Matrix
 
 18 benchmark points across 6 groups:
 
@@ -533,9 +538,9 @@ Criterion harness with `Throughput::Elements(n)` annotations.
 
 ---
 
-## Slide 26: Migration Table
+## Migration Table (internal)
 
-| Old | New |
+| Old effsc | New effsc |
 |-----|-----|
 | `multilinear_sumcheck(evals, t, hook)` | `sumcheck(&mut MultilinearProver::new(evals), v, t, hook)` |
 | `inner_product_sumcheck(a, b, t, hook)` | `sumcheck(&mut InnerProductProver::new(a, b), v, t, hook)` |
@@ -546,7 +551,19 @@ Criterion harness with `Throughput::Elements(n)` annotations.
 
 ---
 
-## Slide 27: What's NOT in Scope
+## Migration from arkworks-rs/sumcheck
+
+| arkworks-rs/sumcheck | effsc |
+|-----|-----|
+| `ListOfProductsOfPolynomials<F>` | Custom `RoundPolyEvaluator` + `CoefficientProver` |
+| `GKRRoundSumcheck::prove(...)` | `sumcheck(&mut GkrProver::new(add, mult, w), ...)` |
+| `GKRRoundSumcheck::verify(...)` | `sumcheck_verify(sum, 2, rounds, t, hook)` |
+
+See [`docs/migration.md`](migration.md) for worked examples.
+
+---
+
+## What's NOT in Scope
 
 Explicit non-goals (from Thaler's framing):
 
@@ -559,7 +576,7 @@ These can be added later without changing the core trait or runner.
 
 ---
 
-## Slide 28: Design Principles
+## Design Principles
 
 1. **One protocol, one trait, many implementations.**
    Three polynomial shapes are three `SumcheckProver` impls, not three runners.
@@ -574,37 +591,44 @@ These can be added later without changing the core trait or runner.
 4. **Post-state via ownership, not return types.**
    `&mut P` survives sumcheck; prover-specific accessors are type-safe.
 
-5. **No final oracle check in the verifier.**
-   The caller decides how to verify g(r) -- direct eval, delegation, or commit.
+5. **The API prevents footguns.**
+   The oracle check is a required parameter — callers cannot accidentally omit it.
+   You must make a conscious decision: verify via PCS, defer (GKR), or use the default.
+
+6. **Features are orthogonal layers.**
+   `arkworks`, `parallel`, and `simd` can be enabled independently.
+   The core library works with any `SumcheckField` and zero dependencies.
 
 ---
 
-## Slide 29: Next Steps
+## Next Steps
 
 | Item | Status | Notes |
 |------|--------|-------|
-| CoefficientProver | Deferred | Port from coefficient_sumcheck.rs |
+| CoefficientProver | Done | MSB + LSB variants |
+| GkrProver | Done | Reference impl, O(2^{2k}) |
+| WHIR integration | Done | [PR #250](https://github.com/WizardOfMenlo/whir/pull/250) |
+| SECURITY.md | Done | Threat model, unsafe scope, disclosure policy |
+| ark-sumcheck migration guide | Done | docs/migration.md |
+| GkrProver O(2^k · k) optimization | Future | Incremental eq-polynomial bookkeeping |
 | Blendy prover | Deferred | Pending LSB vs MSB investigation (Jolt) |
-| Port utilities to SumcheckField | Pending | eq_evals, poly_ops, streams |
-| LSB multilinear prover | In progress | Sequential streaming (Jolt) |
-| Jolt adapter | In progress | Drop-in `SumcheckInstanceProver` impl |
+| Jolt adapter | Future | Drop-in `SumcheckInstanceProver` impl |
 | StreamingSchedule trait | Investigating | Cost-model windows (BCFFMMZ25) |
-| Self-hosted CI runner | Pending | EC2 Sapphire Rapids for AVX-512 |
-| WHIR integration test | Pending | Point WHIR at rewrite branch |
-| README update | Pending | New API docs + examples |
+| Additional field support | Future | M31, BabyBear, KoalaBear |
 
 ---
 
-## Slide 30: Summary
+## Summary
 
 **The sum-check protocol is one protocol.**
 
 We made the code match that fact.
 
 - 1 runner, 1 verifier, 1 proof type, 1 fold
+- 7 concrete provers (multilinear, inner-product, coefficient, GKR × MSB/LSB)
 - Generic over any field (not arkworks-specific)
-- SIMD transparent for Goldilocks
-- 31% fewer lines, 57% fewer files
+- SIMD transparent for Goldilocks (AVX-512 IFMA, NEON)
+- Integrated into WHIR and WARP with measured performance improvements
+- Superset of arkworks-rs/sumcheck functionality (see docs/migration.md)
+- Correctness-fuzzed against a formally verified oracle
 - All known optimizations fit below the trait boundary
-- GKR and WHIR compose naturally
-- CI regression tracking from day one

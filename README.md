@@ -67,17 +67,29 @@ let proof = sumcheck(
 
 ### Verification
 
-One verifier for any degree $d$:
+One verifier for any degree $d$. ⚠️ The final oracle check is a required parameter — the caller supplies a closure that verifies `final_claim == g(r)`, so the check cannot be accidentally omitted.
 
 ```rust
-use effsc::{noop_hook_verify, verifier::sumcheck_verify};
+use effsc::{noop_hook_verify, verifier::{sumcheck_verify, default_oracle_check}};
 
-let (final_claim, challenges) = sumcheck_verify(
+// Standalone: compare against the prover's claimed final value
+let challenges = sumcheck_verify(
     claimed_sum,
     degree,
     num_rounds,
     &mut transcript,
     noop_hook_verify,
+    default_oracle_check(proof.final_value),
+)?;
+
+// Composed protocol: WHIR verifies via PCS opening
+let challenges = sumcheck_verify(
+    claimed_sum,
+    degree,
+    num_rounds,
+    &mut transcript,
+    |_, t| round_pow.verify(t),
+    |final_claim, challenges| pcs.verify(final_claim, challenges),
 )?;
 ```
 
@@ -93,6 +105,7 @@ Each prover comes in two variants:
 | `MultilinearProver` | `MultilinearProverLSB` |
 | `InnerProductProver` | `InnerProductProverLSB` |
 | `CoefficientProver` | `CoefficientProverLSB` |
+| `GkrProver` | — |
 
 See [`docs/design.md`](docs/design.md) for details.
 
@@ -128,7 +141,7 @@ Falls back to scalar for other fields. See [`SECURITY.md`](SECURITY.md#unsafe-co
 
 ## Integrations
 
-Integrated into [WHIR](https://github.com/WizardOfMenlo/whir) and [WARP](https://github.com/compsec-epfl/warp) with measured performance improvements. Integration capability for streaming contexts like [Jolt](https://github.com/a16z/jolt) is described in [`docs/design.md`](docs/design.md).
+Integrated into [WHIR](https://github.com/WizardOfMenlo/whir) ([PR](https://github.com/WizardOfMenlo/whir/pull/250)) and [WARP](https://github.com/compsec-epfl/warp) with measured performance improvements. Integration capability for streaming contexts like [Jolt](https://github.com/a16z/jolt) is described in [`docs/design.md`](docs/design.md).
 
 ## Correctness
 

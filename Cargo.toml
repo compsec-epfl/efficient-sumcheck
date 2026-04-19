@@ -23,7 +23,7 @@ zerocopy = { version = "0.8", features = ["derive"] }
 criterion = "0.8"
 
 [features]
-default = ["arkworks", "parallel"]
+default = ["arkworks", "parallel", "simd"]
 arkworks = [
   "dep:ark-ff",
   "dep:ark-poly",
@@ -31,6 +31,7 @@ arkworks = [
   "dep:ark-std",
   "dep:spongefish",
 ]
+simd = []
 parallel = [
   "dep:rayon",
   "ark-ff?/parallel",

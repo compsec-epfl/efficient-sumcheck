@@ -93,7 +93,6 @@ mod tests {
     /// `multilinear_sumcheck` function.
     #[test]
     fn matches_legacy_multilinear_sumcheck() {
-        use ark_ff::Field;
         let mut rng = StdRng::seed_from_u64(42);
         let evals: Vec<F64> = (0..16).map(|_| F64::rand(&mut rng)).collect();
 

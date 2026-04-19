@@ -21,16 +21,22 @@
 //! `_from_u64_components`), whose implementations centralize the necessary
 //! `unsafe` in the arkworks blanket impl with full SAFETY documentation.
 
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 ))]
 use crate::field::SumcheckField;
 
 /// Goldilocks modulus: p = 2^64 − 2^32 + 1.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 ))]
 const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
 
@@ -40,9 +46,12 @@ const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
 /// Uses [`SumcheckField::_simd_field_config()`] for detection.
 /// After monomorphization every operand is a compile-time constant,
 /// so LLVM folds the entire function to `true` or `false`.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 ))]
 #[inline(always)]
 fn is_goldilocks<F: SumcheckField>() -> bool {
@@ -61,9 +70,12 @@ fn is_goldilocks<F: SumcheckField>() -> bool {
 /// `u64` values in Montgomery form.
 ///
 /// After monomorphization, fully constant-folded by LLVM.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 ))]
 #[inline(always)]
 fn is_goldilocks_based<F: SumcheckField>() -> bool {
@@ -86,9 +98,12 @@ fn is_goldilocks_based<F: SumcheckField>() -> bool {
 /// If `F` is a recognised Goldilocks field, runs the SIMD reduce in-place
 /// and truncates the vector. Otherwise returns `false` and the caller
 /// should fall back to the generic path.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 ))]
 pub(crate) fn try_simd_reduce<F: SumcheckField>(evals: &mut Vec<F>, challenge: F) -> bool {
     if !is_goldilocks::<F>() {
@@ -114,9 +129,12 @@ pub(crate) fn try_simd_reduce<F: SumcheckField>(evals: &mut Vec<F>, challenge: F
 /// Like [`try_simd_reduce`] but uses the half-split layout:
 /// `new[k] = v[k] + challenge * (v[k + L/2] − v[k])`.
 /// Returns `false` for non-Goldilocks fields.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 ))]
 pub(crate) fn try_simd_reduce_msb<F: SumcheckField>(evals: &mut Vec<F>, challenge: F) -> bool {
     if !is_goldilocks::<F>() {
@@ -143,9 +161,12 @@ pub(crate) fn try_simd_reduce_msb<F: SumcheckField>(evals: &mut Vec<F>, challeng
 ///
 /// Reduces `pw` in-place and returns `[s0, s1 - s0]` for the next round,
 /// computed in a single data pass via `reduce_and_evaluate`.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 ))]
 pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: SumcheckField>(
     pw: &mut Vec<F>,
@@ -181,9 +202,12 @@ pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: SumcheckField>(
 ///
 /// The evaluate is pure addition (component-wise), so SIMD wins regardless
 /// of extension degree.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 ))]
 pub(crate) fn try_simd_ext_evaluate<EF: SumcheckField>(evals: &[EF]) -> Option<(EF, EF)> {
     if !is_goldilocks_based::<EF>() {
@@ -221,9 +245,12 @@ pub(crate) fn try_simd_ext_evaluate<EF: SumcheckField>(evals: &[EF]) -> Option<(
 /// This is the coefficient sumcheck fast path for `degree() == 1` with a single
 /// pairwise table and no tablewise tables — equivalent to the multilinear
 /// `evaluate_parallel` kernel.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 ))]
 pub(crate) fn try_simd_evaluate_degree1<F: SumcheckField>(pw: &[F]) -> Option<Vec<F>> {
     if !is_goldilocks::<F>() {
@@ -247,9 +274,12 @@ pub(crate) fn try_simd_evaluate_degree1<F: SumcheckField>(pw: &[F]) -> Option<Ve
 // ─── Public helpers ────────────────────────────────────────────────────────
 
 /// Check if `F` is a Goldilocks prime field (degree 1, size 8, matching modulus).
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    )
 ))]
 #[inline(always)]
 pub fn is_goldilocks_pub<F: SumcheckField>() -> bool {

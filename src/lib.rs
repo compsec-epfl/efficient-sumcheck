@@ -30,7 +30,10 @@ pub fn noop_hook<T>(_round: usize, _transcript: &mut T) {}
 /// No-op per-round hook for the verifier. Pass to `sumcheck_verify()` when no hook is needed.
 ///
 /// ```ignore
-/// let result = sumcheck_verify(sum, deg, n, &mut t, noop_hook_verify);
+/// let challenges = sumcheck_verify(
+///     sum, deg, n, &mut t, noop_hook_verify,
+///     default_oracle_check(proof.final_value),
+/// )?;
 /// ```
 pub fn noop_hook_verify<T>(
     _round: usize,
@@ -70,9 +73,9 @@ pub mod hypercube;
 pub mod poly_ops;
 #[cfg(feature = "arkworks")]
 pub(crate) mod reductions;
-#[cfg(feature = "arkworks")]
+#[cfg(all(feature = "arkworks", feature = "simd"))]
 pub(crate) mod simd_fields;
-#[cfg(feature = "arkworks")]
+#[cfg(all(feature = "arkworks", feature = "simd"))]
 pub(crate) mod simd_sumcheck;
 #[cfg(feature = "arkworks")]
 pub mod streams;

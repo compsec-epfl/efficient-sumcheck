@@ -1,13 +1,17 @@
 //! Sumcheck verifier (Thaler Proposition 4.1).
 //!
-//! [`sumcheck_verify()`] checks a sumcheck proof against a claimed sum.
-//! It is generic over the polynomial degree — works for multilinear (d=1),
-//! inner-product (d=2), or arbitrary-degree sumcheck.
+//! [`sumcheck_verify()`] checks a sumcheck proof against a claimed sum
+//! and enforces the final oracle check via a caller-supplied closure.
 //!
-//! The verifier does NOT perform the final oracle check (Remark 4.2:
-//! "the verifier can apply sumcheck even without knowing g"). The caller
-//! is responsible for verifying `final_value == g(r_1, ..., r_v)` via
-//! direct evaluation, delegation, or polynomial commitment.
+//! The closure-based design prevents a common footgun: forgetting to
+//! verify `final_claim == g(r)` after the round checks pass. The caller
+//! *must* provide an `oracle_check` function — the verifier calls it
+//! automatically after all rounds succeed.
+//!
+//! For standalone use, pass [`default_oracle_check`] — it compares the
+//! final claim against the prover's `final_value` from the proof.
+//! For composed protocols (WHIR, GKR), pass a custom closure that
+//! performs the check via PCS opening or delegation.
 
 extern crate alloc;
 use crate::field::SumcheckField;
@@ -16,6 +20,30 @@ use crate::transcript::VerifierTranscript;
 use alloc::vec;
 use alloc::vec::Vec;
 
+/// Default oracle check: verifies `final_claim == proof.final_value`.
+///
+/// Use this for standalone sumcheck verification. For composed protocols
+/// (WHIR, GKR) where the oracle check is a PCS opening or delegation,
+/// pass a custom closure instead.
+///
+/// ```ignore
+/// let challenges = sumcheck_verify(
+///     sum, degree, rounds, &mut t, noop_hook_verify,
+///     default_oracle_check(proof.final_value),
+/// )?;
+/// ```
+pub fn default_oracle_check<F: SumcheckField>(
+    final_value: F,
+) -> impl FnOnce(F, &[F]) -> Result<(), SumcheckError> {
+    move |final_claim, _challenges| {
+        if final_claim == final_value {
+            Ok(())
+        } else {
+            Err(SumcheckError::FinalEvaluation)
+        }
+    }
+}
+
 /// Verify a sum-check proof against a claimed sum.
 ///
 /// For each round j:
@@ -23,22 +51,21 @@ use alloc::vec::Vec;
 /// 2. Checks `g_j(0) + g_j(1) == current_claim`.
 /// 3. Invokes `hook(round, transcript)`.
 /// 4. Reads the verifier challenge `r_j`.
-/// 5. Updates `current_claim = g_j(r_j)` via Horner evaluation.
+/// 5. Updates `current_claim = g_j(r_j)` via Lagrange interpolation.
 ///
-/// Returns `(final_claim, challenges)` on success. The caller checks
-/// `final_claim == g(r_1, ..., r_v)`.
-pub fn sumcheck_verify<F, T, H>(
+/// After all rounds, calls `oracle_check(final_claim, &challenges)`.
+/// The caller uses this to verify `final_claim == g(r_1, ..., r_v)` —
+/// by direct evaluation, polynomial commitment opening, or GKR delegation.
+///
+/// Returns the challenge vector on success.
+pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
     claimed_sum: F,
     expected_degree: usize,
     num_rounds: usize,
     transcript: &mut T,
-    mut hook: H,
-) -> Result<(F, Vec<F>), SumcheckError>
-where
-    F: SumcheckField,
-    T: VerifierTranscript<F>,
-    H: FnMut(usize, &mut T) -> Result<(), SumcheckError>,
-{
+    mut hook: impl FnMut(usize, &mut T) -> Result<(), SumcheckError>,
+    oracle_check: impl FnOnce(F, &[F]) -> Result<(), SumcheckError>,
+) -> Result<Vec<F>, SumcheckError> {
     let mut claim = claimed_sum;
     let mut challenges = Vec::with_capacity(num_rounds);
 
@@ -70,7 +97,10 @@ where
         claim = evaluate_from_evals(&evals, r);
     }
 
-    Ok((claim, challenges))
+    // Final oracle check: caller verifies final_claim == g(r_1, ..., r_v).
+    oracle_check(claim, &challenges)?;
+
+    Ok(challenges)
 }
 
 /// Evaluate a univariate polynomial from its evaluations at `{0, 1, ..., d}`

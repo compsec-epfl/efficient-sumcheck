@@ -129,9 +129,12 @@ pub fn compute_sumcheck_polynomial<F: Field>(values: &[F]) -> (F, F) {
 /// Falls back to a scalar recursive `rayon::join` fold for other fields.
 pub fn fold<F: Field>(values: &mut Vec<F>, weight: F) {
     // SIMD fast path for base-field Goldilocks (MSB layout).
-    #[cfg(any(
-        target_arch = "aarch64",
-        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "aarch64",
+            all(target_arch = "x86_64", target_feature = "avx512ifma")
+        )
     ))]
     {
         if crate::simd_sumcheck::dispatch::try_simd_reduce_msb(values, weight) {

@@ -10,7 +10,7 @@ use effsc::provers::inner_product::InnerProductProver;
 use effsc::provers::multilinear::MultilinearProver;
 use effsc::runner::sumcheck;
 use effsc::tests::F64;
-use effsc::transcript::{ProverTranscript, SanityTranscript};
+use effsc::transcript::SanityTranscript;
 
 const SEED: u64 = 0xDEAD_BEEF;
 

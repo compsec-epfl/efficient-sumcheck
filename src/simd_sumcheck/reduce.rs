@@ -259,7 +259,7 @@ pub fn reduce_and_evaluate<F: SimdBaseField>(
         unsafe {
             let (av, bv) = F::load_deinterleaved(src_ptr.add(2 * i));
             let r = F::add(av, F::mul(challenge_v, F::sub(bv, av)));
-            F::store(src[i..].as_mut_ptr(), r);
+            F::store(out_ptr.add(i), r);
             acc0 = F::add(acc0, r);
         }
         i += lanes;
@@ -276,7 +276,7 @@ pub fn reduce_and_evaluate<F: SimdBaseField>(
 
     // Extract lanes and sum even/odd groups
     let mut lanes_buf = [F::ZERO; 32];
-    debug_assert!(F::LANES <= 16);
+    debug_assert!(F::LANES <= 32);
     unsafe { F::store(lanes_buf.as_mut_ptr(), total) };
 
     let mut even_sum = F::ZERO;

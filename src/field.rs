@@ -361,8 +361,8 @@ mod ark_impl {
         #[inline(always)]
         fn _from_u64_components(comps: &[u64]) -> Self {
             let d = <Self as ark_ff::Field>::extension_degree() as usize;
-            debug_assert_eq!(comps.len(), d);
-            debug_assert_eq!(core::mem::size_of::<Self>(), d * 8);
+            assert_eq!(comps.len(), d);
+            assert_eq!(core::mem::size_of::<Self>(), d * 8);
             // SAFETY: `comps` contains exactly `d` valid Montgomery-form u64
             // values and `size_of::<Self>() == d * 8` (verified by
             // `_simd_field_config()`). The copy reconstructs the in-memory

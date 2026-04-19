@@ -63,7 +63,7 @@ pub fn evaluate<F: SimdBaseField>(src: &[F::Scalar]) -> (F::Scalar, F::Scalar) {
 
     // Extract lanes and sum even/odd groups.
     let mut lanes_buf = [F::ZERO; 32];
-    debug_assert!(F::LANES <= 16);
+    debug_assert!(F::LANES <= 32);
     unsafe { F::store(lanes_buf.as_mut_ptr(), total) };
 
     let mut even_sum = F::ZERO;
