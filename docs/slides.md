@@ -627,7 +627,7 @@ We made the code match that fact.
 - 7 concrete provers (multilinear, inner-product, coefficient, GKR × MSB/LSB)
 - Generic over any field (not arkworks-specific)
 - SIMD transparent for Goldilocks (AVX-512 IFMA, NEON)
-- Integrated into WHIR and WARP with measured performance improvements
+- Integrated into [WHIR](https://github.com/WizardOfMenlo/whir/pull/250) and [WARP](https://github.com/compsec-epfl/warp/pull/24) with measured performance improvements
 - Superset of arkworks-rs/sumcheck functionality (see docs/migration.md)
 - Correctness-fuzzed against a formally verified oracle
 - All known optimizations fit below the trait boundary
