@@ -574,6 +574,26 @@ These can be added later without changing the core trait or runner.
 
 ---
 
+## Threat Model *(TODO)*
+
+Sumcheck is public-coin: prover messages depend only on the polynomial and
+verifier challenges. This library implements plain (non-ZK) sumcheck.
+
+- **Standalone** (`g` public): transcript reveals everything the prover
+  computes on — timing side channels leak nothing beyond the transcript.
+- **ZK embedding** (`g` encodes witness data; ZK supplied by surrounding
+  commitments/masking): arithmetic runs on secrets. Transcript-observing
+  adversaries are safe, but **resistance to local side-channel adversaries
+  has not been formally verified**.
+
+Fixed-size Montgomery multiplication is inherently data-independent but
+unaudited. No constant-time claim for arbitrary `SumcheckField` impls.
+Callers in that threat model must supply constant-time field operations.
+
+See [SECURITY.md](../SECURITY.md) for the full threat model and reporting policy.
+
+---
+
 ## Design Principles
 
 1. **One protocol, one trait, many implementations.**

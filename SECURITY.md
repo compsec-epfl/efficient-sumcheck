@@ -1,4 +1,4 @@
-# Security Policy
+# Security
 
 ## Audit status
 
@@ -7,15 +7,20 @@ software under active development.
 
 ## Threat model
 
-The sumcheck protocol is **public-coin**: the prover's computation depends only
-on public polynomial evaluations and verifier challenges. No secret values flow
-through the prover's arithmetic, so timing side channels in the field operations
-do not leak private information.
+Sumcheck is public-coin: prover messages depend only on the polynomial and
+verifier challenges. This library implements plain (non-ZK) sumcheck.
 
-If zero-knowledge sumcheck (blinded/masked variants) is added in the future, a
-timing analysis of the field arithmetic layer would be warranted. The
-fixed-size Montgomery multiplication used for Goldilocks is inherently
-data-independent, but this property has not been formally verified.
+- **Standalone use** (`g` public): the transcript reveals everything the
+  prover computes on. Timing side channels leak nothing beyond the transcript.
+
+- **ZK embedding** (`g` encodes witness data; ZK supplied by surrounding
+  commitments/masking): the prover's arithmetic runs on secrets. A
+  transcript-observing adversary is still safe, but **resistance to local
+  side-channel adversaries has not been formally verified**. Fixed-size
+  Montgomery multiplication is inherently data-independent, but this has
+  not been audited, and no constant-time claim is made for arbitrary
+  `SumcheckField` implementations. Callers in that threat model must
+  supply constant-time field operations.
 
 ## Oracle check responsibility
 
@@ -35,12 +40,6 @@ Correct usage depends on the protocol context:
 | Standalone | `assert_eq!(result.final_claim, proof.final_value)` |
 | Composed (WHIR, GKR) | Pass `result.final_claim` to the next layer, which checks it |
 | Custom (WARP) | Compute expected value from `result.challenges` and compare |
-
-The library intentionally does not bundle the oracle check into the
-verifier because every real-world caller handles it differently — and
-a closure-based design that most callers bypass with a no-op provides
-false safety. Returning `final_claim` directly makes the caller's
-obligation explicit.
 
 ## `unsafe` code
 
@@ -71,12 +70,8 @@ runs in safe Rust.
 
 ## Reporting a vulnerability
 
-If you discover a security issue, please report it responsibly via one of:
-
-- **GitHub:** Use [private vulnerability reporting](https://github.com/compsec-epfl/space-efficient-sumcheck/security/advisories/new) on this repository
-- **Email:** andrew.zitek@epfl.ch (subject: `[effsc] Security vulnerability report`)
-
-Please include a description of the issue, its potential impact, and steps to
-reproduce if applicable. You will receive an acknowledgement within 72 hours.
+If you discover a security issue, please report it responsibly via
+[private vulnerability reporting](https://github.com/compsec-epfl/space-efficient-sumcheck/security/advisories/new)
+on this repository.
 
 **Do not** open a public GitHub issue for security vulnerabilities.
