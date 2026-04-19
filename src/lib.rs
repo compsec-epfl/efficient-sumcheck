@@ -30,10 +30,7 @@ pub fn noop_hook<T>(_round: usize, _transcript: &mut T) {}
 /// No-op per-round hook for the verifier. Pass to `sumcheck_verify()` when no hook is needed.
 ///
 /// ```ignore
-/// let challenges = sumcheck_verify(
-///     sum, deg, n, &mut t, noop_hook_verify,
-///     default_oracle_check(proof.final_value),
-/// )?;
+/// let result = sumcheck_verify(sum, deg, n, &mut t, noop_hook_verify)?;
 /// ```
 pub fn noop_hook_verify<T>(
     _round: usize,
@@ -55,13 +52,12 @@ mod multilinear_sumcheck;
 
 #[cfg(feature = "arkworks")]
 pub use inner_product_sumcheck::{
-    inner_product_sumcheck, inner_product_sumcheck_partial, inner_product_sumcheck_verify,
-    ProductSumcheck,
+    inner_product_sumcheck, inner_product_sumcheck_partial, ProductSumcheck,
 };
 #[cfg(feature = "arkworks")]
 pub use multilinear_sumcheck::{
     compute_sumcheck_polynomial, fold, fused_fold_and_compute_polynomial, multilinear_sumcheck,
-    multilinear_sumcheck_partial, multilinear_sumcheck_verify, Sumcheck,
+    multilinear_sumcheck_partial, Sumcheck,
 };
 
 #[cfg(feature = "arkworks")]

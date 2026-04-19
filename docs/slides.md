@@ -156,22 +156,20 @@ pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
     num_rounds: usize,
     transcript: &mut T,
     hook: impl FnMut(usize, &mut T) -> Result<(), SumcheckError>,
-    oracle_check: impl FnOnce(F, &[F]) -> Result<(), SumcheckError>,
-) -> Result<Vec<F>, SumcheckError>
+) -> Result<SumcheckResult<F>, SumcheckError>
 ```
 
 - Checks g_j(0) + g_j(1) = claim each round
 - Evaluates g_j(r_j) via Lagrange interpolation (any degree)
-- Calls `oracle_check(final_claim, challenges)` after all rounds pass
+- Returns `SumcheckResult { challenges, final_claim }`
 
-The verifier doesn't know g (Thaler Remark 4.2), so the oracle check
-is the caller's responsibility. Making it a required parameter means the
-check cannot be accidentally omitted — the API forces a conscious decision:
+The verifier doesn't know g ([Thaler Remark 4.2](https://people.cs.georgetown.edu/jthaler/ProofsArgsAndZK.pdf)), so the oracle check
+is the caller's responsibility. The API returns `final_claim` directly —
+the caller handles it according to their protocol:
 
 ```rust
-default_oracle_check(proof.final_value)       // standalone
-|claim, _| pcs.verify(claim, commitment)    // WHIR (PCS opening)
-|claim, _| Ok(())                           // GKR (deferred to next layer)
+assert_eq!(result.final_claim, proof.final_value) // standalone
+next_claim = result.final_claim;                   // WHIR, GKR (next layer)
 ```
 
 ---
@@ -591,9 +589,10 @@ These can be added later without changing the core trait or runner.
 4. **Post-state via ownership, not return types.**
    `&mut P` survives sumcheck; prover-specific accessors are type-safe.
 
-5. **The API prevents footguns.**
-   The oracle check is a required parameter — callers cannot accidentally omit it.
-   You must make a conscious decision: verify via PCS, defer (GKR), or use the default.
+5. **The verifier returns the final claim, not a verdict.**
+   `sumcheck_verify` returns `SumcheckResult { challenges, final_claim }`.
+   The oracle check is the caller's concern — standalone callers compare,
+   composed callers (WHIR, GKR) pass `final_claim` to the next layer.
 
 6. **Features are orthogonal layers.**
    `arkworks`, `parallel`, and `simd` can be enabled independently.

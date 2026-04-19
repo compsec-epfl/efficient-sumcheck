@@ -23,7 +23,7 @@ use rayon::join;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::transcript::{ProverTranscript, VerifierTranscript};
+use crate::transcript::ProverTranscript;
 
 /// Legacy return type for `multilinear_sumcheck`.
 #[derive(Debug)]
@@ -327,40 +327,5 @@ where
 }
 
 // ─── Verifier ───────────────────────────────────────────────────────────────
-
-/// Verifier side. Reads `(s0, s1)` per round, checks `s0 + s1 == *sum`,
-/// invokes `hook(round, transcript)?`, reads the challenge, and updates
-/// `*sum = s0 + r·(s1 − s0)`. Returns the sampled challenges on success.
-pub fn multilinear_sumcheck_verify<F, T, H>(
-    transcript: &mut T,
-    sum: &mut F,
-    num_rounds: usize,
-    mut hook: H,
-) -> Result<Vec<F>, crate::proof::SumcheckError>
-where
-    F: Field,
-    T: VerifierTranscript<F>,
-    H: FnMut(usize, &mut T) -> Result<(), crate::proof::SumcheckError>,
-{
-    let mut res = Vec::with_capacity(num_rounds);
-    for round in 0..num_rounds {
-        let s0: F = transcript
-            .receive()
-            .map_err(|_| crate::proof::SumcheckError::TranscriptError { round })?;
-        let s1: F = transcript
-            .receive()
-            .map_err(|_| crate::proof::SumcheckError::TranscriptError { round })?;
-        if s0 + s1 != *sum {
-            return Err(crate::proof::SumcheckError::ConsistencyCheck { round });
-        }
-
-        hook(round, transcript)?;
-
-        let r = transcript.challenge();
-        res.push(r);
-        *sum = s0 + r * (s1 - s0);
-    }
-    Ok(res)
-}
 
 // Tests live in `tests/multilinear_sumcheck.rs` (integration target).

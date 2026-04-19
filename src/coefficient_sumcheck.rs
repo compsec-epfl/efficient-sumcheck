@@ -1,6 +1,5 @@
 use ark_ff::Field;
 use ark_poly::univariate::DensePolynomial;
-use ark_poly::Polynomial;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -358,51 +357,11 @@ pub fn coefficient_sumcheck<F: Field>(
     }
 }
 
-/// Sumcheck verifier for arbitrary-degree round polynomials in coefficient form.
-///
-/// Each round: absorb the first `d` coefficients → derive the leading coefficient
-/// from `c_d = claim - 2·c_0 - c_1 - ... - c_{d-1}` → squeeze challenge
-/// → update `claim = h(challenge)`.
-///
-/// The prover messages contain the **full** polynomial (including the leading
-/// coefficient), but only the first `d` coefficients are absorbed into the
-/// transcript — matching what the prover sends.
-pub fn sumcheck_verify<F: Field>(
-    claim: &mut F,
-    prover_messages: &[DensePolynomial<F>],
-    transcript: &mut impl ProverTranscript<F>,
-) -> Option<Vec<F>> {
-    let mut challenges = Vec::with_capacity(prover_messages.len());
-
-    for h in prover_messages {
-        let d = h.coeffs.len().saturating_sub(1);
-
-        // Absorb only the first d coefficients (leading one is derived).
-        for coeff in &h.coeffs[..d] {
-            transcript.send(*coeff);
-        }
-
-        // Derive leading coefficient: c_d = claim - 2*c_0 - c_1 - ... - c_{d-1}
-        let partial_sum: F = h.coeffs[..d].iter().skip(1).copied().sum();
-        let expected_leading = *claim - h.coeffs[0].double() - partial_sum;
-
-        // Verify the prover's leading coefficient matches
-        if d < h.coeffs.len() && h.coeffs[d] != expected_leading {
-            return None;
-        }
-
-        let c = transcript.challenge();
-        *claim = h.evaluate(&c);
-        challenges.push(c);
-    }
-
-    Some(challenges)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use ark_ff::UniformRand;
+    use ark_poly::Polynomial;
     use ark_std::test_rng;
 
     use crate::tests::F64;
@@ -642,73 +601,5 @@ mod tests {
         assert_eq!(result.prover_messages.len(), 3);
         assert_eq!(pairwise[0].len(), 1);
         assert_eq!(pairwise[1].len(), 1);
-    }
-
-    #[test]
-    fn test_prover_verifier_end_to_end() {
-        let mut rng = test_rng();
-        let n = 1 << 4;
-        let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let claimed_sum: F64 = evals.iter().copied().sum();
-
-        // Prover
-        let mut pairwise = vec![evals];
-        let mut tablewise: Vec<Vec<Vec<F64>>> = vec![];
-        let mut prover_rng = test_rng();
-        let mut prover_transcript = SanityTranscript::new(&mut prover_rng);
-        let result = coefficient_sumcheck(
-            &Degree1Evaluator,
-            &mut tablewise,
-            &mut pairwise,
-            4,
-            &mut prover_transcript,
-        );
-
-        // Verifier
-        let mut claim = claimed_sum;
-        let mut verifier_rng = test_rng();
-        let mut verifier_transcript = SanityTranscript::new(&mut verifier_rng);
-        let challenges = sumcheck_verify(
-            &mut claim,
-            &result.prover_messages,
-            &mut verifier_transcript,
-        );
-
-        assert!(challenges.is_some(), "verifier should accept");
-        assert_eq!(challenges.unwrap(), result.verifier_messages);
-    }
-
-    #[test]
-    fn test_verifier_rejects_bad_proof() {
-        let mut rng = test_rng();
-        let n = 1 << 4;
-        let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-
-        // Prover
-        let mut pairwise = vec![evals];
-        let mut tablewise: Vec<Vec<Vec<F64>>> = vec![];
-        let mut prover_rng = test_rng();
-        let mut prover_transcript = SanityTranscript::new(&mut prover_rng);
-        let mut result = coefficient_sumcheck(
-            &Degree1Evaluator,
-            &mut tablewise,
-            &mut pairwise,
-            4,
-            &mut prover_transcript,
-        );
-
-        // Corrupt a coefficient
-        result.prover_messages[1].coeffs[0] += F64::from(1u64);
-
-        // Verifier should reject
-        let mut wrong_claim = F64::from(999u64);
-        let mut verifier_rng = test_rng();
-        let mut verifier_transcript = SanityTranscript::new(&mut verifier_rng);
-        let challenges = sumcheck_verify(
-            &mut wrong_claim,
-            &result.prover_messages,
-            &mut verifier_transcript,
-        );
-        assert!(challenges.is_none(), "verifier should reject bad proof");
     }
 }

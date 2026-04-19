@@ -67,30 +67,24 @@ let proof = sumcheck(
 
 ### Verification
 
-One verifier for any degree $d$. ⚠️ The final oracle check is a required parameter — the caller supplies a closure that verifies `final_claim == g(r)`, so the check cannot be accidentally omitted.
+One verifier for any degree $d$. Returns `SumcheckResult { challenges, final_claim }` — ⚠️ the caller is responsible for the oracle check ([Thaler Remark 4.2](https://people.cs.georgetown.edu/jthaler/ProofsArgsAndZK.pdf)).
 
 ```rust
-use effsc::{noop_hook_verify, verifier::{sumcheck_verify, default_oracle_check}};
+use effsc::{noop_hook_verify, verifier::sumcheck_verify};
 
-// Standalone: compare against the prover's claimed final value
-let challenges = sumcheck_verify(
+let result = sumcheck_verify(
     claimed_sum,
     degree,
     num_rounds,
     &mut transcript,
     noop_hook_verify,
-    default_oracle_check(proof.final_value),
 )?;
 
-// Composed protocol: WHIR verifies via PCS opening
-let challenges = sumcheck_verify(
-    claimed_sum,
-    degree,
-    num_rounds,
-    &mut transcript,
-    |_, t| round_pow.verify(t),
-    |final_claim, challenges| pcs.verify(final_claim, challenges),
-)?;
+// Standalone: compare against the prover's claimed final value.
+assert_eq!(result.final_claim, proof.final_value);
+
+// Composed (WHIR, GKR): pass final_claim to the next layer.
+next_layer_claim = result.final_claim;
 ```
 
 ## Variable Ordering

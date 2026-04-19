@@ -25,7 +25,7 @@ use rayon::join;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::transcript::{ProverTranscript, VerifierTranscript};
+use crate::transcript::ProverTranscript;
 
 /// Legacy return type for `inner_product_sumcheck`.
 #[derive(Debug, PartialEq)]
@@ -377,42 +377,6 @@ where
 }
 
 // ─── Verifier ───────────────────────────────────────────────────────────────
-
-/// Verifier side of [`inner_product_sumcheck`].
-///
-/// Reads `(c0, c2)` per round, derives `c1 = sum − 2·c0 − c2`, calls
-/// `hook(round, transcript)`, reads the challenge, and updates `sum` by
-/// Horner evaluation `(c2·r + c1)·r + c0`. Returns the sampled challenges;
-/// `*sum` is the claim reduced to the final folded point.
-pub fn inner_product_sumcheck_verify<F, T, H>(
-    transcript: &mut T,
-    sum: &mut F,
-    num_rounds: usize,
-    mut hook: H,
-) -> Result<Vec<F>, crate::proof::SumcheckError>
-where
-    F: Field,
-    T: VerifierTranscript<F>,
-    H: FnMut(usize, &mut T) -> Result<(), crate::proof::SumcheckError>,
-{
-    let mut res = Vec::with_capacity(num_rounds);
-    for round in 0..num_rounds {
-        let c0: F = transcript
-            .receive()
-            .map_err(|_| crate::proof::SumcheckError::TranscriptError { round })?;
-        let c2: F = transcript
-            .receive()
-            .map_err(|_| crate::proof::SumcheckError::TranscriptError { round })?;
-        let c1 = *sum - c0.double() - c2;
-
-        hook(round, transcript)?;
-
-        let r = transcript.challenge();
-        res.push(r);
-        *sum = (c2 * r + c1) * r + c0;
-    }
-    Ok(res)
-}
 
 // Tests live in `tests/inner_product_sumcheck.rs` (integration target) —
 // the lib-test target is blocked by unrelated modules with stale

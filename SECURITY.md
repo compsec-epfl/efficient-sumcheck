@@ -17,6 +17,31 @@ timing analysis of the field arithmetic layer would be warranted. The
 fixed-size Montgomery multiplication used for Goldilocks is inherently
 data-independent, but this property has not been formally verified.
 
+## Oracle check responsibility
+
+`sumcheck_verify` checks round consistency and returns
+`SumcheckResult { challenges, final_claim }`. It does **not** verify
+that `final_claim == g(r_1, ..., r_v)` — this oracle check ([Thaler Remark 4.2](https://people.cs.georgetown.edu/jthaler/ProofsArgsAndZK.pdf)) is the caller's responsibility.
+
+**Forgetting the oracle check is a soundness bug.** A malicious prover
+can craft round polynomials that pass all consistency checks but reduce
+to an arbitrary final claim. Without the oracle check, the verifier
+accepts.
+
+Correct usage depends on the protocol context:
+
+| Context | What the caller must do |
+|---------|------------------------|
+| Standalone | `assert_eq!(result.final_claim, proof.final_value)` |
+| Composed (WHIR, GKR) | Pass `result.final_claim` to the next layer, which checks it |
+| Custom (WARP) | Compute expected value from `result.challenges` and compare |
+
+The library intentionally does not bundle the oracle check into the
+verifier because every real-world caller handles it differently — and
+a closure-based design that most callers bypass with a no-op provides
+false safety. Returning `final_claim` directly makes the caller's
+obligation explicit.
+
 ## `unsafe` code
 
 Outside of the SIMD path, the library contains **no `unsafe` code**. Within the
