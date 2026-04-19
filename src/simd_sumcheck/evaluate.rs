@@ -612,7 +612,7 @@ mod tests {
     use crate::simd_fields::goldilocks::avx512::GoldilocksAvx512 as Backend;
     #[cfg(target_arch = "aarch64")]
     use crate::simd_fields::goldilocks::neon::GoldilocksNeon as Backend;
-    use crate::tests::{to_mont, F64};
+    use crate::tests::F64;
     use ark_ff::UniformRand;
     use ark_std::test_rng;
 
@@ -623,7 +623,7 @@ mod tests {
         let mut rng = test_rng();
         let n = 1 << 16;
         let evals_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_mont(*f)).collect();
+        let evals_raw: Vec<u64> = evals_ff.iter().map(|f| (*f).value).collect();
 
         // Reference: arkworks pairwise evaluate
         let (expected_even, expected_odd) = pairwise::evaluate(&evals_ff);
@@ -631,8 +631,8 @@ mod tests {
         // SIMD evaluate (Montgomery domain)
         let (simd_even, simd_odd) = evaluate::<Backend>(&evals_raw);
 
-        assert_eq!(to_mont(expected_even), simd_even, "even sum mismatch");
-        assert_eq!(to_mont(expected_odd), simd_odd, "odd sum mismatch");
+        assert_eq!(expected_even.value, simd_even, "even sum mismatch");
+        assert_eq!(expected_odd.value, simd_odd, "odd sum mismatch");
     }
 
     #[test]
@@ -642,17 +642,13 @@ mod tests {
         let mut rng = test_rng();
         let n = 1 << 20;
         let evals_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_mont(*f)).collect();
+        let evals_raw: Vec<u64> = evals_ff.iter().map(|f| (*f).value).collect();
 
         let (expected_even, expected_odd) = pairwise::evaluate(&evals_ff);
         let (simd_even, simd_odd) = evaluate_parallel::<Backend>(&evals_raw);
 
-        assert_eq!(
-            to_mont(expected_even),
-            simd_even,
-            "parallel even sum mismatch"
-        );
-        assert_eq!(to_mont(expected_odd), simd_odd, "parallel odd sum mismatch");
+        assert_eq!(expected_even.value, simd_even, "parallel even sum mismatch");
+        assert_eq!(expected_odd.value, simd_odd, "parallel odd sum mismatch");
     }
 
     #[test]
@@ -663,15 +659,15 @@ mod tests {
         let n = 1 << 16;
         let f_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
         let g_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let f_raw: Vec<u64> = f_ff.iter().map(|f| to_mont(*f)).collect();
-        let g_raw: Vec<u64> = g_ff.iter().map(|g| to_mont(*g)).collect();
+        let f_raw: Vec<u64> = f_ff.iter().map(|f| (*f).value).collect();
+        let g_raw: Vec<u64> = g_ff.iter().map(|g| (*g).value).collect();
 
         let (expected_a, expected_b) = pairwise_product_evaluate(&[f_ff.clone(), g_ff.clone()]);
 
         let (simd_a, simd_b) = product_evaluate::<Backend>(&f_raw, &g_raw);
 
-        assert_eq!(to_mont(expected_a), simd_a, "product a mismatch");
-        assert_eq!(to_mont(expected_b), simd_b, "product b mismatch");
+        assert_eq!(expected_a.value, simd_a, "product a mismatch");
+        assert_eq!(expected_b.value, simd_b, "product b mismatch");
     }
 
     #[test]
@@ -682,14 +678,14 @@ mod tests {
         let n = 1 << 20;
         let f_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
         let g_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let f_raw: Vec<u64> = f_ff.iter().map(|f| to_mont(*f)).collect();
-        let g_raw: Vec<u64> = g_ff.iter().map(|g| to_mont(*g)).collect();
+        let f_raw: Vec<u64> = f_ff.iter().map(|f| (*f).value).collect();
+        let g_raw: Vec<u64> = g_ff.iter().map(|g| (*g).value).collect();
 
         let (expected_a, expected_b) = pairwise_product_evaluate(&[f_ff.clone(), g_ff.clone()]);
 
         let (simd_a, simd_b) = product_evaluate_parallel::<Backend>(&f_raw, &g_raw);
 
-        assert_eq!(to_mont(expected_a), simd_a, "parallel product a mismatch");
-        assert_eq!(to_mont(expected_b), simd_b, "parallel product b mismatch");
+        assert_eq!(expected_a.value, simd_a, "parallel product a mismatch");
+        assert_eq!(expected_b.value, simd_b, "parallel product b mismatch");
     }
 }

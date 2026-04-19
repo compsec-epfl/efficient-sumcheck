@@ -19,6 +19,13 @@ pub trait SumcheckField:
 }
 ```
 
+## Example: Plonky3 Goldilocks
+
+See [`tests/plonky3_roundtrip.rs`](../tests/plonky3_roundtrip.rs) for a complete
+working example — a newtype wrapper around `p3_goldilocks::Goldilocks` that
+implements `SumcheckField` and runs a full prove + verify roundtrip with no
+arkworks dependency.
+
 ## SIMD opt-in via `SimdRepr`
 
 To enable SIMD acceleration for a non-arkworks Goldilocks type, implement

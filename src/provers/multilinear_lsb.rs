@@ -11,8 +11,8 @@
 
 extern crate alloc;
 use crate::field::SumcheckField;
-#[cfg(feature = "arkworks")]
 use crate::sumcheck_prover::SumcheckProver;
+use alloc::vec;
 use alloc::vec::Vec;
 
 #[cfg(feature = "parallel")]
@@ -167,11 +167,7 @@ fn fused_fold_and_compute_lsb<F: SumcheckField>(evals: &mut Vec<F>, weight: F) -
 
 // ─── SumcheckProver impl ───────────────────────────────────────────────────
 
-#[cfg(feature = "arkworks")]
-impl<F> SumcheckProver<F> for MultilinearProverLSB<F>
-where
-    F: ark_ff::Field,
-{
+impl<F: SumcheckField> SumcheckProver<F> for MultilinearProverLSB<F> {
     fn degree(&self) -> usize {
         1
     }

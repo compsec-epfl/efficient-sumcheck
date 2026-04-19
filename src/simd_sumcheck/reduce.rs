@@ -892,7 +892,7 @@ mod tests {
     use crate::simd_fields::goldilocks::avx512::GoldilocksAvx512 as Backend;
     #[cfg(target_arch = "aarch64")]
     use crate::simd_fields::goldilocks::neon::GoldilocksNeon as Backend;
-    use crate::tests::{to_mont, F64};
+    use crate::tests::F64;
     use ark_ff::UniformRand;
     use ark_std::test_rng;
 
@@ -903,10 +903,10 @@ mod tests {
         let mut rng = test_rng();
         let n = 1 << 16;
         let evals_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let mut evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_mont(*f)).collect();
+        let mut evals_raw: Vec<u64> = evals_ff.iter().map(|f| (*f).value).collect();
 
         let challenge_ff = F64::rand(&mut rng);
-        let challenge_raw = to_mont(challenge_ff);
+        let challenge_raw = challenge_ff.value;
 
         // Reference: reduce then evaluate
         let mut expected_ff = evals_ff;
@@ -918,14 +918,13 @@ mod tests {
             reduce_and_evaluate::<Backend>(&mut evals_raw, challenge_raw);
 
         assert_eq!(new_len, n / 2);
-        assert_eq!(to_mont(expected_even), fused_even, "fused even mismatch");
-        assert_eq!(to_mont(expected_odd), fused_odd, "fused odd mismatch");
+        assert_eq!(expected_even.value, fused_even, "fused even mismatch");
+        assert_eq!(expected_odd.value, fused_odd, "fused odd mismatch");
 
         // Also verify the reduce output matches
         for i in 0..new_len {
             assert_eq!(
-                to_mont(expected_ff[i]),
-                evals_raw[i],
+                expected_ff[i].value, evals_raw[i],
                 "reduce mismatch at index {}",
                 i
             );
@@ -939,10 +938,10 @@ mod tests {
         let mut rng = test_rng();
         let n = 1 << 20;
         let evals_ff: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
-        let mut evals_raw: Vec<u64> = evals_ff.iter().map(|f| to_mont(*f)).collect();
+        let mut evals_raw: Vec<u64> = evals_ff.iter().map(|f| (*f).value).collect();
 
         let challenge_ff = F64::rand(&mut rng);
-        let challenge_raw = to_mont(challenge_ff);
+        let challenge_raw = challenge_ff.value;
 
         let mut expected_ff = evals_ff;
         pairwise::reduce_evaluations(&mut expected_ff, challenge_ff);
@@ -951,11 +950,7 @@ mod tests {
         let (fused_even, fused_odd, _) =
             reduce_and_evaluate::<Backend>(&mut evals_raw, challenge_raw);
 
-        assert_eq!(
-            to_mont(expected_even),
-            fused_even,
-            "large fused even mismatch"
-        );
-        assert_eq!(to_mont(expected_odd), fused_odd, "large fused odd mismatch");
+        assert_eq!(expected_even.value, fused_even, "large fused even mismatch");
+        assert_eq!(expected_odd.value, fused_odd, "large fused odd mismatch");
     }
 }

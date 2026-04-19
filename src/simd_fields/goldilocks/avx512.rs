@@ -549,7 +549,7 @@ fn mont_mul(a: u64, b: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{from_mont, to_mont, F64};
+    use crate::tests::F64;
     use ark_ff::{AdditiveGroup, UniformRand};
     use ark_std::test_rng;
 
@@ -560,7 +560,7 @@ mod tests {
             let a = F64::rand(&mut rng);
             let b = F64::rand(&mut rng);
             let expected = a * b;
-            let result = from_mont(mont_mul(to_mont(a), to_mont(b)));
+            let result = F64::from_raw(mont_mul(a.value, b.value));
             assert_eq!(
                 expected, result,
                 "mont_mul mismatch for a={:?}, b={:?}",
@@ -576,7 +576,7 @@ mod tests {
             let a = F64::rand(&mut rng);
             let b = F64::rand(&mut rng);
             let expected = a + b;
-            let result = from_mont(GoldilocksAvx512::scalar_add(to_mont(a), to_mont(b)));
+            let result = F64::from_raw(GoldilocksAvx512::scalar_add(a.value, b.value));
             assert_eq!(expected, result);
         }
     }
@@ -588,7 +588,7 @@ mod tests {
             let a = F64::rand(&mut rng);
             let b = F64::rand(&mut rng);
             let expected = a - b;
-            let result = from_mont(GoldilocksAvx512::scalar_sub(to_mont(a), to_mont(b)));
+            let result = F64::from_raw(GoldilocksAvx512::scalar_sub(a.value, b.value));
             assert_eq!(expected, result);
         }
     }
@@ -600,8 +600,8 @@ mod tests {
             let a: [F64; 8] = core::array::from_fn(|_| F64::rand(&mut rng));
             let b: [F64; 8] = core::array::from_fn(|_| F64::rand(&mut rng));
 
-            let a_raw: [u64; 8] = core::array::from_fn(|i| to_mont(a[i]));
-            let b_raw: [u64; 8] = core::array::from_fn(|i| to_mont(b[i]));
+            let a_raw: [u64; 8] = core::array::from_fn(|i| a[i].value);
+            let b_raw: [u64; 8] = core::array::from_fn(|i| b[i].value);
 
             let a_v = unsafe { GoldilocksAvx512::load(a_raw.as_ptr()) };
             let b_v = unsafe { GoldilocksAvx512::load(b_raw.as_ptr()) };
@@ -611,7 +611,11 @@ mod tests {
             unsafe { GoldilocksAvx512::store(result.as_mut_ptr(), r_v) };
 
             for i in 0..8 {
-                assert_eq!(from_mont(result[i]), a[i] * b[i], "lane {i} mul mismatch");
+                assert_eq!(
+                    F64::from_raw(result[i]),
+                    a[i] * b[i],
+                    "lane {i} mul mismatch"
+                );
             }
         }
     }
@@ -623,8 +627,8 @@ mod tests {
             let a: [F64; 8] = core::array::from_fn(|_| F64::rand(&mut rng));
             let b: [F64; 8] = core::array::from_fn(|_| F64::rand(&mut rng));
 
-            let a_raw: [u64; 8] = core::array::from_fn(|i| to_mont(a[i]));
-            let b_raw: [u64; 8] = core::array::from_fn(|i| to_mont(b[i]));
+            let a_raw: [u64; 8] = core::array::from_fn(|i| a[i].value);
+            let b_raw: [u64; 8] = core::array::from_fn(|i| b[i].value);
 
             let a_v = unsafe { GoldilocksAvx512::load(a_raw.as_ptr()) };
             let b_v = unsafe { GoldilocksAvx512::load(b_raw.as_ptr()) };
@@ -634,7 +638,11 @@ mod tests {
             unsafe { GoldilocksAvx512::store(result.as_mut_ptr(), r_v) };
 
             for i in 0..8 {
-                assert_eq!(from_mont(result[i]), a[i] + b[i], "lane {i} add mismatch");
+                assert_eq!(
+                    F64::from_raw(result[i]),
+                    a[i] + b[i],
+                    "lane {i} add mismatch"
+                );
             }
         }
     }
@@ -646,8 +654,8 @@ mod tests {
             let a: [F64; 8] = core::array::from_fn(|_| F64::rand(&mut rng));
             let b: [F64; 8] = core::array::from_fn(|_| F64::rand(&mut rng));
 
-            let a_raw: [u64; 8] = core::array::from_fn(|i| to_mont(a[i]));
-            let b_raw: [u64; 8] = core::array::from_fn(|i| to_mont(b[i]));
+            let a_raw: [u64; 8] = core::array::from_fn(|i| a[i].value);
+            let b_raw: [u64; 8] = core::array::from_fn(|i| b[i].value);
 
             let a_v = unsafe { GoldilocksAvx512::load(a_raw.as_ptr()) };
             let b_v = unsafe { GoldilocksAvx512::load(b_raw.as_ptr()) };
@@ -657,7 +665,11 @@ mod tests {
             unsafe { GoldilocksAvx512::store(result.as_mut_ptr(), r_v) };
 
             for i in 0..8 {
-                assert_eq!(from_mont(result[i]), a[i] - b[i], "lane {i} sub mismatch");
+                assert_eq!(
+                    F64::from_raw(result[i]),
+                    a[i] - b[i],
+                    "lane {i} sub mismatch"
+                );
             }
         }
     }
@@ -667,8 +679,8 @@ mod tests {
         let mut rng = test_rng();
         for _ in 0..10_000 {
             let f = F64::rand(&mut rng);
-            let mont = to_mont(f);
-            let back = from_mont(mont);
+            let mont = f.value;
+            let back = F64::from_raw(mont);
             assert_eq!(f, back, "transmute roundtrip failed");
         }
     }
@@ -681,11 +693,11 @@ mod tests {
         let neg_one = -F64::ONE;
 
         // 0 * anything = 0
-        assert_eq!(from_mont(mont_mul(to_mont(zero), to_mont(neg_one))), zero);
+        assert_eq!(F64::from_raw(mont_mul(zero.value, neg_one.value)), zero);
         // 1 * x = x
-        assert_eq!(from_mont(mont_mul(to_mont(one), to_mont(neg_one))), neg_one);
+        assert_eq!(F64::from_raw(mont_mul(one.value, neg_one.value)), neg_one);
         // (-1) * (-1) = 1
-        assert_eq!(from_mont(mont_mul(to_mont(neg_one), to_mont(neg_one))), one);
+        assert_eq!(F64::from_raw(mont_mul(neg_one.value, neg_one.value)), one);
     }
 
     #[test]
@@ -700,8 +712,8 @@ mod tests {
         let b_vals = [neg_one, neg_one, neg_one, one, zero, one, zero, zero];
         let expected: [F64; 8] = core::array::from_fn(|i| a_vals[i] * b_vals[i]);
 
-        let a_raw: [u64; 8] = core::array::from_fn(|i| to_mont(a_vals[i]));
-        let b_raw: [u64; 8] = core::array::from_fn(|i| to_mont(b_vals[i]));
+        let a_raw: [u64; 8] = core::array::from_fn(|i| a_vals[i].value);
+        let b_raw: [u64; 8] = core::array::from_fn(|i| b_vals[i].value);
 
         let a_v = unsafe { GoldilocksAvx512::load(a_raw.as_ptr()) };
         let b_v = unsafe { GoldilocksAvx512::load(b_raw.as_ptr()) };
@@ -712,7 +724,7 @@ mod tests {
 
         for i in 0..8 {
             assert_eq!(
-                from_mont(result[i]),
+                F64::from_raw(result[i]),
                 expected[i],
                 "edge case lane {i} mismatch"
             );
@@ -722,7 +734,7 @@ mod tests {
     #[test]
     fn test_ext2_scalar_mul() {
         let mut rng = test_rng();
-        let w_mont = to_mont(F64::from(7u64));
+        let w_mont = F64::from(7u64).value;
 
         for _ in 0..10_000 {
             let a0 = F64::rand(&mut rng);
@@ -730,23 +742,23 @@ mod tests {
             let b0 = F64::rand(&mut rng);
             let b1 = F64::rand(&mut rng);
 
-            let a = [to_mont(a0), to_mont(a1)];
-            let b = [to_mont(b0), to_mont(b1)];
+            let a = [a0.value, a1.value];
+            let b = [b0.value, b1.value];
             let result = ext2_scalar_mul(a, b, w_mont);
 
             // Naive: c0 = a0*b0 + 7*a1*b1, c1 = a0*b1 + a1*b0
             let expected_c0 = a0 * b0 + F64::from(7u64) * a1 * b1;
             let expected_c1 = a0 * b1 + a1 * b0;
 
-            assert_eq!(from_mont(result[0]), expected_c0, "ext2 c0 mismatch");
-            assert_eq!(from_mont(result[1]), expected_c1, "ext2 c1 mismatch");
+            assert_eq!(F64::from_raw(result[0]), expected_c0, "ext2 c0 mismatch");
+            assert_eq!(F64::from_raw(result[1]), expected_c1, "ext2 c1 mismatch");
         }
     }
 
     #[test]
     fn test_ext3_scalar_mul() {
         let mut rng = test_rng();
-        let w_mont = to_mont(F64::from(7u64));
+        let w_mont = F64::from(7u64).value;
         let w = F64::from(7u64);
 
         for _ in 0..10_000 {
@@ -757,8 +769,8 @@ mod tests {
             let b1 = F64::rand(&mut rng);
             let b2 = F64::rand(&mut rng);
 
-            let a = [to_mont(a0), to_mont(a1), to_mont(a2)];
-            let b = [to_mont(b0), to_mont(b1), to_mont(b2)];
+            let a = [a0.value, a1.value, a2.value];
+            let b = [b0.value, b1.value, b2.value];
             let result = ext3_scalar_mul(a, b, w_mont);
 
             // Naive schoolbook mod (X³ - w):
@@ -766,16 +778,16 @@ mod tests {
             let expected_c1 = a0 * b1 + a1 * b0 + w * a2 * b2;
             let expected_c2 = a0 * b2 + a1 * b1 + a2 * b0;
 
-            assert_eq!(from_mont(result[0]), expected_c0, "ext3 c0 mismatch");
-            assert_eq!(from_mont(result[1]), expected_c1, "ext3 c1 mismatch");
-            assert_eq!(from_mont(result[2]), expected_c2, "ext3 c2 mismatch");
+            assert_eq!(F64::from_raw(result[0]), expected_c0, "ext3 c0 mismatch");
+            assert_eq!(F64::from_raw(result[1]), expected_c1, "ext3 c1 mismatch");
+            assert_eq!(F64::from_raw(result[2]), expected_c2, "ext3 c2 mismatch");
         }
     }
 
     #[test]
     fn test_ext2_avx512_matches_scalar() {
         let mut rng = test_rng();
-        let w_mont = to_mont(F64::from(7u64));
+        let w_mont = F64::from(7u64).value;
         let w_vec = GoldilocksAvx512::splat(w_mont);
 
         for _ in 0..10_000 {
@@ -786,12 +798,12 @@ mod tests {
 
             // Broadcast same values across all 8 lanes
             let a_v = [
-                GoldilocksAvx512::splat(to_mont(a0)),
-                GoldilocksAvx512::splat(to_mont(a1)),
+                GoldilocksAvx512::splat(a0.value),
+                GoldilocksAvx512::splat(a1.value),
             ];
             let b_v = [
-                GoldilocksAvx512::splat(to_mont(b0)),
-                GoldilocksAvx512::splat(to_mont(b1)),
+                GoldilocksAvx512::splat(b0.value),
+                GoldilocksAvx512::splat(b1.value),
             ];
 
             let r_v = ext2_mul(a_v, b_v, w_vec);
@@ -802,11 +814,7 @@ mod tests {
                 GoldilocksAvx512::store(r_out[1].as_mut_ptr(), r_v[1]);
             }
 
-            let scalar_result = ext2_scalar_mul(
-                [to_mont(a0), to_mont(a1)],
-                [to_mont(b0), to_mont(b1)],
-                w_mont,
-            );
+            let scalar_result = ext2_scalar_mul([a0.value, a1.value], [b0.value, b1.value], w_mont);
 
             for lane in 0..8 {
                 assert_eq!(
@@ -824,7 +832,7 @@ mod tests {
     #[test]
     fn test_ext3_avx512_matches_scalar() {
         let mut rng = test_rng();
-        let w_mont = to_mont(F64::from(7u64));
+        let w_mont = F64::from(7u64).value;
         let w_vec = GoldilocksAvx512::splat(w_mont);
 
         for _ in 0..10_000 {
@@ -836,14 +844,14 @@ mod tests {
             let b2 = F64::rand(&mut rng);
 
             let a_v = [
-                GoldilocksAvx512::splat(to_mont(a0)),
-                GoldilocksAvx512::splat(to_mont(a1)),
-                GoldilocksAvx512::splat(to_mont(a2)),
+                GoldilocksAvx512::splat(a0.value),
+                GoldilocksAvx512::splat(a1.value),
+                GoldilocksAvx512::splat(a2.value),
             ];
             let b_v = [
-                GoldilocksAvx512::splat(to_mont(b0)),
-                GoldilocksAvx512::splat(to_mont(b1)),
-                GoldilocksAvx512::splat(to_mont(b2)),
+                GoldilocksAvx512::splat(b0.value),
+                GoldilocksAvx512::splat(b1.value),
+                GoldilocksAvx512::splat(b2.value),
             ];
 
             let r_v = ext3_mul(a_v, b_v, w_vec);
@@ -856,8 +864,8 @@ mod tests {
             }
 
             let scalar_result = ext3_scalar_mul(
-                [to_mont(a0), to_mont(a1), to_mont(a2)],
-                [to_mont(b0), to_mont(b1), to_mont(b2)],
+                [a0.value, a1.value, a2.value],
+                [b0.value, b1.value, b2.value],
                 w_mont,
             );
 
@@ -881,12 +889,12 @@ mod tests {
     #[test]
     fn test_ext2_reduce_8pairs() {
         let mut rng = test_rng();
-        let w_mont = to_mont(F64::from(7u64));
+        let w_mont = F64::from(7u64).value;
 
         for _ in 0..1_000 {
             // Generate 8 pairs of ext2 elements in AoS layout (32 u64s)
-            let src: Vec<u64> = (0..32).map(|_| to_mont(F64::rand(&mut rng))).collect();
-            let challenge = [to_mont(F64::rand(&mut rng)), to_mont(F64::rand(&mut rng))];
+            let src: Vec<u64> = (0..32).map(|_| F64::rand(&mut rng.value)).collect();
+            let challenge = [F64::rand(&mut rng.value), F64::rand(&mut rng.value)];
 
             // Reference: scalar reduce
             let mut expected = vec![0u64; 16];
@@ -924,15 +932,15 @@ mod tests {
     #[test]
     fn test_ext3_reduce_8pairs() {
         let mut rng = test_rng();
-        let w_mont = to_mont(F64::from(7u64));
+        let w_mont = F64::from(7u64).value;
 
         for _ in 0..1_000 {
             // Generate 8 pairs of ext3 elements in AoS layout (48 u64s)
-            let src: Vec<u64> = (0..48).map(|_| to_mont(F64::rand(&mut rng))).collect();
+            let src: Vec<u64> = (0..48).map(|_| F64::rand(&mut rng.value)).collect();
             let challenge = [
-                to_mont(F64::rand(&mut rng)),
-                to_mont(F64::rand(&mut rng)),
-                to_mont(F64::rand(&mut rng)),
+                F64::rand(&mut rng.value),
+                F64::rand(&mut rng.value),
+                F64::rand(&mut rng.value),
             ];
 
             // Reference: scalar reduce

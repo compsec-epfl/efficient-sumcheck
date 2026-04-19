@@ -29,16 +29,6 @@ define_field!(
     name = F64,
 );
 
-/// Extract the raw Montgomery-form `u64` from a Goldilocks field element.
-pub fn to_mont(f: F64) -> u64 {
-    f.value
-}
-
-/// Reconstruct an `F64` from its raw Montgomery-form `u64`.
-pub fn from_mont(val: u64) -> F64 {
-    F64::from_raw(val)
-}
-
 // Secondary type: Fp64<MontBackend> (for compatibility with code using MontConfig).
 // Both F64 and FpF64 store a single u64 in Montgomery form — the SIMD backend
 // works identically for either.

@@ -315,7 +315,7 @@ pub fn ext3_scalar_mul(a: [u64; 3], b: [u64; 3], w: u64) -> [u64; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{from_mont, to_mont, F64};
+    use crate::tests::F64;
     use ark_ff::{AdditiveGroup, UniformRand};
     use ark_std::test_rng;
 
@@ -326,7 +326,7 @@ mod tests {
             let a = F64::rand(&mut rng);
             let b = F64::rand(&mut rng);
             let expected = a * b;
-            let result = from_mont(mont_mul(to_mont(a), to_mont(b)));
+            let result = F64::from_raw(mont_mul(a.value, b.value));
             assert_eq!(
                 expected, result,
                 "mont_mul mismatch for a={:?}, b={:?}",
@@ -342,7 +342,7 @@ mod tests {
             let a = F64::rand(&mut rng);
             let b = F64::rand(&mut rng);
             let expected = a + b;
-            let result = from_mont(GoldilocksNeon::scalar_add(to_mont(a), to_mont(b)));
+            let result = F64::from_raw(GoldilocksNeon::scalar_add(a.value, b.value));
             assert_eq!(expected, result);
         }
     }
@@ -354,7 +354,7 @@ mod tests {
             let a = F64::rand(&mut rng);
             let b = F64::rand(&mut rng);
             let expected = a - b;
-            let result = from_mont(GoldilocksNeon::scalar_sub(to_mont(a), to_mont(b)));
+            let result = F64::from_raw(GoldilocksNeon::scalar_sub(a.value, b.value));
             assert_eq!(expected, result);
         }
     }
@@ -368,8 +368,8 @@ mod tests {
             let b0 = F64::rand(&mut rng);
             let b1 = F64::rand(&mut rng);
 
-            let a_raw = [to_mont(a0), to_mont(a1)];
-            let b_raw = [to_mont(b0), to_mont(b1)];
+            let a_raw = [a0.value, a1.value];
+            let b_raw = [b0.value, b1.value];
 
             let a_v = unsafe { GoldilocksNeon::load(a_raw.as_ptr()) };
             let b_v = unsafe { GoldilocksNeon::load(b_raw.as_ptr()) };
@@ -378,8 +378,8 @@ mod tests {
             let mut result = [0u64; 2];
             unsafe { GoldilocksNeon::store(result.as_mut_ptr(), r_v) };
 
-            assert_eq!(from_mont(result[0]), a0 * b0);
-            assert_eq!(from_mont(result[1]), a1 * b1);
+            assert_eq!(F64::from_raw(result[0]), a0 * b0);
+            assert_eq!(F64::from_raw(result[1]), a1 * b1);
         }
     }
 
@@ -388,8 +388,8 @@ mod tests {
         let mut rng = test_rng();
         for _ in 0..10_000 {
             let f = F64::rand(&mut rng);
-            let mont = to_mont(f);
-            let back = from_mont(mont);
+            let mont = f.value;
+            let back = F64::from_raw(mont);
             assert_eq!(f, back, "transmute roundtrip failed");
         }
     }
@@ -402,11 +402,11 @@ mod tests {
         let neg_one = -F64::ONE;
 
         // 0 * anything = 0
-        assert_eq!(from_mont(mont_mul(to_mont(zero), to_mont(neg_one))), zero);
+        assert_eq!(F64::from_raw(mont_mul(zero.value, neg_one.value)), zero);
         // 1 * x = x
-        assert_eq!(from_mont(mont_mul(to_mont(one), to_mont(neg_one))), neg_one);
+        assert_eq!(F64::from_raw(mont_mul(one.value, neg_one.value)), neg_one);
         // (-1) * (-1) = 1
-        assert_eq!(from_mont(mont_mul(to_mont(neg_one), to_mont(neg_one))), one);
+        assert_eq!(F64::from_raw(mont_mul(neg_one.value, neg_one.value)), one);
     }
 
     #[test]
@@ -414,7 +414,7 @@ mod tests {
         // Test degree-2 extension multiply against naive computation.
         // Using nonresidue w = 7 (in Montgomery form).
         let mut rng = test_rng();
-        let w_mont = to_mont(F64::from(7u64));
+        let w_mont = F64::from(7u64).value;
 
         for _ in 0..10_000 {
             let a0 = F64::rand(&mut rng);
@@ -422,16 +422,16 @@ mod tests {
             let b0 = F64::rand(&mut rng);
             let b1 = F64::rand(&mut rng);
 
-            let a = [to_mont(a0), to_mont(a1)];
-            let b = [to_mont(b0), to_mont(b1)];
+            let a = [a0.value, a1.value];
+            let b = [b0.value, b1.value];
             let result = ext2_scalar_mul(a, b, w_mont);
 
             // Naive: c0 = a0*b0 + 7*a1*b1, c1 = a0*b1 + a1*b0
             let expected_c0 = a0 * b0 + F64::from(7u64) * a1 * b1;
             let expected_c1 = a0 * b1 + a1 * b0;
 
-            assert_eq!(from_mont(result[0]), expected_c0, "ext2 c0 mismatch");
-            assert_eq!(from_mont(result[1]), expected_c1, "ext2 c1 mismatch");
+            assert_eq!(F64::from_raw(result[0]), expected_c0, "ext2 c0 mismatch");
+            assert_eq!(F64::from_raw(result[1]), expected_c1, "ext2 c1 mismatch");
         }
     }
 
@@ -440,7 +440,7 @@ mod tests {
         // Test degree-3 extension multiply against naive schoolbook.
         // Using nonresidue w = 7 (in Montgomery form).
         let mut rng = test_rng();
-        let w_mont = to_mont(F64::from(7u64));
+        let w_mont = F64::from(7u64).value;
         let w = F64::from(7u64);
 
         for _ in 0..10_000 {
@@ -451,8 +451,8 @@ mod tests {
             let b1 = F64::rand(&mut rng);
             let b2 = F64::rand(&mut rng);
 
-            let a = [to_mont(a0), to_mont(a1), to_mont(a2)];
-            let b = [to_mont(b0), to_mont(b1), to_mont(b2)];
+            let a = [a0.value, a1.value, a2.value];
+            let b = [b0.value, b1.value, b2.value];
             let result = ext3_scalar_mul(a, b, w_mont);
 
             // Naive schoolbook mod (X³ - w):
@@ -463,9 +463,9 @@ mod tests {
             let expected_c1 = a0 * b1 + a1 * b0 + w * a2 * b2;
             let expected_c2 = a0 * b2 + a1 * b1 + a2 * b0;
 
-            assert_eq!(from_mont(result[0]), expected_c0, "ext3 c0 mismatch");
-            assert_eq!(from_mont(result[1]), expected_c1, "ext3 c1 mismatch");
-            assert_eq!(from_mont(result[2]), expected_c2, "ext3 c2 mismatch");
+            assert_eq!(F64::from_raw(result[0]), expected_c0, "ext3 c0 mismatch");
+            assert_eq!(F64::from_raw(result[1]), expected_c1, "ext3 c1 mismatch");
+            assert_eq!(F64::from_raw(result[2]), expected_c2, "ext3 c2 mismatch");
         }
     }
 
@@ -473,7 +473,7 @@ mod tests {
     fn test_ext2_neon_matches_scalar() {
         // Verify NEON ext2_mul matches ext2_scalar_mul.
         let mut rng = test_rng();
-        let w_mont = to_mont(F64::from(7u64));
+        let w_mont = F64::from(7u64).value;
         let w_vec = GoldilocksNeon::splat(w_mont);
 
         for _ in 0..10_000 {
@@ -482,8 +482,8 @@ mod tests {
             let b0 = F64::rand(&mut rng);
             let b1 = F64::rand(&mut rng);
 
-            let a_raw = [[to_mont(a0), to_mont(a0)], [to_mont(a1), to_mont(a1)]];
-            let b_raw = [[to_mont(b0), to_mont(b0)], [to_mont(b1), to_mont(b1)]];
+            let a_raw = [[a0.value, a0.value], [a1.value, a1.value]];
+            let b_raw = [[b0.value, b0.value], [b1.value, b1.value]];
 
             let a_v = [unsafe { GoldilocksNeon::load(a_raw[0].as_ptr()) }, unsafe {
                 GoldilocksNeon::load(a_raw[1].as_ptr())
@@ -500,11 +500,7 @@ mod tests {
                 GoldilocksNeon::store(r_out[1].as_mut_ptr(), r_v[1]);
             }
 
-            let scalar_result = ext2_scalar_mul(
-                [to_mont(a0), to_mont(a1)],
-                [to_mont(b0), to_mont(b1)],
-                w_mont,
-            );
+            let scalar_result = ext2_scalar_mul([a0.value, a1.value], [b0.value, b1.value], w_mont);
 
             assert_eq!(r_out[0][0], scalar_result[0], "ext2 NEON c0 mismatch");
             assert_eq!(r_out[1][0], scalar_result[1], "ext2 NEON c1 mismatch");
