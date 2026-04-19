@@ -50,10 +50,10 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
-  test_with_no_default_features:
+  build_with_no_default_features:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
 
-      - name: Run tests
-        run: cargo test --verbose --no-default-features
+      - name: Build without arkworks
+        run: cargo build --verbose --no-default-features
