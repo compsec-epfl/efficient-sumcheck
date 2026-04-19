@@ -1,8 +1,12 @@
 use ark_ff::Field;
-use ark_poly::{univariate::DensePolynomial, Polynomial};
+use ark_poly::univariate::DensePolynomial;
+use ark_poly::Polynomial;
 
-use crate::multilinear::reductions::{pairwise, tablewise};
-use crate::transcript::Transcript;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
+use crate::reductions::{pairwise, tablewise};
+use crate::transcript::ProverTranscript;
 
 #[derive(Debug)]
 pub struct CoefficientSumcheck<F: Field> {
@@ -10,37 +14,326 @@ pub struct CoefficientSumcheck<F: Field> {
     pub verifier_messages: Vec<F>,
 }
 
+/// Trait for computing the round polynomial from a single pair of rows.
+///
+/// The library iterates over pairs (even/odd rows from each table),
+/// calls [`accumulate_pair`](RoundPolyEvaluator::accumulate_pair) for each,
+/// which adds the pair's contribution directly into a shared coefficient buffer.
+/// This avoids per-pair polynomial allocation — the library owns the buffer.
+///
+/// # Arguments to `accumulate_pair`
+///
+/// - `coeffs`: mutable slice of length [`degree`](RoundPolyEvaluator::degree)`+ 1`.
+///   The evaluator **adds** its contribution into these coefficients (do NOT zero them).
+/// - `tablewise_pairs`: one `(even_row, odd_row)` slice-pair per tablewise table
+/// - `pairwise_pairs`: one `(even_elem, odd_elem)` pair per pairwise table
+///
+/// # Example
+///
+/// ```text
+/// struct MyEvaluator;
+/// impl RoundPolyEvaluator<F> for MyEvaluator {
+///     fn degree(&self) -> usize { 1 }
+///
+///     fn accumulate_pair(
+///         &self,
+///         coeffs: &mut [F],
+///         tw: &[(&[F], &[F])],
+///         pw: &[(F, F)],
+///     ) {
+///         let (even, odd) = pw[0];
+///         coeffs[0] += even;           // constant coefficient
+///         coeffs[1] += odd - even;     // linear coefficient
+///     }
+/// }
+/// ```
+pub trait RoundPolyEvaluator<F: Field>: Sync {
+    /// The degree of the round polynomial (number of coefficients = degree + 1).
+    fn degree(&self) -> usize;
+
+    /// Accumulate this pair's contribution into `coeffs[0..=degree]`.
+    ///
+    /// `coeffs` is pre-zeroed at the start of each round. The evaluator
+    /// should **add** (not assign) its contribution.
+    fn accumulate_pair(
+        &self,
+        coeffs: &mut [F],
+        tablewise_pairs: &[(&[F], &[F])],
+        pairwise_pairs: &[(F, F)],
+    );
+
+    /// Hint: is the per-pair work heavy enough to benefit from rayon parallelism?
+    ///
+    /// Return `true` for evaluators that do substantial work per pair (polynomial
+    /// multiplication, R1CS evaluation, etc.). Return `false` for trivial
+    /// evaluators (simple sums, single multiply) where rayon overhead dominates.
+    ///
+    /// Default: `true` (assume heavy — safe default since rayon's overhead is
+    /// small relative to the work for most real use cases).
+    fn parallelize(&self) -> bool {
+        true
+    }
+}
+
+// ── Evaluate strategies ─────────────────────────────────────────────────────
+
+/// SIMD fast path for degree-1 with a single pairwise table.
+///
+/// Returns `[sum_even, sum_odd - sum_even]` = coefficients of `h(x) = c0 + c1*x`.
+fn simd_evaluate_degree1<F: Field>(pw: &[F]) -> Vec<F> {
+    // Try SIMD dispatch for Goldilocks
+    #[cfg(any(
+        target_arch = "aarch64",
+        all(target_arch = "x86_64", target_feature = "avx512ifma")
+    ))]
+    {
+        if let Some(coeffs) = try_simd_evaluate_degree1(pw) {
+            return coeffs;
+        }
+    }
+
+    // Generic fallback
+    let mut s0 = F::ZERO;
+    let mut s1 = F::ZERO;
+    for chunk in pw.chunks_exact(2) {
+        s0 += chunk[0];
+        s1 += chunk[1];
+    }
+    vec![s0, s1 - s0]
+}
+
+/// SIMD implementation of degree-1 evaluate.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+fn try_simd_evaluate_degree1<F: ark_ff::Field>(pw: &[F]) -> Option<Vec<F>> {
+    crate::simd_sumcheck::dispatch::try_simd_evaluate_degree1(pw)
+}
+
+/// Fused SIMD reduce + degree-1 evaluate for next round.
+///
+/// Returns `Some([s0, s1 - s0])` if SIMD dispatch succeeded (reduces in-place
+/// and computes next round's coefficients). Returns `None` to fall back to
+/// separate reduce + evaluate.
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+))]
+fn try_simd_fused_reduce_evaluate<F: Field>(pw: &mut Vec<F>, challenge: F) -> Option<Vec<F>> {
+    crate::simd_sumcheck::dispatch::try_simd_fused_reduce_evaluate_degree1(pw, challenge)
+}
+
+#[cfg(not(any(
+    target_arch = "aarch64",
+    all(target_arch = "x86_64", target_feature = "avx512ifma")
+)))]
+fn try_simd_fused_reduce_evaluate<F: Field>(_pw: &mut Vec<F>, _challenge: F) -> Option<Vec<F>> {
+    None
+}
+
+/// Parallel evaluate using rayon (for heavy evaluators).
+#[cfg(feature = "parallel")]
+fn parallel_evaluate<F: Field>(
+    evaluator: &impl RoundPolyEvaluator<F>,
+    tablewise: &[Vec<Vec<F>>],
+    pairwise: &[Vec<F>],
+    n_tw: usize,
+    n_pw: usize,
+    n_pairs: usize,
+    n_coeffs: usize,
+) -> Vec<F> {
+    let accumulate_at = |coeffs: &mut [F], pair_idx: usize| {
+        let mut tw_buf: [(&[F], &[F]); 16] = [(&[], &[]); 16];
+        let mut pw_buf: [(F, F); 16] = [(F::ZERO, F::ZERO); 16];
+        debug_assert!(n_tw <= 16 && n_pw <= 16);
+        for (i, table) in tablewise.iter().enumerate() {
+            tw_buf[i] = (&table[2 * pair_idx], &table[2 * pair_idx + 1]);
+        }
+        for (i, table) in pairwise.iter().enumerate() {
+            pw_buf[i] = (table[2 * pair_idx], table[2 * pair_idx + 1]);
+        }
+        evaluator.accumulate_pair(coeffs, &tw_buf[..n_tw], &pw_buf[..n_pw]);
+    };
+
+    (0..n_pairs)
+        .into_par_iter()
+        .fold_with(vec![F::ZERO; n_coeffs], |mut acc, pair_idx| {
+            accumulate_at(&mut acc, pair_idx);
+            acc
+        })
+        .reduce_with(|mut a, b| {
+            for (ai, bi) in a.iter_mut().zip(&b) {
+                *ai += *bi;
+            }
+            a
+        })
+        .unwrap_or_else(|| vec![F::ZERO; n_coeffs])
+}
+
+/// Fallback when parallel feature is disabled.
+#[cfg(not(feature = "parallel"))]
+fn parallel_evaluate<F: Field>(
+    evaluator: &impl RoundPolyEvaluator<F>,
+    tablewise: &[Vec<Vec<F>>],
+    pairwise: &[Vec<F>],
+    n_tw: usize,
+    n_pw: usize,
+    n_pairs: usize,
+    n_coeffs: usize,
+) -> Vec<F> {
+    let mut coeffs = vec![F::ZERO; n_coeffs];
+    sequential_evaluate_into(
+        evaluator,
+        tablewise,
+        pairwise,
+        n_tw,
+        n_pw,
+        n_pairs,
+        &mut coeffs,
+    );
+    coeffs
+}
+
+/// Sequential evaluate (for trivial evaluators where rayon overhead dominates).
+///
+/// Fills `coeffs_out` with accumulated coefficients (zeroes it first).
+fn sequential_evaluate_into<F: Field>(
+    evaluator: &impl RoundPolyEvaluator<F>,
+    tablewise: &[Vec<Vec<F>>],
+    pairwise: &[Vec<F>],
+    n_tw: usize,
+    n_pw: usize,
+    n_pairs: usize,
+    coeffs_out: &mut [F],
+) {
+    for c in coeffs_out.iter_mut() {
+        *c = F::ZERO;
+    }
+    let mut tw_buf: [(&[F], &[F]); 16] = [(&[], &[]); 16];
+    let mut pw_buf: [(F, F); 16] = [(F::ZERO, F::ZERO); 16];
+    debug_assert!(n_tw <= 16 && n_pw <= 16);
+
+    for pair_idx in 0..n_pairs {
+        for (i, table) in tablewise.iter().enumerate() {
+            tw_buf[i] = (&table[2 * pair_idx], &table[2 * pair_idx + 1]);
+        }
+        for (i, table) in pairwise.iter().enumerate() {
+            pw_buf[i] = (table[2 * pair_idx], table[2 * pair_idx + 1]);
+        }
+        evaluator.accumulate_pair(coeffs_out, &tw_buf[..n_tw], &pw_buf[..n_pw]);
+    }
+}
+
 /// Sumcheck prover for arbitrary-degree round polynomials in coefficient form.
 ///
-/// Each round: `compute_round_poly` produces the round polynomial → coefficients
-/// are sent to the transcript → challenge is received → all tables are reduced.
+/// The user provides a [`RoundPolyEvaluator`] that computes the round polynomial
+/// contribution for a single pair. The library handles:
+/// - Parallel iteration over pairs (via rayon when `parallel` is enabled)
+/// - Summation of per-pair polynomials
+/// - Transcript interaction (d-coefficient optimization: leading coefficient omitted)
+/// - SIMD-accelerated pairwise reduce (auto-dispatched for Goldilocks)
+/// - Tablewise reduce
 pub fn coefficient_sumcheck<F: Field>(
-    mut compute_round_poly: impl FnMut(&[Vec<Vec<F>>], &[Vec<F>]) -> DensePolynomial<F>,
+    evaluator: &impl RoundPolyEvaluator<F>,
     tablewise: &mut [Vec<Vec<F>>],
     pairwise: &mut [Vec<F>],
     n_rounds: usize,
-    transcript: &mut impl Transcript<F>,
+    transcript: &mut impl ProverTranscript<F>,
 ) -> CoefficientSumcheck<F> {
     let mut prover_messages = Vec::with_capacity(n_rounds);
     let mut verifier_messages = Vec::with_capacity(n_rounds);
 
-    for _ in 0..n_rounds {
-        let round_poly = compute_round_poly(tablewise, pairwise);
+    let n_tw = tablewise.len();
+    let n_pw = pairwise.len();
+    let deg = evaluator.degree();
+    let n_coeffs = deg + 1;
 
-        for coeff in &round_poly.coeffs {
-            transcript.write(*coeff);
+    let use_parallel = evaluator.parallelize();
+    let is_degree1_simd_path = deg == 1 && n_pw == 1 && n_tw == 0;
+
+    let mut pending_degree1_eval: Option<Vec<F>> = None;
+
+    // Pre-allocate coefficient buffer — reused across rounds for sequential path.
+    let mut coeffs_buf = vec![F::ZERO; n_coeffs];
+
+    for round in 0..n_rounds {
+        let n_pairs = if n_tw > 0 {
+            tablewise[0].len() / 2
+        } else if n_pw > 0 {
+            pairwise[0].len() / 2
+        } else {
+            0
+        };
+
+        // ── Evaluate: build round polynomial coefficients ──
+        //
+        // Three strategies in order of preference:
+        // 1. SIMD fast path: degree-1, single pairwise table, no tablewise →
+        //    use evaluate_parallel or fused reduce+evaluate
+        // 2. Parallel: heavy evaluator → rayon fold_with across pairs
+        // 3. Sequential: trivial evaluator → simple loop, no rayon overhead
+        let coeffs = if let Some(cached) = pending_degree1_eval.take() {
+            cached
+        } else if is_degree1_simd_path {
+            simd_evaluate_degree1::<F>(&pairwise[0])
+        } else if use_parallel {
+            parallel_evaluate(
+                evaluator, tablewise, pairwise, n_tw, n_pw, n_pairs, n_coeffs,
+            )
+        } else {
+            // Fill pre-allocated buffer (no allocation), then clone the
+            // small coefficient vec (d+1 elements, typically 2-3).
+            sequential_evaluate_into(
+                evaluator,
+                tablewise,
+                pairwise,
+                n_tw,
+                n_pw,
+                n_pairs,
+                &mut coeffs_buf,
+            );
+            coeffs_buf.clone()
+        };
+
+        let round_poly = DensePolynomial { coeffs };
+
+        // Send only the first d coefficients (omit the leading one).
+        let d = round_poly.coeffs.len().saturating_sub(1);
+        for coeff in &round_poly.coeffs[..d] {
+            transcript.send(*coeff);
         }
 
         prover_messages.push(round_poly);
 
-        let c = transcript.read();
+        let c = transcript.challenge();
         verifier_messages.push(c);
 
+        // ── Reduce ──
         for table in tablewise.iter_mut() {
             tablewise::reduce_evaluations(table, c);
         }
-        for table in pairwise.iter_mut() {
-            pairwise::reduce_evaluations(table, c);
+
+        if is_degree1_simd_path && round < n_rounds - 1 {
+            // Fused reduce+evaluate: SIMD reduce in-place and compute
+            // next round's (s0, s1) in one pass when possible.
+            if let Some(next_coeffs) = try_simd_fused_reduce_evaluate(&mut pairwise[0], c) {
+                pending_degree1_eval = Some(next_coeffs);
+            } else {
+                // Fallback: separate reduce
+                pairwise::reduce_evaluations(&mut pairwise[0], c);
+            }
+        } else {
+            for table in pairwise.iter_mut() {
+                #[cfg(any(
+                    target_arch = "aarch64",
+                    all(target_arch = "x86_64", target_feature = "avx512ifma")
+                ))]
+                if crate::simd_sumcheck::dispatch::try_simd_reduce(table, c) {
+                    continue;
+                }
+                pairwise::reduce_evaluations(table, c);
+            }
         }
     }
 
@@ -52,25 +345,38 @@ pub fn coefficient_sumcheck<F: Field>(
 
 /// Sumcheck verifier for arbitrary-degree round polynomials in coefficient form.
 ///
-/// Each round: absorb coefficients → check `h(0) + h(1) == claim`
-/// → squeeze challenge → update `claim = h(challenge)`.
+/// Each round: absorb the first `d` coefficients → derive the leading coefficient
+/// from `c_d = claim - 2·c_0 - c_1 - ... - c_{d-1}` → squeeze challenge
+/// → update `claim = h(challenge)`.
+///
+/// The prover messages contain the **full** polynomial (including the leading
+/// coefficient), but only the first `d` coefficients are absorbed into the
+/// transcript — matching what the prover sends.
 pub fn sumcheck_verify<F: Field>(
     claim: &mut F,
     prover_messages: &[DensePolynomial<F>],
-    transcript: &mut impl Transcript<F>,
+    transcript: &mut impl ProverTranscript<F>,
 ) -> Option<Vec<F>> {
     let mut challenges = Vec::with_capacity(prover_messages.len());
 
     for h in prover_messages {
-        for coeff in &h.coeffs {
-            transcript.write(*coeff);
+        let d = h.coeffs.len().saturating_sub(1);
+
+        // Absorb only the first d coefficients (leading one is derived).
+        for coeff in &h.coeffs[..d] {
+            transcript.send(*coeff);
         }
 
-        if h.evaluate(&F::zero()) + h.evaluate(&F::one()) != *claim {
+        // Derive leading coefficient: c_d = claim - 2*c_0 - c_1 - ... - c_{d-1}
+        let partial_sum: F = h.coeffs[..d].iter().skip(1).copied().sum();
+        let expected_leading = *claim - h.coeffs[0].double() - partial_sum;
+
+        // Verify the prover's leading coefficient matches
+        if d < h.coeffs.len() && h.coeffs[d] != expected_leading {
             return None;
         }
 
-        let c = transcript.read();
+        let c = transcript.challenge();
         *claim = h.evaluate(&c);
         challenges.push(c);
     }
@@ -82,16 +388,70 @@ pub fn sumcheck_verify<F: Field>(
 mod tests {
     use super::*;
     use ark_ff::UniformRand;
-    use ark_poly::DenseUVPolynomial;
     use ark_std::test_rng;
 
-    use crate::multilinear::reductions::pairwise;
     use crate::tests::F64;
     use crate::transcript::SanityTranscript;
 
+    // ── Reusable evaluators for tests ───────────────────────────────────
+
+    /// Degree-1 evaluator: h(x) = even + (odd - even) * x per pair.
+    struct Degree1Evaluator;
+    impl RoundPolyEvaluator<F64> for Degree1Evaluator {
+        fn degree(&self) -> usize {
+            1
+        }
+        fn accumulate_pair(&self, coeffs: &mut [F64], _tw: &[(&[F64], &[F64])], pw: &[(F64, F64)]) {
+            let (even, odd) = pw[0];
+            coeffs[0] += even;
+            coeffs[1] += odd - even;
+        }
+    }
+
+    /// Degree-2 evaluator: interpolate through (0, s0), (1, s1), (2, s0+s1).
+    struct Degree2Evaluator;
+    impl RoundPolyEvaluator<F64> for Degree2Evaluator {
+        fn degree(&self) -> usize {
+            2
+        }
+        fn accumulate_pair(&self, coeffs: &mut [F64], _tw: &[(&[F64], &[F64])], pw: &[(F64, F64)]) {
+            let (s0, s1) = pw[0];
+            let s2 = s0 + s1;
+            coeffs[0] += s0;
+            coeffs[1] += (-F64::from(3u64) * s0 + F64::from(4u64) * s1 - s2) / F64::from(2u64);
+            coeffs[2] += (s0 - F64::from(2u64) * s1 + s2) / F64::from(2u64);
+        }
+    }
+
+    /// Mixed evaluator: tablewise column 0 + pairwise even (degree 0).
+    struct MixedEvaluator;
+    impl RoundPolyEvaluator<F64> for MixedEvaluator {
+        fn degree(&self) -> usize {
+            0
+        }
+        fn accumulate_pair(&self, coeffs: &mut [F64], tw: &[(&[F64], &[F64])], pw: &[(F64, F64)]) {
+            coeffs[0] += tw[0].0[0] + pw[0].0;
+        }
+    }
+
+    /// Inner product evaluator: per-pair product from two pairwise tables.
+    struct InnerProductEvaluator;
+    impl RoundPolyEvaluator<F64> for InnerProductEvaluator {
+        fn degree(&self) -> usize {
+            1
+        }
+        fn accumulate_pair(&self, coeffs: &mut [F64], _tw: &[(&[F64], &[F64])], pw: &[(F64, F64)]) {
+            let (a_even, a_odd) = pw[0];
+            let (b_even, b_odd) = pw[1];
+            coeffs[0] += a_even * b_even;
+            coeffs[1] += a_odd * b_odd - a_even * b_even;
+        }
+    }
+
+    // ── Tests ───────────────────────────────────────────────────────────
+
     #[test]
     fn test_sumcheck_relation_holds_each_round() {
-        // verify h(0) + h(1) == claimed sum at each round
         let mut rng = test_rng();
         let n = 1 << 4;
         let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
@@ -102,11 +462,7 @@ mod tests {
         let mut transcript = SanityTranscript::new(&mut rng);
 
         let result = coefficient_sumcheck(
-            |_tablewise, pairwise| {
-                let s0: F64 = pairwise[0].iter().step_by(2).copied().sum();
-                let s1: F64 = pairwise[0].iter().skip(1).step_by(2).copied().sum();
-                DensePolynomial::from_coefficients_vec(vec![s0, s1 - s0])
-            },
+            &Degree1Evaluator,
             &mut tablewise,
             &mut pairwise,
             4,
@@ -133,52 +489,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parity_with_multilinear_sumcheck() {
-        // separate rng for evals so transcript rngs start at the same state
-        use crate::multilinear_sumcheck;
-
-        let mut eval_rng = test_rng();
-        let n = 1 << 4;
-        let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut eval_rng)).collect();
-        let evals_clone = evals.clone();
-
-        // run multilinear_sumcheck
-        let mut rng1 = test_rng();
-        let mut ml_evals = evals;
-        let mut ml_transcript = SanityTranscript::new(&mut rng1);
-        let ml_result = multilinear_sumcheck::<F64, F64>(&mut ml_evals, &mut ml_transcript);
-
-        // run coefficient_sumcheck with degree-1 compute_h
-        let mut rng2 = test_rng();
-        let mut pairwise = vec![evals_clone];
-        let mut tablewise: Vec<Vec<Vec<F64>>> = vec![];
-        let mut coeff_transcript = SanityTranscript::new(&mut rng2);
-        let coeff_result = coefficient_sumcheck(
-            |_tablewise, pairwise| {
-                let (s0, s1) = pairwise::evaluate(&pairwise[0]);
-                DensePolynomial::from_coefficients_vec(vec![s0, s1 - s0])
-            },
-            &mut tablewise,
-            &mut pairwise,
-            4,
-            &mut coeff_transcript,
-        );
-
-        // challenges must match
-        assert_eq!(ml_result.verifier_messages, coeff_result.verifier_messages);
-
-        // round polynomials must be equivalent: (s0, s1) ↔ [s0, s1-s0]
-        for (ml_msg, coeff_msg) in ml_result
-            .prover_messages
-            .iter()
-            .zip(coeff_result.prover_messages.iter())
-        {
-            assert_eq!(coeff_msg.evaluate(&F64::from(0u64)), ml_msg.0);
-            assert_eq!(coeff_msg.evaluate(&F64::from(1u64)), ml_msg.1);
-        }
-    }
-
-    #[test]
     fn test_spongefish_transcript() {
         use crate::transcript::SpongefishTranscript;
 
@@ -187,7 +497,8 @@ mod tests {
         let num_rounds = 3;
         let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
 
-        let domsep = spongefish::domain_separator!("test-coefficient-sumcheck"; module_path!())
+        let domsep = spongefish::domain_separator!("test-coefficient-sumcheck")
+            .without_session()
             .instance(b"test");
 
         let prover_state = domsep.std_prover();
@@ -197,11 +508,7 @@ mod tests {
         let mut tablewise: Vec<Vec<Vec<F64>>> = vec![];
 
         let result = coefficient_sumcheck(
-            |_tablewise, pairwise| {
-                let s0: F64 = pairwise[0].iter().step_by(2).copied().sum();
-                let s1: F64 = pairwise[0].iter().skip(1).step_by(2).copied().sum();
-                DensePolynomial::from_coefficients_vec(vec![s0, s1 - s0])
-            },
+            &Degree1Evaluator,
             &mut tablewise,
             &mut pairwise,
             num_rounds,
@@ -227,12 +534,7 @@ mod tests {
         let mut transcript = SanityTranscript::new(&mut rng);
 
         let result = coefficient_sumcheck(
-            |tablewise, pairwise| {
-                // combine both: sum of tablewise column 0 + pairwise even elements
-                let ts: F64 = tablewise[0].iter().map(|row| row[0]).sum();
-                let ps: F64 = pairwise[0].iter().step_by(2).copied().sum();
-                DensePolynomial::from_coefficients_vec(vec![ts + ps])
-            },
+            &MixedEvaluator,
             &mut tablewise,
             &mut pairwise,
             3,
@@ -240,15 +542,12 @@ mod tests {
         );
 
         assert_eq!(result.prover_messages.len(), 3);
-        // both should be reduced to single entries
         assert_eq!(tablewise[0].len(), 1);
         assert_eq!(pairwise[0].len(), 1);
     }
 
     #[test]
     fn test_higher_degree_round_polys() {
-        // degree-2 round poly: h(0) = s0, h(1) = s1, h(2) = s0 + s1
-        // verify the sumcheck relation holds at each round
         let mut rng = test_rng();
         let n = 1 << 3;
         let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
@@ -259,31 +558,19 @@ mod tests {
         let mut transcript = SanityTranscript::new(&mut rng);
 
         let result = coefficient_sumcheck(
-            |_tablewise, pairwise| {
-                let s0: F64 = pairwise[0].iter().step_by(2).copied().sum();
-                let s1: F64 = pairwise[0].iter().skip(1).step_by(2).copied().sum();
-                // degree-2: interpolate through (0, s0), (1, s1), (2, s0+s1)
-                // h(0)+h(1) = s0+s1 still holds, so sumcheck relation is satisfied
-                let s2 = s0 + s1;
-                let c0 = s0;
-                let c1 = (-F64::from(3u64) * s0 + F64::from(4u64) * s1 - s2) / F64::from(2u64);
-                let c2 = (s0 - F64::from(2u64) * s1 + s2) / F64::from(2u64);
-                DensePolynomial::from_coefficients_vec(vec![c0, c1, c2])
-            },
+            &Degree2Evaluator,
             &mut tablewise,
             &mut pairwise,
             3,
             &mut transcript,
         );
 
-        // verify round 0: h(0) + h(1) == claimed sum
         let h0 = &result.prover_messages[0];
         assert_eq!(
             h0.evaluate(&F64::from(0u64)) + h0.evaluate(&F64::from(1u64)),
             claimed_sum
         );
 
-        // all round polys should be degree 2
         for h in &result.prover_messages {
             assert_eq!(h.coeffs.len(), 3);
         }
@@ -300,11 +587,7 @@ mod tests {
         let mut transcript = SanityTranscript::new(&mut rng);
 
         let result = coefficient_sumcheck(
-            |_tablewise, pairwise| {
-                let s0 = pairwise[0][0];
-                let s1 = pairwise[0][1];
-                DensePolynomial::from_coefficients_vec(vec![s0, s1 - s0])
-            },
+            &Degree1Evaluator,
             &mut tablewise,
             &mut pairwise,
             1,
@@ -324,7 +607,6 @@ mod tests {
 
     #[test]
     fn test_multiple_pairwise_tables() {
-        // two independent pairwise tables, both reduced
         let mut rng = test_rng();
         let n = 1 << 3;
         let evals_a: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
@@ -335,23 +617,7 @@ mod tests {
         let mut transcript = SanityTranscript::new(&mut rng);
 
         let result = coefficient_sumcheck(
-            |_tablewise, pairwise| {
-                // inner product contribution from both tables
-                let s0: F64 = pairwise[0]
-                    .iter()
-                    .zip(pairwise[1].iter())
-                    .step_by(2)
-                    .map(|(a, b)| *a * b)
-                    .sum();
-                let s1: F64 = pairwise[0]
-                    .iter()
-                    .zip(pairwise[1].iter())
-                    .skip(1)
-                    .step_by(2)
-                    .map(|(a, b)| *a * b)
-                    .sum();
-                DensePolynomial::from_coefficients_vec(vec![s0, s1 - s0])
-            },
+            &InnerProductEvaluator,
             &mut tablewise,
             &mut pairwise,
             3,
@@ -361,5 +627,73 @@ mod tests {
         assert_eq!(result.prover_messages.len(), 3);
         assert_eq!(pairwise[0].len(), 1);
         assert_eq!(pairwise[1].len(), 1);
+    }
+
+    #[test]
+    fn test_prover_verifier_end_to_end() {
+        let mut rng = test_rng();
+        let n = 1 << 4;
+        let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+        let claimed_sum: F64 = evals.iter().copied().sum();
+
+        // Prover
+        let mut pairwise = vec![evals];
+        let mut tablewise: Vec<Vec<Vec<F64>>> = vec![];
+        let mut prover_rng = test_rng();
+        let mut prover_transcript = SanityTranscript::new(&mut prover_rng);
+        let result = coefficient_sumcheck(
+            &Degree1Evaluator,
+            &mut tablewise,
+            &mut pairwise,
+            4,
+            &mut prover_transcript,
+        );
+
+        // Verifier
+        let mut claim = claimed_sum;
+        let mut verifier_rng = test_rng();
+        let mut verifier_transcript = SanityTranscript::new(&mut verifier_rng);
+        let challenges = sumcheck_verify(
+            &mut claim,
+            &result.prover_messages,
+            &mut verifier_transcript,
+        );
+
+        assert!(challenges.is_some(), "verifier should accept");
+        assert_eq!(challenges.unwrap(), result.verifier_messages);
+    }
+
+    #[test]
+    fn test_verifier_rejects_bad_proof() {
+        let mut rng = test_rng();
+        let n = 1 << 4;
+        let evals: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+
+        // Prover
+        let mut pairwise = vec![evals];
+        let mut tablewise: Vec<Vec<Vec<F64>>> = vec![];
+        let mut prover_rng = test_rng();
+        let mut prover_transcript = SanityTranscript::new(&mut prover_rng);
+        let mut result = coefficient_sumcheck(
+            &Degree1Evaluator,
+            &mut tablewise,
+            &mut pairwise,
+            4,
+            &mut prover_transcript,
+        );
+
+        // Corrupt a coefficient
+        result.prover_messages[1].coeffs[0] += F64::from(1u64);
+
+        // Verifier should reject
+        let mut wrong_claim = F64::from(999u64);
+        let mut verifier_rng = test_rng();
+        let mut verifier_transcript = SanityTranscript::new(&mut verifier_rng);
+        let challenges = sumcheck_verify(
+            &mut wrong_claim,
+            &result.prover_messages,
+            &mut verifier_transcript,
+        );
+        assert!(challenges.is_none(), "verifier should reject bad proof");
     }
 }

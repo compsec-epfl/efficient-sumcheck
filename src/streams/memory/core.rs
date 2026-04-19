@@ -1,39 +1,60 @@
-use crate::{order_strategy::OrderStrategy, streams::Stream};
+use crate::streams::Stream;
 use ark_ff::Field;
 
-/*
- * It's totally reasonable to use this when the evaluations table
- * fits in memory (and yes, it's not so much a stream in this case)
- */
+#[cfg(feature = "parallel")]
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
+/// In-memory evaluation stream.
 #[derive(Debug, Clone)]
 pub struct MemoryStream<F: Field> {
     pub evaluations: Vec<F>,
 }
 
-pub fn reorder_vec<F: Field, O: OrderStrategy>(evaluations: Vec<F>) -> Vec<F> {
-    // abort if length not a power of two
+/// Bit-reversal permutation: reorders evaluations from ascending (lexicographic)
+/// to MSB (half-split) layout.
+///
+/// `out[i] = src[bit_reverse(i, num_vars)]`.
+///
+/// Uses `usize::reverse_bits` (hardware instruction on most targets).
+/// Parallel via rayon above the threshold.
+pub fn reorder_vec_msb<F: Field>(evaluations: Vec<F>) -> Vec<F> {
     assert!(!evaluations.is_empty() && evaluations.len().count_ones() == 1);
     let num_vars = evaluations.len().trailing_zeros() as usize;
-    let mut order = O::new(num_vars);
-    let mut evaluations_ordered = Vec::with_capacity(evaluations.len());
-    for index in &mut order {
-        evaluations_ordered.push(evaluations[index]);
+    bit_reverse_reorder(evaluations, num_vars)
+}
+
+const BIT_REVERSE_PARALLEL_THRESHOLD: usize = 1 << 17;
+
+#[inline]
+fn bit_reverse_reorder<F: Field>(src: Vec<F>, num_vars: usize) -> Vec<F> {
+    let n = src.len();
+    if num_vars == 0 {
+        return src;
     }
-    evaluations_ordered
+    let shift = usize::BITS - num_vars as u32;
+
+    #[cfg(feature = "parallel")]
+    {
+        if n > BIT_REVERSE_PARALLEL_THRESHOLD {
+            return (0..n)
+                .into_par_iter()
+                .map(|i| src[i.reverse_bits() >> shift])
+                .collect();
+        }
+    }
+
+    (0..n).map(|i| src[i.reverse_bits() >> shift]).collect()
 }
 
 impl<F: Field> MemoryStream<F> {
     pub fn new(evaluations: Vec<F>) -> Self {
-        // abort if length not a power of two
         assert!(!evaluations.is_empty() && evaluations.len().count_ones() == 1);
-        // return the MemoryStream instance
         Self { evaluations }
     }
-    pub fn new_from_lex<O: OrderStrategy>(evaluations: Vec<F>) -> Self {
-        // abort if length not a power of two
-        assert!(!evaluations.is_empty() && evaluations.len().count_ones() == 1);
-        Self::new(reorder_vec::<F, O>(evaluations))
+
+    /// Construct from ascending (lex) order evaluations, reordering to MSB.
+    pub fn new_from_lex_msb(evaluations: Vec<F>) -> Self {
+        Self::new(reorder_vec_msb(evaluations))
     }
 }
 
@@ -43,5 +64,33 @@ impl<F: Field> Stream<F> for MemoryStream<F> {
     }
     fn num_variables(&self) -> usize {
         self.evaluations.len().ilog2() as usize
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::F64;
+    use ark_ff::UniformRand;
+    use ark_std::test_rng;
+
+    #[test]
+    fn msb_reorder_roundtrip() {
+        let mut rng = test_rng();
+        for num_vars in [1usize, 2, 4, 8, 12] {
+            let n = 1usize << num_vars;
+            let input: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
+            // Double bit-reverse should be identity.
+            let once = reorder_vec_msb(input.clone());
+            let twice = reorder_vec_msb(once);
+            assert_eq!(twice, input, "mismatch at num_vars={}", num_vars);
+        }
+    }
+
+    #[test]
+    fn msb_num_vars_zero_edge_case() {
+        let input = vec![F64::from(42u64)];
+        let got = reorder_vec_msb(input.clone());
+        assert_eq!(got, input);
     }
 }
