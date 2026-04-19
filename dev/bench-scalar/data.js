@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776617133639,
+  "lastUpdate": 1776630458460,
   "repoUrl": "https://github.com/compsec-epfl/efficient-sumcheck",
   "entries": {
     "Sumcheck Benchmarks (scalar)": [
@@ -395,6 +395,138 @@ window.BENCHMARK_DATA = {
             "name": "fold/F64Ext3/2^24",
             "value": 110034048,
             "range": "± 2558267",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "1497456+z-tech@users.noreply.github.com",
+            "name": "Andrew Z",
+            "username": "z-tech"
+          },
+          "committer": {
+            "email": "1497456+z-tech@users.noreply.github.com",
+            "name": "Andrew Z",
+            "username": "z-tech"
+          },
+          "distinct": true,
+          "id": "36976a74fa08ba8ba3a6cfbd6271145bbabcc889",
+          "message": "update security",
+          "timestamp": "2026-04-19T22:23:40+02:00",
+          "tree_id": "79adaa7a49fa24b16285db4c385dedccc7694c97",
+          "url": "https://github.com/compsec-epfl/efficient-sumcheck/commit/36976a74fa08ba8ba3a6cfbd6271145bbabcc889"
+        },
+        "date": 1776630457727,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "multilinear/F64/2^16",
+            "value": 245541,
+            "range": "± 4646",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multilinear/F64/2^20",
+            "value": 2626976,
+            "range": "± 10098",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multilinear/F64/2^24",
+            "value": 36445325,
+            "range": "± 107247",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multilinear/F64Ext3/2^16",
+            "value": 1279861,
+            "range": "± 9524",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multilinear/F64Ext3/2^20",
+            "value": 15867916,
+            "range": "± 105194",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multilinear/F64Ext3/2^24",
+            "value": 245979494,
+            "range": "± 1035805",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "inner_product/F64/2^16",
+            "value": 1030331,
+            "range": "± 7449",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "inner_product/F64/2^20",
+            "value": 14186607,
+            "range": "± 87198",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "inner_product/F64/2^24",
+            "value": 234975740,
+            "range": "± 276290",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "inner_product/F64Ext3/2^16",
+            "value": 8391658,
+            "range": "± 36116",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "inner_product/F64Ext3/2^20",
+            "value": 123504325,
+            "range": "± 120090",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "inner_product/F64Ext3/2^24",
+            "value": 1989702735,
+            "range": "± 1317867",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fold/F64/2^16",
+            "value": 79690,
+            "range": "± 628",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fold/F64/2^20",
+            "value": 1046562,
+            "range": "± 8656",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fold/F64/2^24",
+            "value": 12718004,
+            "range": "± 30205",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fold/F64Ext3/2^16",
+            "value": 472873,
+            "range": "± 8451",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fold/F64Ext3/2^20",
+            "value": 7188709,
+            "range": "± 17525",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "fold/F64Ext3/2^24",
+            "value": 110037781,
+            "range": "± 48147",
             "unit": "ns/iter"
           }
         ]
