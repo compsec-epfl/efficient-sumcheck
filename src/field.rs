@@ -95,6 +95,54 @@ pub trait SumcheckField:
     fn _simd_field_config() -> Option<SimdFieldConfig> {
         None
     }
+
+    /// Reinterpret a field element as its raw Montgomery-form `u64`.
+    ///
+    /// Only meaningful for Goldilocks-based fields where each base-field
+    /// component is a single `u64` in Montgomery form. The default panics;
+    /// overridden by the arkworks blanket impl and by `SimdRepr` types.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn _to_raw_u64(self) -> u64 {
+        unimplemented!("_to_raw_u64 is only available for SIMD-compatible fields")
+    }
+
+    /// Reconstruct a field element from a raw Montgomery-form `u64`.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn _from_raw_u64(raw: u64) -> Self {
+        let _ = raw;
+        unimplemented!("_from_raw_u64 is only available for SIMD-compatible fields")
+    }
+
+    /// Reinterpret a slice of field elements as a flat `u64` slice.
+    ///
+    /// For base fields (degree 1), the output has the same length as input.
+    /// For extension fields (degree d), the output has `input.len() * d` elements.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn _as_u64_slice(slice: &[Self]) -> &[u64] {
+        let _ = slice;
+        unimplemented!("_as_u64_slice is only available for SIMD-compatible fields")
+    }
+
+    /// Reinterpret a mutable slice of field elements as a mutable flat `u64` slice.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn _as_u64_slice_mut(slice: &mut [Self]) -> &mut [u64] {
+        let _ = slice;
+        unimplemented!("_as_u64_slice_mut is only available for SIMD-compatible fields")
+    }
+
+    /// Reconstruct a field element from its raw Montgomery-form `u64` components.
+    ///
+    /// For base fields, `comps` has length 1. For degree-d extensions, length d.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn _from_u64_components(comps: &[u64]) -> Self {
+        let _ = comps;
+        unimplemented!("_from_u64_components is only available for SIMD-compatible fields")
+    }
 }
 
 // ─── SIMD memory layout contract ────────────────────────────────────────────
@@ -261,6 +309,69 @@ mod ark_impl {
                 modulus: limbs[0],
                 element_bytes: 8,
             })
+        }
+
+        #[doc(hidden)]
+        #[inline(always)]
+        fn _to_raw_u64(self) -> u64 {
+            debug_assert_eq!(core::mem::size_of::<Self>(), 8);
+            // SAFETY: The caller has verified via `_simd_field_config()` that
+            // Self is a Goldilocks-compatible field with `size_of::<Self>() == 8`
+            // and `element_bytes == 8`. Arkworks `SmallFp` and `Fp<MontBackend<C, 1>, 1>`
+            // both store exactly one u64 in Montgomery form as their sole field,
+            // making this transmute a no-op reinterpretation.
+            unsafe { core::mem::transmute_copy(&self) }
+        }
+
+        #[doc(hidden)]
+        #[inline(always)]
+        fn _from_raw_u64(raw: u64) -> Self {
+            debug_assert_eq!(core::mem::size_of::<Self>(), 8);
+            // SAFETY: Same layout guarantee as `_to_raw_u64` — the raw u64
+            // is a valid Montgomery-form value for this Goldilocks field.
+            unsafe { core::mem::transmute_copy(&raw) }
+        }
+
+        #[doc(hidden)]
+        #[inline(always)]
+        fn _as_u64_slice(slice: &[Self]) -> &[u64] {
+            let d = <Self as ark_ff::Field>::extension_degree() as usize;
+            debug_assert_eq!(core::mem::size_of::<Self>(), d * 8);
+            let n_u64 = slice.len() * d;
+            // SAFETY: Each element is `d` consecutive u64 values in Montgomery
+            // form (verified by `_simd_field_config()`). The slice is contiguous
+            // in memory, so the reinterpretation as `&[u64]` of length
+            // `slice.len() * d` is valid. Lifetime and alignment are preserved
+            // because u64 alignment (8) divides the field element alignment.
+            unsafe { core::slice::from_raw_parts(slice.as_ptr() as *const u64, n_u64) }
+        }
+
+        #[doc(hidden)]
+        #[inline(always)]
+        fn _as_u64_slice_mut(slice: &mut [Self]) -> &mut [u64] {
+            let d = <Self as ark_ff::Field>::extension_degree() as usize;
+            debug_assert_eq!(core::mem::size_of::<Self>(), d * 8);
+            let n_u64 = slice.len() * d;
+            // SAFETY: Same layout guarantee as `_as_u64_slice`. Mutable access
+            // is exclusive because we hold `&mut [Self]`.
+            unsafe { core::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut u64, n_u64) }
+        }
+
+        #[doc(hidden)]
+        #[inline(always)]
+        fn _from_u64_components(comps: &[u64]) -> Self {
+            let d = <Self as ark_ff::Field>::extension_degree() as usize;
+            debug_assert_eq!(comps.len(), d);
+            debug_assert_eq!(core::mem::size_of::<Self>(), d * 8);
+            // SAFETY: `comps` contains exactly `d` valid Montgomery-form u64
+            // values and `size_of::<Self>() == d * 8` (verified by
+            // `_simd_field_config()`). The copy reconstructs the in-memory
+            // layout of the field element.
+            unsafe {
+                let mut out = core::mem::MaybeUninit::<Self>::uninit();
+                core::ptr::copy_nonoverlapping(comps.as_ptr(), out.as_mut_ptr() as *mut u64, d);
+                out.assume_init()
+            }
         }
     }
 

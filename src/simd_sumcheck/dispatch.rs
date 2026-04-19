@@ -13,12 +13,13 @@
 //! `None` by default (no SIMD). After monomorphization the check is
 //! constant-folded by LLVM, so the dead branch is eliminated entirely.
 //!
-//! # Safety: `transmute_copy` between `SumcheckField` and `u64`
+//! # Safety
 //!
-//! The `u64_to_field` and `field_to_u64` helpers use `transmute_copy` to
-//! reinterpret between field elements and raw Montgomery-form `u64` values.
-//! This is safe for Goldilocks because `_simd_field_config()` verifies
-//! `element_bytes == 8` and the modulus matches.
+//! This module contains **no `unsafe` code**. All field ↔ `u64`
+//! reinterpretation is delegated to the safe `SumcheckField` trait methods
+//! (`_to_raw_u64`, `_from_raw_u64`, `_as_u64_slice`, `_as_u64_slice_mut`,
+//! `_from_u64_components`), whose implementations centralize the necessary
+//! `unsafe` in the arkworks blanket impl with full SAFETY documentation.
 
 #[cfg(any(
     target_arch = "aarch64",
@@ -101,9 +102,8 @@ pub(crate) fn try_simd_reduce<F: SumcheckField>(evals: &mut Vec<F>, challenge: F
 
     use crate::simd_sumcheck::reduce::reduce_in_place;
 
-    let buf: &mut [u64] =
-        unsafe { core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, evals.len()) };
-    let chg: u64 = field_to_u64(challenge);
+    let buf: &mut [u64] = F::_as_u64_slice_mut(evals.as_mut_slice());
+    let chg: u64 = challenge._to_raw_u64();
     let new_len = reduce_in_place::<Backend>(buf, chg);
     evals.truncate(new_len);
     true
@@ -130,9 +130,8 @@ pub(crate) fn try_simd_reduce_msb<F: SumcheckField>(evals: &mut Vec<F>, challeng
 
     use crate::simd_sumcheck::reduce::reduce_msb_in_place;
 
-    let buf: &mut [u64] =
-        unsafe { core::slice::from_raw_parts_mut(evals.as_mut_ptr() as *mut u64, evals.len()) };
-    let chg: u64 = field_to_u64(challenge);
+    let buf: &mut [u64] = F::_as_u64_slice_mut(evals.as_mut_slice());
+    let chg: u64 = challenge._to_raw_u64();
     let new_len = reduce_msb_in_place::<Backend>(buf, chg);
     evals.truncate(new_len);
     true
@@ -163,14 +162,13 @@ pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: SumcheckField>(
 
     use crate::simd_sumcheck::reduce::reduce_and_evaluate;
 
-    let buf: &mut [u64] =
-        unsafe { core::slice::from_raw_parts_mut(pw.as_mut_ptr() as *mut u64, pw.len()) };
-    let chg: u64 = field_to_u64(challenge);
+    let buf: &mut [u64] = F::_as_u64_slice_mut(pw.as_mut_slice());
+    let chg: u64 = challenge._to_raw_u64();
     let (s0_raw, s1_raw, new_len) = reduce_and_evaluate::<Backend>(buf, chg);
     pw.truncate(new_len);
 
-    let s0: F = u64_to_field(s0_raw);
-    let s1: F = u64_to_field(s1_raw);
+    let s0: F = F::_from_raw_u64(s0_raw);
+    let s1: F = F::_from_raw_u64(s1_raw);
     Some(vec![s0, s1 - s0])
 }
 
@@ -201,37 +199,19 @@ pub(crate) fn try_simd_ext_evaluate<EF: SumcheckField>(evals: &[EF]) -> Option<(
 
     if d == 1 {
         // Base field — use the optimized base evaluate
-        let buf: &[u64] =
-            unsafe { core::slice::from_raw_parts(evals.as_ptr() as *const u64, evals.len()) };
+        let buf: &[u64] = EF::_as_u64_slice(evals);
         let (s0, s1) = crate::simd_sumcheck::evaluate::evaluate_parallel::<Backend>(buf);
-        return Some((u64_to_field(s0), u64_to_field(s1)));
+        return Some((EF::_from_raw_u64(s0), EF::_from_raw_u64(s1)));
     }
 
     // Extension field: view as flat u64 buffer and run ext_evaluate
-    let n_u64 = evals.len() * d;
-    let buf: &[u64] = unsafe { core::slice::from_raw_parts(evals.as_ptr() as *const u64, n_u64) };
+    let buf: &[u64] = EF::_as_u64_slice(evals);
 
     let (even_comps, odd_comps) =
         crate::simd_sumcheck::evaluate::ext_evaluate_parallel::<Backend>(buf, d);
 
-    // Reconstruct extension field elements from component vectors.
-    // Safety: components are valid Montgomery-form u64s and EF has
-    // size_of == components.len() * 8 (verified by is_goldilocks_based).
-    let ext_from_comps = |comps: &[u64]| -> EF {
-        debug_assert_eq!(core::mem::size_of::<EF>(), core::mem::size_of_val(comps));
-        unsafe {
-            let mut out = core::mem::MaybeUninit::<EF>::uninit();
-            core::ptr::copy_nonoverlapping(
-                comps.as_ptr(),
-                out.as_mut_ptr() as *mut u64,
-                comps.len(),
-            );
-            out.assume_init()
-        }
-    };
-
-    let even: EF = ext_from_comps(&even_comps);
-    let odd: EF = ext_from_comps(&odd_comps);
+    let even: EF = EF::_from_u64_components(&even_comps);
+    let odd: EF = EF::_from_u64_components(&odd_comps);
 
     Some((even, odd))
 }
@@ -257,39 +237,11 @@ pub(crate) fn try_simd_evaluate_degree1<F: SumcheckField>(pw: &[F]) -> Option<Ve
 
     use crate::simd_sumcheck::evaluate::evaluate_parallel;
 
-    let buf: &[u64] = unsafe { core::slice::from_raw_parts(pw.as_ptr() as *const u64, pw.len()) };
+    let buf: &[u64] = F::_as_u64_slice(pw);
     let (s0_raw, s1_raw) = evaluate_parallel::<Backend>(buf);
-    let s0: F = u64_to_field(s0_raw);
-    let s1: F = u64_to_field(s1_raw);
+    let s0: F = F::_from_raw_u64(s0_raw);
+    let s1: F = F::_from_raw_u64(s1_raw);
     Some(vec![s0, s1 - s0])
-}
-
-// ─── Helpers: field ↔ u64 conversion ────────────────────────────────────────
-
-/// Reinterpret a Montgomery-form `u64` as a field element.
-///
-/// Precondition: `F` is Goldilocks with `size_of::<F>() == 8`.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
-))]
-#[inline(always)]
-fn u64_to_field<F: SumcheckField>(raw: u64) -> F {
-    debug_assert_eq!(core::mem::size_of::<F>(), 8);
-    unsafe { core::mem::transmute_copy(&raw) }
-}
-
-/// Reinterpret a field element as its Montgomery-form `u64`.
-///
-/// Precondition: `F` is Goldilocks with `size_of::<F>() == 8`.
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
-))]
-#[inline(always)]
-fn field_to_u64<F: SumcheckField>(val: F) -> u64 {
-    debug_assert_eq!(core::mem::size_of::<F>(), 8);
-    unsafe { core::mem::transmute_copy(&val) }
 }
 
 // ─── Public helpers ────────────────────────────────────────────────────────
@@ -302,14 +254,4 @@ fn field_to_u64<F: SumcheckField>(val: F) -> u64 {
 #[inline(always)]
 pub fn is_goldilocks_pub<F: SumcheckField>() -> bool {
     is_goldilocks::<F>()
-}
-
-/// Reinterpret a Montgomery-form `u64` as a field element (public wrapper).
-#[cfg(any(
-    target_arch = "aarch64",
-    all(target_arch = "x86_64", target_feature = "avx512ifma")
-))]
-#[inline(always)]
-pub fn u64_to_field_pub<F: SumcheckField>(raw: u64) -> F {
-    u64_to_field(raw)
 }

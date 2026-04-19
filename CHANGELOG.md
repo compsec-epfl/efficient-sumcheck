@@ -21,7 +21,7 @@ All notable changes to this project will be documented in this file.
 - **`verifier::sumcheck_verify()`** — degree-generic verifier with Lagrange interpolation and `Result`-based error handling.
 - **`SumcheckProof<F>`** — unified proof type replacing `Sumcheck<F>` and `ProductSumcheck<F>`.
 - **`SumcheckError`** — structured error type with `TranscriptError` variant.
-- **`no_hook`** — named no-op hook function (replaces `|_, _| {}`).
+- **`noop_hook`** — named no-op hook function (replaces `|_, _| {}`).
 - **`TestTranscript`** — renamed from `SanityTranscript` (old name kept as alias).
 - **6 concrete provers** (3 shapes × 2 orderings):
   - `MultilinearProver` / `MultilinearProverLSB` (degree 1)

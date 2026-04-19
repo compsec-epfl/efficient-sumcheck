@@ -1,10 +1,12 @@
 <h1 align="center">Efficient Sumcheck</h1>
 
-A high-performance sumcheck library with transparent SIMD acceleration, built-in Fiat-Shamir support, streaming capability, and correctness fuzzed against an [oracle](#correctness) with formalized completeness and soundness.
+A high-performance sumcheck library with [correctness-fuzzing](#correctness) against a verified oracle.
 
-This library was built for [arkworks](https://github.com/arkworks-rs) and compatible with any ecosystem that implements the [`SumcheckField`](#generic-field) trait.
+- **Efficient** — transparent SIMD acceleration (8-wide AVX-512, 2-wide NEON)
+- **Streaming-capable** — optional sublinear memory via sequential evaluation
+- **Complete** — built-in Fiat-Shamir, partial execution, per-round hooks
 
-**Security:** This library has not undergone a security audit.
+Built using [arkworks](https://github.com/arkworks-rs). Compatible with any ecosystem — see [`docs/compatibility.md`](docs/compatibility.md). Research-grade; not yet audited — see [`SECURITY.md`](SECURITY.md).
 
 ## Quick Start
 
@@ -13,18 +15,16 @@ This library was built for [arkworks](https://github.com/arkworks-rs) and compat
 Proves $H = \displaystyle\sum_{x \in \lbrace 0,1 \rbrace^v} p(x)$ where $p$ is a multilinear polynomial.
 
 ```rust
-use effsc::{no_hook, provers::multilinear::MultilinearProver, runner::sumcheck, transcript::TestTranscript};
-
-let evals: Vec<F> = /* */;
-let num_vars = evals.len().trailing_zeros() as usize;
+use effsc::{noop_hook, runner::sumcheck};
+use effsc::provers::multilinear::MultilinearProver;
 
 let mut prover = MultilinearProver::new(evals);
-let mut transcript = TestTranscript::new(&mut rng);
-let proof = sumcheck(&mut prover, num_vars, &mut transcript, no_hook);
-
-// proof.round_polys: Vec<Vec<F>> -- g_j at {0, 1, ..., deg}
-// proof.challenges: Vec<F>       -- r_1, ..., r_v
-// proof.final_value: F           -- g(r_1, ..., r_v)
+let proof = sumcheck(
+    &mut prover,
+    num_vars,
+    &mut transcript,
+    noop_hook,
+);
 ```
 
 ### Inner Product Sumcheck
@@ -32,13 +32,16 @@ let proof = sumcheck(&mut prover, num_vars, &mut transcript, no_hook);
 Proves $H = \displaystyle\sum_{x \in \lbrace 0,1 \rbrace^v} f(x) \cdot g(x)$ for two multilinear polynomials. Degree-2 round polynomials.
 
 ```rust
-use effsc::{provers::inner_product::InnerProductProver, runner::sumcheck};
+use effsc::{noop_hook, runner::sumcheck};
+use effsc::provers::inner_product::InnerProductProver;
 
 let mut prover = InnerProductProver::new(a, b);
-let proof = sumcheck(&mut prover, num_vars, &mut transcript, no_hook);
-
-// Prover-specific post-state:
-let (f_at_r, g_at_r) = prover.final_evaluations();
+let proof = sumcheck(
+    &mut prover,
+    num_vars,
+    &mut transcript,
+    noop_hook,
+);
 ```
 
 ### Coefficient Sumcheck
@@ -46,39 +49,20 @@ let (f_at_r, g_at_r) = prover.final_evaluations();
 Proves $H = \displaystyle\sum_{x \in \lbrace 0,1 \rbrace^v} p(x)$ where $\deg_{x_i}(p) \leq d$. The user implements `RoundPolyEvaluator` to define per-pair round polynomial contributions; the library handles iteration, parallelism, and reductions.
 
 ```rust
-use effsc::coefficient_sumcheck::{coefficient_sumcheck, RoundPolyEvaluator};
+use effsc::{noop_hook, runner::sumcheck};
+use effsc::provers::coefficient::CoefficientProver;
 
-struct MyEvaluator;
-impl RoundPolyEvaluator<F> for MyEvaluator {
-    fn degree(&self) -> usize { 1 }
-    fn accumulate_pair(
-        &self,
-        coeffs: &mut [F],
-        tw: &[(&[F], &[F])],
-        pw: &[(F, F)],
-    ) {
-        let (even, odd) = pw[0];
-        coeffs[0] += even;
-        coeffs[1] += odd - even;
-    }
-}
-
-let result = coefficient_sumcheck(
-    &MyEvaluator,
-    &mut tablewise,
-    &mut pairwise,
+let mut prover = CoefficientProver::new(
+    &evaluator,
+    tablewise,
+    pairwise,
+);
+let proof = sumcheck(
+    &mut prover,
     num_rounds,
     &mut transcript,
+    noop_hook,
 );
-```
-
-Or via the `SumcheckProver` trait:
-
-```rust
-use effsc::{provers::coefficient::CoefficientProver, runner::sumcheck};
-
-let mut prover = CoefficientProver::new(&MyEvaluator, tablewise, pairwise);
-let proof = sumcheck(&mut prover, num_rounds, &mut transcript, no_hook);
 ```
 
 ### Verification
@@ -86,75 +70,31 @@ let proof = sumcheck(&mut prover, num_rounds, &mut transcript, no_hook);
 One verifier for any degree $d$:
 
 ```rust
-use effsc::verifier::sumcheck_verify;
+use effsc::{noop_hook_verify, verifier::sumcheck_verify};
 
-let result = sumcheck_verify(claimed_sum, degree, num_rounds, &mut transcript, no_hook_verify);
-match result {
-    Ok((final_claim, challenges)) => { /* caller checks final_claim = g(r) */ }
-    Err(e) => { /* consistency check failed */ }
-}
+let (final_claim, challenges) = sumcheck_verify(
+    claimed_sum,
+    degree,
+    num_rounds,
+    &mut transcript,
+    noop_hook_verify,
+)?;
 ```
-
-### Fold
-
-The fold primitive is exposed for callers that need it independently of the sumcheck protocol (e.g., WHIR's `multilinear_fold`):
-
-$$\tilde{p}(x_2, \ldots, x_v) = r_1 \cdot \tilde{p}(1, x_2, \ldots, x_v) + (1 - r_1) \cdot \tilde{p}(0, x_2, \ldots, x_v)$$
-
-```rust
-use effsc::fold;
-
-fold(&mut evals, challenge);  // MSB half-split, SIMD-accelerated
-```
-
-## The Prover Trait
-
-All provers implement `SumcheckProver<F>`:
-
-```rust
-pub trait SumcheckProver<F: SumcheckField> {
-    fn degree(&self) -> usize;
-    fn round(&mut self, challenge: Option<F>) -> Vec<F>;
-    fn finalize(&mut self, last_challenge: F);
-    fn final_value(&self) -> F;
-}
-```
-
-The protocol runner calls `round()` once per round. The caller retains `&mut P` ownership after sumcheck and can query prover-specific post-state (e.g., folded vectors for WHIR, claimed $W$ values for GKR).
-
-## Generic Field
-
-The library is generic over any type implementing `SumcheckField`:
-
-```rust
-pub trait SumcheckField:
-    Copy + Send + Sync + PartialEq + Debug
-    + Add + Sub + Mul + Neg + AddAssign + SubAssign + MulAssign
-    + Sum + 'static
-{
-    const ZERO: Self;
-    const ONE: Self;
-    fn from_u64(val: u64) -> Self;
-    fn inverse(&self) -> Option<Self>;
-}
-```
-
-A blanket implementation for all `ark_ff::Field` types is provided when the `arkworks` feature is enabled (default). Non-arkworks users compile with `--no-default-features` and implement the trait for their own field type.
 
 ## Variable Ordering
 
-Two layouts are supported, corresponding to different data availability patterns:
+Each prover comes in two variants:
 
-| Prover | Layout | Fold pairing | Best for |
-|--------|--------|-------------|----------|
-| `MultilinearProver` | MSB (half-split) | $(v_k,\ v_{k+L/2})$ | In-memory, WHIR |
-| `MultilinearProverLSB` | LSB (pair-split) | $(v_{2k},\ v_{2k+1})$ | Sequential streaming, Jolt |
-| `InnerProductProver` | MSB | $(a_k \cdot b_k,\ a_{k+L/2} \cdot b_{k+L/2})$ | In-memory, WHIR |
-| `InnerProductProverLSB` | LSB | $(a_{2k} \cdot b_{2k},\ a_{2k+1} \cdot b_{2k+1})$ | Sequential streaming, Jolt |
-| `CoefficientProver` | MSB | half-split pairs | In-memory, WARP |
-| `CoefficientProverLSB` | LSB | adjacent pairs | Sequential streaming, Jolt |
+- **MSB** (half-split) — optimal memory layout in most cases. Used by WHIR and WARP.
+- **LSB** (pair-split) — optimal for streaming applications where evaluations arrive sequentially.
 
-MSB is optimal when the full table is in memory or seekable on disk. LSB is optimal when evaluations arrive incrementally (e.g., Jolt CPU trace) — adjacent pairs are immediately available for folding.
+| MSB | LSB |
+|-----|-----|
+| `MultilinearProver` | `MultilinearProverLSB` |
+| `InnerProductProver` | `InnerProductProverLSB` |
+| `CoefficientProver` | `CoefficientProverLSB` |
+
+See [`docs/design.md`](docs/design.md) for details.
 
 ## Partial Execution and Hooks
 
@@ -163,18 +103,16 @@ The `sumcheck()` runner supports partial execution (`num_rounds < v`) and per-ro
 ```rust
 // WHIR: partial sumcheck with proof-of-work grinding
 let proof = sumcheck(
-    &mut InnerProductProver::new(a, b),
-    folding_factor,
+    &mut prover,
+    folding_factor,  // num_rounds < v
     &mut transcript,
-    |_, t| round_pow.prove(t),
+    |_, t| round_pow.prove(t),  // per-round hook
 );
 ```
 
-GKR compatibility (custom `SumcheckProver` impls with post-state inspection) is planned — see [`docs/design.md` section 10](docs/design.md).
-
 ## SIMD Acceleration
 
-All provers auto-dispatch to SIMD-accelerated backends. Supported fields:
+All provers transparently auto-dispatch to SIMD backends. Supported fields:
 
 - [x] Goldilocks ($p = 2^{64} - 2^{32} + 1$) and degree-2/3 extensions
 - [ ] M31 ($p = 2^{31} - 1$) and extensions
@@ -186,109 +124,15 @@ All provers auto-dispatch to SIMD-accelerated backends. Supported fields:
 | NEON | 2-wide | aarch64 (Apple M-series, Graviton) |
 | AVX-512 IFMA | 8-wide | x86_64 (Sapphire Rapids) |
 
-NEON dispatches automatically on aarch64. AVX-512 IFMA requires a compile-time flag:
+Falls back to scalar for other fields. See [`SECURITY.md`](SECURITY.md#unsafe-code) for `unsafe` scope.
 
-```bash
-RUSTFLAGS="-C target-feature=+avx512ifma" cargo build --release
-```
+## Integrations
 
-Non-arkworks Goldilocks types opt into SIMD via the `SimdRepr` trait, whose layout safety is compiler-verified by `zerocopy`:
-
-```rust
-#[derive(zerocopy::IntoBytes, zerocopy::FromBytes, zerocopy::Immutable)]
-#[repr(transparent)]
-struct MyGoldilocks(u64);
-
-impl SimdRepr for MyGoldilocks {
-    fn modulus() -> u64 { GOLDILOCKS_P }
-}
-```
-
-## Polynomial Toolkit
-
-> **Note:** This module will be upstreamed to `ark-poly` soon.
-
-The `polynomial` module provides evaluation, interpolation, and arithmetic — all on `SumcheckField`, no arkworks required.
-
-```rust
-use effsc::polynomial::{eval_horner, eval_from_evals, BarycentricWeights};
-use effsc::polynomial::{mul_into, add_scaled, eval_at};
-use effsc::polynomial::SequentialLagrange;
-
-// Evaluate from coefficients (Horner, O(d))
-let val = eval_horner(&coeffs, challenge);
-
-// Evaluate from evaluations at {0, 1, ..., d} (barycentric Lagrange, O(d))
-let val = eval_from_evals(&evals, challenge);
-
-// Precompute weights once per degree, reuse across rounds
-let weights = BarycentricWeights::new(degree);
-let val = weights.eval(&evals, challenge);
-
-// Zero-allocation dense arithmetic
-let mut out = [F::ZERO; 3];
-mul_into(&mut out, &a, &b);
-add_scaled(&mut out, scalar, &c);
-
-// Sequential eq polynomial over the hypercube (amortized O(1) per step)
-let mut lag = SequentialLagrange::new(&point);
-for p in effsc::hypercube::Ascending::new(num_vars) {
-    lag.advance_to(p.index);
-    let eq_val = lag.value();
-}
-```
-
-## Features
-
-```toml
-[features]
-default = ["arkworks", "parallel"]
-arkworks = ["ark-ff", "ark-poly", "ark-serialize", "ark-std", "spongefish"]
-parallel = ["rayon"]
-```
-
-- `arkworks` (default): blanket `SumcheckField` impl for `ark_ff::Field`
-- `parallel` (default): rayon parallelism for fold and round computation
-- `--no-default-features`: pure `SumcheckField` library, no arkworks dependency
-
-## Benchmarks
-
-```bash
-cargo bench --bench sumcheck
-```
-
-Benchmark matrix: `{multilinear, inner_product} x {F64, F64Ext3} x {2^16, 2^20, 2^24}` plus fold kernel throughput. CI tracks regressions via [github-action-benchmark](https://github.com/benchmark-action/github-action-benchmark).
-
-## Integration Examples
-
-### WHIR
-
-[WHIR](https://github.com/WizardOfMenlo/whir) uses partial inner-product sumcheck with per-round proof-of-work hooks. See [`docs/design.md` section 11](docs/design.md).
-
-### WARP
-
-[WARP](https://github.com/compsec-epfl/warp) uses `CoefficientProver` with `folding::protogalaxy::fold` to batch codeword + R1CS constraint checks into a single sumcheck.
-
-### Jolt
-
-[Jolt](https://github.com/a16z/jolt) compatibility is via an adapter struct that bridges `SumcheckProver` to Jolt's `SumcheckInstanceProver`. Use `MultilinearProverLSB` / `InnerProductProverLSB` for Jolt's default LSB binding order. See [`docs/design.md` section 12](docs/design.md).
-
-## Prover Strategies
-
-| Strategy | Reference |
-|----------|-----------|
-| Time (linear time, linear space) | [VSBW13] |
-| Blendy (linear time, sublinear space) | [CFFZ24], [BCFFMMZ25] |
-| Space (quasilinear time, logarithmic space) | [CTY11] |
+Integrated into [WHIR](https://github.com/WizardOfMenlo/whir) and [WARP](https://github.com/compsec-epfl/warp) with measured performance improvements. Integration capability for streaming contexts like [Jolt](https://github.com/a16z/jolt) is described in [`docs/design.md`](docs/design.md).
 
 ## Correctness
 
-This library is undergoing fuzzing over randomized inputs with a correctness oracle [z-tech/sumcheck-lean4](https://github.com/z-tech/sumcheck-lean4) that formalizes machine-checked theorems:
-
-- `Completeness` — honest prover, verifier accepts with probability 1
-- `Soundness` — dishonest prover, verifier accepts with probability $\leq n \cdot d \ / \ |\mathbb{F}|$
-
-Reports to follow.
+🚧 Undergoing fuzzing over randomized inputs against [z-tech/sumcheck-lean4](https://github.com/z-tech/sumcheck-lean4), an oracle with machine-checked proofs of completeness and soundness. Findings to follow.
 
 ## References
 

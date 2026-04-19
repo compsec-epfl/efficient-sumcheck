@@ -6,6 +6,7 @@ description = "TODO"
 repository = "https://github.com/compsec-epfl/space-efficient-sumcheck"
 include = ["Cargo.toml", "src", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
 edition = "2021"
+rust-version = "1.81"
 
 [dependencies]
 ark-ff = { version = "0.5.0", optional = true }
