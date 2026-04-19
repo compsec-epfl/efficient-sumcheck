@@ -1,8 +1,7 @@
+#[cfg(feature = "arkworks")]
 mod eq_evals;
-#[allow(clippy::module_inception)]
-mod hypercube;
-mod hypercube_member;
+mod iter;
 
-pub use eq_evals::compute_hypercube_eq_evals;
-pub use hypercube::Hypercube;
-pub use hypercube_member::HypercubeMember;
+#[cfg(feature = "arkworks")]
+pub use eq_evals::{compute_hypercube_eq_evals, eq_poly, eq_poly_non_binary};
+pub use iter::{Ascending, BitReverse, HypercubePoint};

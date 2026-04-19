@@ -1,162 +1,158 @@
 <h1 align="center">Efficient Sumcheck</h1>
 
-Efficient, streaming capable, sumcheck with **Fiat–Shamir** support via [SpongeFish](https://github.com/arkworks-rs/spongefish).
+A high-performance sumcheck library with [correctness-fuzzing](#correctness) against a verified oracle.
 
-**Security note:** This library has not undergone a formal security audit.
+- **Efficient** — transparent SIMD acceleration (8-wide AVX-512, 2-wide NEON)
+- **Streaming-capable** — optional sublinear memory via sequential evaluation
+- **Complete** — built-in Fiat-Shamir, partial execution, per-round hooks
 
-## General Use
+Built using [arkworks](https://github.com/arkworks-rs). Compatible with any ecosystem — see [`docs/compatibility.md`](docs/compatibility.md). Research-grade; not yet audited — see [`SECURITY.md`](SECURITY.md).
 
-This library exposes three high-level functions:
-1) [`multilinear_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_sumcheck.rs#L123),
-2) [`inner_product_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/inner_product_sumcheck.rs#L166), and
-3) [`coefficient_sumcheck`](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/coefficient_sumcheck.rs#L17).
-
-The first two are parameterized by two field types: `BF` (base field, of the evaluations) and `EF` (extension field, of the challenges). When no extension field is needed, set `EF = BF`.
-
-Using [SpongeFish](https://github.com/arkworks-rs/spongefish) (or similar Fiat-Shamir interface) simply call the functions with the Spongefish transcript:
+## Quick Start
 
 ### Multilinear Sumcheck
-```math
-claim = \sum_{x \in \{0,1\}^n} p(x)
-```
-```rust
-use efficient_sumcheck::{multilinear_sumcheck, Sumcheck};
-use efficient_sumcheck::transcript::SanityTranscript;
 
-let mut evals_p_01n: Vec<BF> = /* ... */;
-let mut prover_state = SanityTranscript::new(&mut rng);
-let sumcheck_transcript: Sumcheck<EF> = multilinear_sumcheck::<BF, EF>(
-  &mut evals_p_01n,
-  &mut prover_state
+Proves $H = \displaystyle\sum_{x \in \lbrace 0,1 \rbrace^v} p(x)$ where $p$ is a multilinear polynomial.
+
+```rust
+use effsc::{noop_hook, runner::sumcheck};
+use effsc::provers::multilinear::MultilinearProver;
+
+let mut prover = MultilinearProver::new(evals);
+let proof = sumcheck(
+    &mut prover,
+    num_vars,
+    &mut transcript,
+    noop_hook,
 );
 ```
 
 ### Inner Product Sumcheck
-```math
-claim = \sum_{x \in \{0,1\}^n} f(x) \cdot g(x)
-```
+
+Proves $H = \displaystyle\sum_{x \in \lbrace 0,1 \rbrace^v} f(x) \cdot g(x)$ for two multilinear polynomials. Degree-2 round polynomials.
 
 ```rust
-use efficient_sumcheck::{inner_product_sumcheck, ProductSumcheck};
-use efficient_sumcheck::transcript::SanityTranscript;
+use effsc::{noop_hook, runner::sumcheck};
+use effsc::provers::inner_product::InnerProductProver;
 
-let mut evals_f_01n: Vec<BF> = /* ... */;
-let mut evals_g_01n: Vec<BF> = /* ... */;
-let mut prover_state = SanityTranscript::new(&mut rng);
-let sumcheck_transcript: ProductSumcheck<EF> = inner_product_sumcheck::<BF, EF>(
-  &mut evals_f_01n,
-  &mut evals_g_01n,
-  &mut prover_state
+let mut prover = InnerProductProver::new(a, b);
+let proof = sumcheck(
+    &mut prover,
+    num_vars,
+    &mut transcript,
+    noop_hook,
 );
 ```
 
 ### Coefficient Sumcheck
-```math
-claim = \sum_{x \in \{0,1\}^n} p(x), \quad \deg_{x_i}(p) \leq d
-```
 
-Unlike the multilinear and inner product variants where `p` is multilinear (degree 1 in each variable, yielding degree-1 round polynomials), `coefficient_sumcheck` handles polynomials with arbitrary per-variable degree `d`, producing degree-`d` round polynomials. The user supplies a closure `compute_round_poly` that computes each round polynomial; the library handles transcript interaction and table reductions (both pairwise and tablewise) automatically.
+Proves $H = \displaystyle\sum_{x \in \lbrace 0,1 \rbrace^v} p(x)$ where $\deg_{x_i}(p) \leq d$. The user implements `RoundPolyEvaluator` to define per-pair round polynomial contributions; the library handles iteration, parallelism, and reductions.
 
 ```rust
-use efficient_sumcheck::coefficient_sumcheck::{coefficient_sumcheck, CoefficientSumcheck};
-use efficient_sumcheck::transcript::SanityTranscript;
-use ark_poly::univariate::DensePolynomial;
+use effsc::{noop_hook, runner::sumcheck};
+use effsc::provers::coefficient::CoefficientProver;
 
-let mut tablewise: Vec<Vec<Vec<F>>> = /* multi-column tables */;
-let mut pairwise: Vec<Vec<F>> = /* flat evaluation vectors */;
-let mut transcript = SanityTranscript::new(&mut rng);
-
-let result: CoefficientSumcheck<F> = coefficient_sumcheck(
-  |tablewise, pairwise| {
-      // Compute h(X) as a DensePolynomial<F> from current table state.
-      // Return coefficients in ascending order: [c0, c1, ..., cd].
-      DensePolynomial::from_coefficients_vec(vec![/* ... */])
-  },
-  &mut tablewise,
-  &mut pairwise,
-  n_rounds,
-  &mut transcript,
+let mut prover = CoefficientProver::new(
+    &evaluator,
+    tablewise,
+    pairwise,
 );
-```
-
-The closure receives immutable references to the current tables; after each round the library automatically reduces all pairwise and tablewise entries by folding with the verifier challenge.
-
-## Examples
-
-### 1) WARP - Multilinear Constraint Batching
-
-Before integration, [WARP](https://github.com/compsec-epfl/warp) used 200+ lines of sumcheck related code including calls to SpongeFish, pair- and table-wise reductions, as well as sparse-map foldings ([PR #14](https://github.com/compsec-epfl/warp/pull/14), [PR #12](https://github.com/compsec-epfl/warp/pull/12/changes#diff-904f410986c619441fb8554f4840cb36613f2de354b41ca991d381dec78959b0L34)). 
-
-Using Efficient Sumcheck this reduces to six lines of code and brings parallelization via Rayon (and soon vectorization via SIMD):
-
-```rust
-use efficient_sumcheck::{inner_product_sumcheck, batched_constraint_poly};
-
-let alpha = inner_product_sumcheck::<BF, EF>(
-    &mut f,
-    &mut batched_constraint_poly(&dense_evals, &sparse_evals),
+let proof = sumcheck(
+    &mut prover,
+    num_rounds,
     &mut transcript,
-).verifier_messages;
+    noop_hook,
+);
 ```
 
-Here, `batched_constraint_poly` merges dense evaluation vectors (out-of-domain samples) with sparse map-represented polynomials (in-domain queries) into a single constraint polynomial, ready for the inner product sumcheck.
+### Verification
 
-### 2) WARP - Twin Constraint Batching
-
-[WARP](https://github.com/compsec-epfl/warp) also uses `coefficient_sumcheck` with `folding::protogalaxy::fold` to batch a codeword check and an R1CS constraint check into a single sumcheck. The codewords, witness vectors, and folding coefficients are stored as tablewise tables and the equality polynomial evaluations as a pairwise vector:
+One verifier for any degree $d$. Returns `SumcheckResult { challenges, final_claim }` — ⚠️ the caller is responsible for the oracle check ([Thaler Remark 4.2](https://people.cs.georgetown.edu/jthaler/ProofsArgsAndZK.pdf)).
 
 ```rust
-use efficient_sumcheck::coefficient_sumcheck::coefficient_sumcheck;
-use efficient_sumcheck::folding::protogalaxy;
+use effsc::{noop_hook_verify, verifier::sumcheck_verify};
 
-let mut tablewise = [codewords, z_vecs, alpha_vecs, beta_vecs];
-let mut pairwise = [tau_eq_evals];
+let result = sumcheck_verify(
+    claimed_sum,
+    degree,
+    num_rounds,
+    &mut transcript,
+    noop_hook_verify,
+)?;
 
-let sc = coefficient_sumcheck(
-    |tw, pw| {
-        let (u, z, a, b) = (&tw[0], &tw[1], &tw[2], &tw[3]);
-        let tau = &pw[0];
+// Standalone: compare against the prover's claimed final value.
+assert_eq!(result.final_claim, proof.final_value);
 
-        let f = protogalaxy::fold(/* ... */, /* codeword polys */);
-        let p = protogalaxy::fold(/* ... */, /* constraint polys */);
-        let t = linear_poly(tau[0], tau[1]);
-
-        // h(X) = (f(X) + ω·p(X)) · t(X)
-        (f + p * omega).naive_mul(&t)
-    },
-    &mut tablewise,
-    &mut pairwise,
-    log_l,
-    &mut prover_state,
-);
-let gamma = sc.verifier_messages;
+// Composed (WHIR, GKR): pass final_claim to the next layer.
+next_layer_claim = result.final_claim;
 ```
 
-After each round `coefficient_sumcheck` reduces all four tablewise tables and the pairwise equality evaluations by folding with the verifier's challenge.
+## Variable Ordering
 
-## Advanced Usage
+Each prover comes in two variants:
 
-Supporting the high-level interfaces are raw implementations of sumcheck [[LFKN92](#references)] using three proving algorithms:
+- **MSB** (half-split) — optimal memory layout in most cases. Used by WHIR and WARP.
+- **LSB** (pair-split) — optimal for streaming applications where evaluations arrive sequentially.
 
-- The quasi-linear time and logarithmic space algorithm of [[CTY11](#references)] 
-  - [SpaceProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear/provers/space/core.rs#L8)
-  - [SpaceProductProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_product/provers/space/core.rs#L11)
+| MSB | LSB |
+|-----|-----|
+| `MultilinearProver` | `MultilinearProverLSB` |
+| `InnerProductProver` | `InnerProductProverLSB` |
+| `CoefficientProver` | `CoefficientProverLSB` |
+| `GkrProver` | — |
 
-- The linear time and linear space algorithm of [[VSBW13](#references)] 
-  - [TimeProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear/provers/time/core.rs#L7)
-  - [TimeProductProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_product/provers/time/core.rs#L16)
+See [`docs/design.md`](docs/design.md) for details.
 
-- The linear time and sublinear space algorithms of [[CFFZ24](#references)] and [[BCFFMMZ25](#references)] respectively
-  - [BlendyProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear/provers/blendy/core.rs#L14)
-  - [BlendyProductProver](https://github.com/compsec-epfl/efficient-sumcheck/blob/main/src/multilinear_product/provers/blendy/core.rs#L13)
+## Partial Execution and Hooks
+
+The `sumcheck()` runner supports partial execution (`num_rounds < v`) and per-round hooks for composed protocols:
+
+```rust
+// WHIR: partial sumcheck with proof-of-work grinding
+let proof = sumcheck(
+    &mut prover,
+    folding_factor,  // num_rounds < v
+    &mut transcript,
+    |_, t| round_pow.prove(t),  // per-round hook
+);
+```
+
+## SIMD Acceleration
+
+All provers transparently auto-dispatch to SIMD backends. Supported fields:
+
+- [x] Goldilocks ($p = 2^{64} - 2^{32} + 1$) and degree-2/3 extensions
+- [ ] M31 ($p = 2^{31} - 1$) and extensions
+- [ ] BabyBear ($p = 2^{31} - 2^{27} + 1$) and extensions
+- [ ] KoalaBear ($p = 2^{31} - 2^{24} + 1$) and extensions
+
+| Backend | Width | Platform |
+|---------|-------|----------|
+| NEON | 2-wide | aarch64 (Apple M-series, Graviton) |
+| AVX-512 IFMA | 8-wide | x86_64 (Sapphire Rapids) |
+
+Falls back to scalar for other fields. See [`SECURITY.md`](SECURITY.md#unsafe-code) for `unsafe` scope.
+
+## Integrations
+
+Integrated into [WHIR](https://github.com/WizardOfMenlo/whir) ([PR](https://github.com/WizardOfMenlo/whir/pull/250)) and [WARP](https://github.com/compsec-epfl/warp) ([PR](https://github.com/compsec-epfl/warp/pull/24)) with measured performance improvements. Integration capability for streaming contexts like [Jolt](https://github.com/a16z/jolt) is described in [`docs/design.md`](docs/design.md).
+
+## Correctness
+
+🚧 Undergoing fuzzing over randomized inputs against [z-tech/sumcheck-lean4](https://github.com/z-tech/sumcheck-lean4), an oracle with machine-checked proofs of completeness and soundness. Findings to follow.
 
 ## References
-[[LFNK92](https://dl.acm.org/doi/pdf/10.1145/146585.146605)]: Carsten Lund, Lance Fortnow, Howard J. Karloff, and Noam Nisan. “Algebraic Methods for Interactive Proof Systems”. In: Journal of the ACM 39.4 (1992).
 
-[[CTY11](https://arxiv.org/pdf/1109.6882.pdf)]: Graham Cormode, Justin Thaler, and Ke Yi. “Verifying computations with streaming interactive proofs”. In: Proceedings of the VLDB Endowment 5.1 (2011), pp. 25–36.
+[[LFKN92](https://dl.acm.org/doi/pdf/10.1145/146585.146605)]: Carsten Lund, Lance Fortnow, Howard J. Karloff, and Noam Nisan. "Algebraic Methods for Interactive Proof Systems". In: Journal of the ACM 39.4 (1992).
 
-[[VSBW13](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=6547112)]: Victor Vu, Srinath Setty, Andrew J. Blumberg, and Michael Walfish. “A hybrid architecture for interactive verifiable computation”. In: Proceedings of the 34th IEEE Symposium on Security and Privacy. Oakland ’13. 2013, pp. 223–237.
+[[CTY11](https://arxiv.org/pdf/1109.6882.pdf)]: Graham Cormode, Justin Thaler, and Ke Yi. "Verifying computations with streaming interactive proofs". In: Proceedings of the VLDB Endowment 5.1 (2011), pp. 25-36.
+
+[[VSBW13](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=6547112)]: Victor Vu, Srinath Setty, Andrew J. Blumberg, and Michael Walfish. "A hybrid architecture for interactive verifiable computation". In: Proceedings of the 34th IEEE Symposium on Security and Privacy. Oakland '13. 2013, pp. 223-237.
 
 [[CFFZ24](https://eprint.iacr.org/2024/524.pdf)]: Alessandro Chiesa, Elisabetta Fedele, Giacomo Fenzi, Andrew Zitek-Estrada. "A time-space tradeoff for the sumcheck prover". In: Cryptology ePrint Archive.
 
-[[BCFFMMZ25](https://eprint.iacr.org/2025/1473.pdf)]: Anubhav Bawejal, Alessandro Chiesa, Elisabetta Fedele, Giacomo Fenzi, Pratyush Mishra, Tushar Mopuri, and Andrew Zitek-Estrada. "Time-Space Trade-Offs for Sumcheck". In: TCC Theory of Cryptography: 23rd International Conference, pp. 37.
+[[BCFFMMZ25](https://eprint.iacr.org/2025/1473.pdf)]: Anubhav Baweja, Alessandro Chiesa, Elisabetta Fedele, Giacomo Fenzi, Pratyush Mishra, Tushar Mopuri, and Andrew Zitek-Estrada. "Time-Space Trade-Offs for Sumcheck". In: TCC Theory of Cryptography: 23rd International Conference, pp. 37.
+
+[[Thaler23](https://people.cs.georgetown.edu/jthaler/ProofsArgsAndZK.pdf)]: Justin Thaler. "Proofs, Arguments, and Zero-Knowledge". Chapter 4: Interactive Proofs. July 2023.
+
+[[BDDT25](https://eprint.iacr.org/2025/1117.pdf)]: Aarushi Bagad, Quang Dao, Yuri Domb, and Justin Thaler. "Speeding Up Sum-Check Proving". Cryptology ePrint Archive, 2025/1117.

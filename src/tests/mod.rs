@@ -1,8 +1,7 @@
+#[allow(clippy::assign_op_pattern)]
 mod fields;
 mod streams;
 
-pub mod multilinear;
-pub mod multilinear_product;
 pub mod polynomials;
-pub use fields::{BabyBear, F128, F19, F64, M31};
+pub use fields::{BabyBear, F64Ext2, F64Ext3, FpF64, F128, F19, F64, M31};
 pub use streams::BenchStream;

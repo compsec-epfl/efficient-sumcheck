@@ -2,11 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [Unreleased] — Canonical Rewrite
+
+Major revision: unified API, one verifier, one proof type, 7 provers, SIMD acceleration.
+
+### Breaking
+
+- **Package renamed** from `efficient-sumcheck` to `effsc`.
+- **Single verifier** — `sumcheck_verify()` returns `SumcheckResult { challenges, final_claim }`. The oracle check is the caller's responsibility ([Thaler Remark 4.2](https://people.cs.georgetown.edu/jthaler/ProofsArgsAndZK.pdf)). Removed `inner_product_sumcheck_verify`, `multilinear_sumcheck_verify`, and `coefficient_sumcheck::sumcheck_verify`.
+- **Single proof type** — `SumcheckProof<F>` replaces `Sumcheck<F>` and `ProductSumcheck<F>`.
+- **Transcript redesigned** — `send()`/`receive()`/`challenge()` replace `read()`/`write()`.
+- **Legacy entry points demoted** — use `runner::sumcheck()` with a prover type.
 
 ### Added
-- **Base/Extension field support**: `multilinear_sumcheck` and `inner_product_sumcheck` now take two type parameters `<BF, EF>` — base field for evaluations, extension field for challenges. Set `EF = BF` when no extension is needed.
-- `pairwise::cross_field_reduce` — parallel helper for folding `BF` evaluations with an `EF` challenge.
+
+- **`SumcheckProver<F>` trait** — single extension point for all polynomial shapes.
+- **7 concrete provers** — `MultilinearProver`, `InnerProductProver`, `CoefficientProver` (each with MSB + LSB variants), `GkrProver`.
+- **`SumcheckField` trait** — generic field interface; blanket impl for `ark_ff::Field` behind `feature = "arkworks"`.
+- **`SimdRepr` trait** — safe SIMD opt-in with `zerocopy` layout verification.
+- **`runner::sumcheck()`** — single runner with partial execution and per-round hooks.
+- **Eq polynomial utilities** — `eq_poly`, `eq_poly_non_binary`, O(2^v) incremental `compute_hypercube_eq_evals`.
+- **Adversarial verifier tests** — corrupted proofs, wrong sums, wrong final values across all prover types.
+- **`no_std` support** — core library works without `arkworks` feature.
+- **SIMD** — transparent 8-wide AVX-512 IFMA, 2-wide NEON acceleration.
+
+### Integrations
+
+- [WHIR](https://github.com/WizardOfMenlo/whir) ([PR #250](https://github.com/WizardOfMenlo/whir/pull/250))
+- [WARP](https://github.com/compsec-epfl/warp) ([PR #24](https://github.com/compsec-epfl/warp/pull/24))
+
+### Removed
+
+- **~4,500 lines of legacy code** — old `Prover` trait, `TimeProver`/`SpaceProver`/`BlendyProver`, `OrderStrategy`, `messages/`, `interpolation/`, `simd_ops`.
 
 ## [0.0.2] - 2026-02-11
 

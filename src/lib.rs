@@ -1,56 +1,80 @@
-//! # efficient-sumcheck
+//! # effsc
 //!
-//! Space-efficient implementations of the sumcheck protocol with Fiat-Shamir support.
-//!
-//! ## Quick Start
-//!
-//! For most use cases, you need just two functions and a transcript:
-//!
-//! ```text
-//! use efficient_sumcheck::{multilinear_sumcheck, inner_product_sumcheck};
-//! use efficient_sumcheck::transcript::{Transcript, SpongefishTranscript, SanityTranscript};
-//! ```
-//!
-//! - [`multilinear_sumcheck()`] — standard multilinear sumcheck: `∑_x p(x)`
-//! - [`inner_product_sumcheck()`] — inner product sumcheck: `∑_x f(x)·g(x)`
-//!
-//! Both accept any [`Transcript`] implementation — either
-//! [`SpongefishTranscript`](transcript::SpongefishTranscript) for real Fiat-Shamir, or
-//! [`SanityTranscript`](transcript::SanityTranscript) for testing with random challenges.
-//!
-//! ## Advanced Usage
-//!
-//! For custom prover implementations, streaming evaluation access,
-//! or specialized reduction strategies, the internal modules expose the full
-//! prover machinery: [`multilinear`], [`multilinear_product`], [`prover`], [`streams`].
+//! Sumcheck protocol (Thaler Proposition 4.1) with SIMD acceleration.
 
-// ─── Primary API ─────────────────────────────────────────────────────────────
+#![cfg_attr(not(feature = "arkworks"), no_std)]
 
-/// Transcript trait and backends (Spongefish, Sanity).
+extern crate alloc;
+
+// ─── Generic field trait ─────────────────────────────────────────────────────
+
+pub mod field;
+pub mod proof;
+
+// ─── New canonical API (Thaler §4.1) ────────────────────────────────────────
+
+pub mod fold;
+pub mod polynomial;
+pub mod provers;
+pub mod runner;
+pub mod sumcheck_prover;
+pub mod verifier;
+
+/// No-op per-round hook for the prover. Pass to `sumcheck()` when no hook is needed.
+///
+/// ```ignore
+/// let proof = sumcheck(&mut prover, n, &mut t, noop_hook);
+/// ```
+pub fn noop_hook<T>(_round: usize, _transcript: &mut T) {}
+
+/// No-op per-round hook for the verifier. Pass to `sumcheck_verify()` when no hook is needed.
+///
+/// ```ignore
+/// let result = sumcheck_verify(sum, deg, n, &mut t, noop_hook_verify)?;
+/// ```
+pub fn noop_hook_verify<T>(
+    _round: usize,
+    _transcript: &mut T,
+) -> Result<(), crate::proof::SumcheckError> {
+    Ok(())
+}
+
+// ─── Transcript ─────────────────────────────────────────────────────────────
+
 pub mod transcript;
 
+// ─── Arkworks-dependent modules ─────────────────────────────────────────────
+
+#[cfg(feature = "arkworks")]
 mod inner_product_sumcheck;
+#[cfg(feature = "arkworks")]
 mod multilinear_sumcheck;
 
+#[cfg(feature = "arkworks")]
 pub use inner_product_sumcheck::{
-    accumulate_sparse_evaluations, batched_constraint_poly, inner_product_sumcheck, ProductSumcheck,
+    inner_product_sumcheck, inner_product_sumcheck_partial, ProductSumcheck,
 };
-pub use multilinear_sumcheck::{multilinear_sumcheck, Sumcheck};
+#[cfg(feature = "arkworks")]
+pub use multilinear_sumcheck::{
+    compute_sumcheck_polynomial, fold, fused_fold_and_compute_polynomial, multilinear_sumcheck,
+    multilinear_sumcheck_partial, Sumcheck,
+};
 
-// ─── Internal / Advanced ─────────────────────────────────────────────────────
-
-pub mod multilinear;
-pub mod multilinear_product;
-pub mod prover;
-pub mod streams;
-
-pub mod hypercube;
-pub mod interpolation;
-pub mod messages;
-pub mod order_strategy;
-
+#[cfg(feature = "arkworks")]
 pub mod coefficient_sumcheck;
+#[cfg(feature = "arkworks")]
 pub mod folding;
-
+pub mod hypercube;
+#[cfg(feature = "arkworks")]
+pub mod poly_ops;
+#[cfg(feature = "arkworks")]
+pub(crate) mod reductions;
+#[cfg(all(feature = "arkworks", feature = "simd"))]
+pub(crate) mod simd_fields;
+#[cfg(all(feature = "arkworks", feature = "simd"))]
+pub(crate) mod simd_sumcheck;
+#[cfg(feature = "arkworks")]
+pub mod streams;
+#[cfg(feature = "arkworks")]
 #[doc(hidden)]
 pub mod tests;
