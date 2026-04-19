@@ -83,21 +83,21 @@ pub use multilinear_sumcheck::{
 };
 
 #[cfg(feature = "arkworks")]
-pub mod streams;
-#[cfg(feature = "arkworks")]
-pub mod hypercube;
-#[cfg(feature = "arkworks")]
-pub(crate) mod reductions;
-#[cfg(feature = "arkworks")]
 pub mod coefficient_sumcheck;
 #[cfg(feature = "arkworks")]
 pub mod folding;
 #[cfg(feature = "arkworks")]
+pub mod hypercube;
+#[cfg(feature = "arkworks")]
 pub mod poly_ops;
+#[cfg(feature = "arkworks")]
+pub(crate) mod reductions;
 #[cfg(feature = "arkworks")]
 pub(crate) mod simd_fields;
 #[cfg(feature = "arkworks")]
 pub(crate) mod simd_sumcheck;
+#[cfg(feature = "arkworks")]
+pub mod streams;
 #[cfg(feature = "arkworks")]
 #[doc(hidden)]
 pub mod tests;
