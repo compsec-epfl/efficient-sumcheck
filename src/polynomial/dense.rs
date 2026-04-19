@@ -85,7 +85,7 @@ mod tests {
         add_scaled(&mut out, F64::from(3u64), &p);
         assert_eq!(out[0], F64::from(31u64)); // 1 + 3*10
         assert_eq!(out[1], F64::from(62u64)); // 2 + 3*20
-        assert_eq!(out[2], F64::from(3u64));  // unchanged
+        assert_eq!(out[2], F64::from(3u64)); // unchanged
     }
 
     #[test]

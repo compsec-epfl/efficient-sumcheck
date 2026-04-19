@@ -12,8 +12,8 @@
 //! The amortized cost per step is O(1) (geometric series: 1 + 1/2 + 1/4 + ... = 2).
 
 extern crate alloc;
-use alloc::vec::Vec;
 use crate::field::SumcheckField;
+use alloc::vec::Vec;
 
 /// Sequential Lagrange polynomial `eq(r, ·)` with incremental updates.
 ///
@@ -113,7 +113,11 @@ impl<F: SumcheckField> SequentialLagrange<F> {
 
     /// Reset to index 0.
     pub fn reset(&mut self) {
-        self.current_value = self.factor_zero.iter().copied().fold(F::ONE, |acc, f| acc * f);
+        self.current_value = self
+            .factor_zero
+            .iter()
+            .copied()
+            .fold(F::ONE, |acc, f| acc * f);
         self.current_index = 0;
     }
 }
@@ -148,11 +152,7 @@ mod tests {
         for i in 1..(1 << num_vars) {
             lag.advance_to(i);
             let expected = eq_direct(&point, i);
-            assert_eq!(
-                lag.value(),
-                expected,
-                "mismatch at index {i}"
-            );
+            assert_eq!(lag.value(), expected, "mismatch at index {i}");
         }
     }
 

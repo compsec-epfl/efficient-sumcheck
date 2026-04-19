@@ -8,8 +8,8 @@
 //! completes.
 
 extern crate alloc;
-use alloc::vec::Vec;
 use crate::field::SumcheckField;
+use alloc::vec::Vec;
 
 /// Prover side of the sum-check protocol (Thaler Proposition 4.1).
 ///

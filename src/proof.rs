@@ -4,8 +4,8 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
 use crate::field::SumcheckField;
+use alloc::vec::Vec;
 use core::fmt;
 
 /// Output of the sumcheck protocol (Thaler Proposition 4.1).

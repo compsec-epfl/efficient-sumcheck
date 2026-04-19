@@ -10,11 +10,11 @@
 //! commit/open).
 
 extern crate alloc;
-use alloc::vec::Vec;
 use crate::field::SumcheckField;
 use crate::proof::SumcheckProof;
 use crate::sumcheck_prover::SumcheckProver;
 use crate::transcript::ProverTranscript;
+use alloc::vec::Vec;
 
 /// Run the sum-check protocol for `num_rounds` rounds.
 ///

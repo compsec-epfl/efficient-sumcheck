@@ -341,10 +341,9 @@ where
 {
     let mut res = Vec::with_capacity(num_rounds);
     for round in 0..num_rounds {
-        let s0: F =
-            transcript
-                .receive()
-                .map_err(|_| crate::proof::SumcheckError::TranscriptError { round })?;
+        let s0: F = transcript
+            .receive()
+            .map_err(|_| crate::proof::SumcheckError::TranscriptError { round })?;
         let s1: F = transcript
             .receive()
             .map_err(|_| crate::proof::SumcheckError::TranscriptError { round })?;

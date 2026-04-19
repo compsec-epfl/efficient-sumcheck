@@ -203,9 +203,9 @@ mod tests {
             index: 0b101,
             num_vars: 3,
         };
-        assert!(p.bit(0));  // LSB
+        assert!(p.bit(0)); // LSB
         assert!(!p.bit(1));
-        assert!(p.bit(2));  // MSB
+        assert!(p.bit(2)); // MSB
         assert_eq!(p.bits(), vec![true, false, true]);
     }
 }

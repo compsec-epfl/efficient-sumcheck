@@ -10,11 +10,11 @@
 //! direct evaluation, delegation, or polynomial commitment.
 
 extern crate alloc;
-use alloc::vec;
-use alloc::vec::Vec;
 use crate::field::SumcheckField;
 use crate::proof::SumcheckError;
 use crate::transcript::VerifierTranscript;
+use alloc::vec;
+use alloc::vec::Vec;
 
 /// Verify a sum-check proof against a claimed sum.
 ///

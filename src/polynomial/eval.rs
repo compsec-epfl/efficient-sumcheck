@@ -1,9 +1,9 @@
 //! Polynomial evaluation: Horner's method and barycentric Lagrange interpolation.
 
 extern crate alloc;
+use crate::field::SumcheckField;
 use alloc::vec;
 use alloc::vec::Vec;
-use crate::field::SumcheckField;
 
 /// Evaluate a polynomial from its coefficients at point `x` via Horner's method.
 ///
@@ -178,10 +178,7 @@ mod tests {
                 let x = F64::from(x_val);
                 let from_coeffs = eval_horner(&coeffs, x);
                 let from_evals = eval_from_evals(&evals, x);
-                assert_eq!(
-                    from_coeffs, from_evals,
-                    "mismatch at x={x_val}"
-                );
+                assert_eq!(from_coeffs, from_evals, "mismatch at x={x_val}");
             }
         }
 
