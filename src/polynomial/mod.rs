@@ -1,6 +1,6 @@
 //! Polynomial evaluation and arithmetic for sumcheck protocols.
 //!
-//! Generic over [`SumcheckField`] — available without the `arkworks` feature.
+//! Generic over [`SumcheckField`](crate::field::SumcheckField) — available without the `arkworks` feature.
 //!
 //! # Evaluation
 //!

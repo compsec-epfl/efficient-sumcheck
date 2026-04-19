@@ -9,6 +9,8 @@
 //! GKR (one sumcheck per layer) and WHIR (partial rounds interleaved with
 //! commit/open).
 
+extern crate alloc;
+use alloc::vec::Vec;
 use crate::field::SumcheckField;
 use crate::proof::SumcheckProof;
 use crate::sumcheck_prover::SumcheckProver;

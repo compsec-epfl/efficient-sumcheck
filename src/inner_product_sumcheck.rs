@@ -397,20 +397,12 @@ where
 {
     let mut res = Vec::with_capacity(num_rounds);
     for round in 0..num_rounds {
-        let c0: F =
-            transcript
-                .receive()
-                .map_err(|e| crate::proof::SumcheckError::TranscriptError {
-                    round,
-                    detail: format!("{:?}", e),
-                })?;
-        let c2: F =
-            transcript
-                .receive()
-                .map_err(|e| crate::proof::SumcheckError::TranscriptError {
-                    round,
-                    detail: format!("{:?}", e),
-                })?;
+        let c0: F = transcript
+            .receive()
+            .map_err(|_| crate::proof::SumcheckError::TranscriptError { round })?;
+        let c2: F = transcript
+            .receive()
+            .map_err(|_| crate::proof::SumcheckError::TranscriptError { round })?;
         let c1 = *sum - c0.double() - c2;
 
         hook(round, transcript)?;

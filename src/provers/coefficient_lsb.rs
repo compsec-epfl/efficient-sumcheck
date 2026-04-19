@@ -5,7 +5,7 @@
 //! arrive in index order.
 //!
 //! Use this prover for Jolt-style workloads. For in-memory or random-access
-//! workloads, prefer [`CoefficientProverLSB`](super::coefficient::CoefficientProverLSB)
+//! workloads, prefer [`CoefficientProver`](super::coefficient::CoefficientProver)
 //! (MSB layout).
 
 use ark_ff::Field;

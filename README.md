@@ -1,6 +1,6 @@
 <h1 align="center">Efficient Sumcheck</h1>
 
-A high-performance sumcheck library with transparent SIMD acceleration, built-in Fiat-Shamir support, streaming capability, and correctness fuzzed against an [oracle](https://github.com/z-tech/sumcheck-lean4) with formalized completeness and soundness.
+A high-performance sumcheck library with transparent SIMD acceleration, built-in Fiat-Shamir support, streaming capability, and correctness fuzzed against an [oracle](#correctness) with formalized completeness and soundness.
 
 This library was built for [arkworks](https://github.com/arkworks-rs) and compatible with any ecosystem that implements the [`SumcheckField`](#generic-field) trait.
 
@@ -280,6 +280,15 @@ Benchmark matrix: `{multilinear, inner_product} x {F64, F64Ext3} x {2^16, 2^20, 
 | Time (linear time, linear space) | [VSBW13] |
 | Blendy (linear time, sublinear space) | [CFFZ24], [BCFFMMZ25] |
 | Space (quasilinear time, logarithmic space) | [CTY11] |
+
+## Correctness
+
+This library is undergoing fuzzing over randomized inputs with a correctness oracle [z-tech/sumcheck-lean4](https://github.com/z-tech/sumcheck-lean4) that formalizes machine-checked theorems:
+
+- `Completeness` — honest prover, verifier accepts with probability 1
+- `Soundness` — dishonest prover, verifier accepts with probability $\leq n \cdot d \ / \ |\mathbb{F}|$
+
+Reports to follow.
 
 ## References
 

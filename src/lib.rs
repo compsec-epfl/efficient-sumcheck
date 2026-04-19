@@ -1,32 +1,10 @@
 //! # effsc
 //!
 //! Sumcheck protocol (Thaler Proposition 4.1) with SIMD acceleration.
-//!
-//! ## Quick Start
-//!
-//! ```text
-//! use effsc::field::SumcheckField;
-//! use effsc::sumcheck_prover::SumcheckProver;
-//! use effsc::runner::sumcheck;
-//! use effsc::verifier::sumcheck_verify;
-//! use effsc::provers::multilinear::MultilinearProver;
-//! use effsc::provers::inner_product::InnerProductProver;
-//! use effsc::fold;
-//! ```
-//!
-//! The library is generic over any type implementing [`SumcheckField`](field::SumcheckField).
-//! A blanket implementation for arkworks `Field` types is provided when the
-//! `arkworks` feature is enabled (default).
-//!
-//! ## Architecture
-//!
-//! - **One protocol** (`runner::sumcheck`) parameterized by a `SumcheckProver`.
-//! - **One verifier** (`verifier::sumcheck_verify`) for any degree.
-//! - **Concrete provers**: `MultilinearProver` (d=1), `InnerProductProver` (d=2).
-//! - **One fold** (Lemma 4.3), SIMD-accelerated for Goldilocks.
-//! - MSB (half-split) layout throughout.
-//! - SIMD for Goldilocks (NEON on aarch64, AVX-512 IFMA on x86_64) is
-//!   transparent — zero overhead on non-Goldilocks fields.
+
+#![cfg_attr(not(feature = "arkworks"), no_std)]
+
+extern crate alloc;
 
 // ─── Generic field trait ─────────────────────────────────────────────────────
 

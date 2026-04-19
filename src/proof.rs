@@ -1,5 +1,10 @@
 //! Sumcheck proof and error types.
 
+#![allow(unused_imports)]
+
+extern crate alloc;
+
+use alloc::vec::Vec;
 use crate::field::SumcheckField;
 use core::fmt;
 
@@ -23,14 +28,10 @@ pub struct SumcheckProof<F: SumcheckField> {
 }
 
 /// Sumcheck verification error.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SumcheckError {
     /// Round `j` consistency check failed: `g_j(0) + g_j(1) != claim`.
-    ConsistencyCheck {
-        round: usize,
-        expected: String,
-        got: String,
-    },
+    ConsistencyCheck { round: usize },
     /// Round polynomial has wrong degree.
     DegreeMismatch {
         round: usize,
@@ -38,24 +39,19 @@ pub enum SumcheckError {
         got: usize,
     },
     /// Final evaluation mismatch.
-    FinalEvaluation { expected: String, got: String },
+    FinalEvaluation,
     /// Transcript error (e.g., malformed prover message).
-    TranscriptError { round: usize, detail: String },
+    TranscriptError { round: usize },
     /// Per-round hook failed (e.g., proof-of-work verification).
-    HookError { round: usize, detail: String },
+    HookError { round: usize },
 }
 
 impl fmt::Display for SumcheckError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SumcheckError::ConsistencyCheck {
-                round,
-                expected,
-                got,
-            } => write!(
-                f,
-                "round {round}: consistency check failed: expected {expected}, got {got}"
-            ),
+            SumcheckError::ConsistencyCheck { round } => {
+                write!(f, "round {round}: consistency check failed")
+            }
             SumcheckError::DegreeMismatch {
                 round,
                 expected,
@@ -64,17 +60,14 @@ impl fmt::Display for SumcheckError {
                 f,
                 "round {round}: degree mismatch: expected <= {expected}, got {got}"
             ),
-            SumcheckError::FinalEvaluation { expected, got } => {
-                write!(
-                    f,
-                    "final evaluation mismatch: expected {expected}, got {got}"
-                )
+            SumcheckError::FinalEvaluation => {
+                write!(f, "final evaluation mismatch")
             }
-            SumcheckError::TranscriptError { round, detail } => {
-                write!(f, "round {round}: transcript error: {detail}")
+            SumcheckError::TranscriptError { round } => {
+                write!(f, "round {round}: transcript error")
             }
-            SumcheckError::HookError { round, detail } => {
-                write!(f, "round {round}: hook error: {detail}")
+            SumcheckError::HookError { round } => {
+                write!(f, "round {round}: hook error")
             }
         }
     }

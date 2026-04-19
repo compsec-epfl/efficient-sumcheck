@@ -13,6 +13,8 @@
 //! Both iterators are zero-allocation and `ExactSizeIterator`.
 
 /// A point on the Boolean hypercube `{0,1}^v`.
+extern crate alloc;
+use alloc::vec::Vec;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HypercubePoint {
     /// The index in the current iteration order.

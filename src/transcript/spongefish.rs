@@ -7,7 +7,7 @@ use crate::transcript::ProverTranscript;
 /// Spongefish prover transcript.
 ///
 /// Implements [`ProverTranscript`] only — the verifier side should wrap
-/// spongefish's `VerifierState` and implement [`VerifierTranscript`].
+/// spongefish's `VerifierState` and implement [`VerifierTranscript`](super::VerifierTranscript).
 pub struct SpongefishTranscript<R: RngCore + CryptoRng = ark_std::rand::rngs::StdRng>(
     pub ProverState<StdHash, R>,
 );

@@ -11,6 +11,8 @@
 //! For ascending order, bit 0 flips every step, bit 1 every 2 steps, etc.
 //! The amortized cost per step is O(1) (geometric series: 1 + 1/2 + 1/4 + ... = 2).
 
+extern crate alloc;
+use alloc::vec::Vec;
 use crate::field::SumcheckField;
 
 /// Sequential Lagrange polynomial `eq(r, ·)` with incremental updates.

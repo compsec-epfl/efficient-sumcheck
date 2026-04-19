@@ -9,7 +9,10 @@
 //! workloads, prefer [`MultilinearProver`](super::multilinear::MultilinearProver)
 //! (MSB layout).
 
+extern crate alloc;
+use alloc::vec::Vec;
 use crate::field::SumcheckField;
+#[cfg(feature = "arkworks")]
 use crate::sumcheck_prover::SumcheckProver;
 
 #[cfg(feature = "parallel")]

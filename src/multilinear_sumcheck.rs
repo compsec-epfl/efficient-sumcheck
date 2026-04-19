@@ -344,23 +344,12 @@ where
         let s0: F =
             transcript
                 .receive()
-                .map_err(|e| crate::proof::SumcheckError::TranscriptError {
-                    round,
-                    detail: format!("{:?}", e),
-                })?;
-        let s1: F =
-            transcript
-                .receive()
-                .map_err(|e| crate::proof::SumcheckError::TranscriptError {
-                    round,
-                    detail: format!("{:?}", e),
-                })?;
+                .map_err(|_| crate::proof::SumcheckError::TranscriptError { round })?;
+        let s1: F = transcript
+            .receive()
+            .map_err(|_| crate::proof::SumcheckError::TranscriptError { round })?;
         if s0 + s1 != *sum {
-            return Err(crate::proof::SumcheckError::ConsistencyCheck {
-                round,
-                expected: format!("{:?}", *sum),
-                got: format!("{:?}", s0 + s1),
-            });
+            return Err(crate::proof::SumcheckError::ConsistencyCheck { round });
         }
 
         hook(round, transcript)?;

@@ -1,5 +1,8 @@
 //! Polynomial evaluation: Horner's method and barycentric Lagrange interpolation.
 
+extern crate alloc;
+use alloc::vec;
+use alloc::vec::Vec;
 use crate::field::SumcheckField;
 
 /// Evaluate a polynomial from its coefficients at point `x` via Horner's method.

@@ -9,6 +9,9 @@
 //! is responsible for verifying `final_value == g(r_1, ..., r_v)` via
 //! direct evaluation, delegation, or polynomial commitment.
 
+extern crate alloc;
+use alloc::vec;
+use alloc::vec::Vec;
 use crate::field::SumcheckField;
 use crate::proof::SumcheckError;
 use crate::transcript::VerifierTranscript;
@@ -46,21 +49,14 @@ where
         for _ in 0..num_evals {
             let v = transcript
                 .receive()
-                .map_err(|e| SumcheckError::TranscriptError {
-                    round,
-                    detail: format!("{:?}", e),
-                })?;
+                .map_err(|_| SumcheckError::TranscriptError { round })?;
             evals.push(v);
         }
 
         // Consistency check: g_j(0) + g_j(1) == claim.
         let sum_01 = evals[0] + evals[1];
         if sum_01 != claim {
-            return Err(SumcheckError::ConsistencyCheck {
-                round,
-                expected: format!("{:?}", claim),
-                got: format!("{:?}", sum_01),
-            });
+            return Err(SumcheckError::ConsistencyCheck { round });
         }
 
         // Per-round hook (e.g., PoW verification for WHIR).

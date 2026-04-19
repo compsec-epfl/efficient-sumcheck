@@ -7,6 +7,8 @@
 //! retains ownership of the prover and can inspect post-state after sumcheck
 //! completes.
 
+extern crate alloc;
+use alloc::vec::Vec;
 use crate::field::SumcheckField;
 
 /// Prover side of the sum-check protocol (Thaler Proposition 4.1).
