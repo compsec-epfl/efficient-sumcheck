@@ -1,18 +1,23 @@
 <h1 align="center">Efficient Sumcheck</h1>
 
+<p align="center">
+  <a href="CHANGELOG.md"><img alt="version" src="https://img.shields.io/badge/version-0.0.2-blue"></a>
+  <a href="LICENSE-MIT"><img alt="license" src="https://img.shields.io/badge/license-MIT%2FApache--2.0-green"></a>
+</p>
+
 A high-performance sumcheck library with [correctness-fuzzing](#correctness) against a verified oracle.
 
 - **Efficient** — transparent SIMD acceleration (8-wide AVX-512, 2-wide NEON)
 - **Streaming-capable** — optional sublinear memory via sequential evaluation
 - **Complete** — built-in Fiat-Shamir, partial execution, per-round hooks
 
-Built using [arkworks](https://github.com/arkworks-rs). Compatible with any ecosystem — see [`docs/compatibility.md`](docs/compatibility.md). Research-grade; not yet audited — see [`SECURITY.md`](SECURITY.md).
+Built using [arkworks](https://github.com/arkworks-rs). Compatible with any ecosystem — see [`docs/compatibility.md`](docs/compatibility.md).
 
 ## Quick Start
 
 ### Multilinear Sumcheck
 
-Proves $H = \displaystyle\sum_{x \in \lbrace 0,1 \rbrace^v} p(x)$ where $p$ is a multilinear polynomial.
+Proves $H = \sum_{x \in \lbrace 0,1 \rbrace^v} p(x)$ where $p$ is a multilinear polynomial.
 
 ```rust
 use effsc::{noop_hook, runner::sumcheck};
@@ -29,7 +34,7 @@ let proof = sumcheck(
 
 ### Inner Product Sumcheck
 
-Proves $H = \displaystyle\sum_{x \in \lbrace 0,1 \rbrace^v} f(x) \cdot g(x)$ for two multilinear polynomials. Degree-2 round polynomials.
+Proves $H = \sum_{x \in \lbrace 0,1 \rbrace^v} f(x) \cdot g(x)$ for two multilinear polynomials. Degree-2 round polynomials.
 
 ```rust
 use effsc::{noop_hook, runner::sumcheck};
@@ -46,7 +51,7 @@ let proof = sumcheck(
 
 ### Coefficient Sumcheck
 
-Proves $H = \displaystyle\sum_{x \in \lbrace 0,1 \rbrace^v} p(x)$ where $\deg_{x_i}(p) \leq d$. The user implements `RoundPolyEvaluator` to define per-pair round polynomial contributions; the library handles iteration, parallelism, and reductions.
+Proves $H = \sum_{x \in \lbrace 0,1 \rbrace^v} p(x)$ where $\deg_{x_i}(p) \leq d$. The user implements `RoundPolyEvaluator` to define per-pair round polynomial contributions; the library handles iteration, parallelism, and reductions.
 
 ```rust
 use effsc::{noop_hook, runner::sumcheck};
@@ -131,10 +136,9 @@ All provers transparently auto-dispatch to SIMD backends. Supported fields:
 | NEON | 2-wide | aarch64 (Apple M-series, Graviton) |
 | AVX-512 IFMA | 8-wide | x86_64 (Sapphire Rapids) |
 
-Falls back to scalar for other fields. See [`SECURITY.md`](SECURITY.md#unsafe-code) for `unsafe` scope.
+Scalar for other fields. See [`SECURITY.md`](SECURITY.md#unsafe-code).
 
-## Integrations
-
+## Examples
 Integrated into Whir ([PR](https://github.com/WizardOfMenlo/whir/pull/250)) and Warp ([PR](https://github.com/compsec-epfl/warp/pull/24)) with measured performance improvements. Integration capability for streaming contexts like [Jolt](https://github.com/a16z/jolt) is described in [`docs/design.md`](docs/design.md).
 
 ## Correctness

@@ -22,7 +22,7 @@ verifier challenges. This library implements plain (non-ZK) sumcheck.
   `SumcheckField` implementations. Callers in that threat model must
   supply constant-time field operations.
 
-## Oracle check responsibility
+## Oracle check
 
 `sumcheck_verify` checks round consistency and returns
 `SumcheckResult { challenges, final_claim }`. It does **not** verify
@@ -43,6 +43,10 @@ Correct usage depends on the protocol context:
 
 ## `unsafe` code
 
+Category 2 below is transitional: it will be removed once `zerocopy` derives
+land in arkworks/algebra (planned upstream), at which point the arkworks path
+can use the same compile-time-verified reinterpretation as `SimdRepr`.
+
 Outside of the SIMD path, the library contains **no `unsafe` code**. Within the
 SIMD subsystem, `unsafe` is confined to two categories:
 
@@ -51,7 +55,7 @@ SIMD subsystem, `unsafe` is confined to two categories:
    appear exclusively in the backend kernels (`avx512.rs`, `neon.rs`) and the
    evaluate/reduce loops that call them.
 
-2. **Field ↔ `u64` reinterpretation** — arkworks field types don't derive
+2. **Field ↔ `u64` reinterpretation** — arkworks field types do not yet derive
    `zerocopy`, so the blanket `SumcheckField` impl for `ark_ff::Field` uses
    `transmute_copy` and `from_raw_parts` to reinterpret Goldilocks elements as
    their underlying Montgomery-form `u64` values. These are centralized in five

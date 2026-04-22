@@ -2,8 +2,13 @@
 name = "effsc"
 version = "0.0.2"
 authors = ["arkworks maintainers"]
-description = "TODO"
+description = "A library for the sumcheck protocol with SIMD acceleration and streaming support"
 repository = "https://github.com/compsec-epfl/space-efficient-sumcheck"
+homepage = "https://github.com/compsec-epfl/space-efficient-sumcheck"
+documentation = "https://docs.rs/effsc/"
+license = "MIT OR Apache-2.0"
+keywords = ["cryptography", "sumcheck", "zero-knowledge", "arkworks"]
+categories = ["cryptography"]
 include = ["Cargo.toml", "src", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
 edition = "2021"
 rust-version = "1.81"
