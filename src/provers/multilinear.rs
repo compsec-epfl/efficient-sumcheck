@@ -59,12 +59,14 @@ where
     }
 
     fn round(&mut self, challenge: Option<F>) -> Vec<F> {
-        let (s0, s1) = if let Some(w) = challenge {
+        // EvalsInfty: degree 1 → emit [h(0)]. Verifier derives h(1) from
+        // the consistency check h(0) + h(1) = claim.
+        let (s0, _s1) = if let Some(w) = challenge {
             fused_fold_and_compute_polynomial(&mut self.evals, w)
         } else {
             compute_sumcheck_polynomial(&self.evals)
         };
-        vec![s0, s1]
+        vec![s0]
     }
 
     fn finalize(&mut self, last_challenge: F) {
@@ -113,7 +115,10 @@ mod tests {
         let mut t_new = SanityTranscript::new(&mut trng2);
         let new_result = sumcheck(&mut prover, num_rounds, &mut t_new, |_, _| {});
 
-        // Compare round polynomials.
+        // Compare round polynomials. New API wire format is EvalsInfty:
+        // each round emits [s0] (1 value). Old API emits (s0, s1). So only
+        // the s0 values are directly comparable wire-level; s1 can be
+        // reconstructed from s1 == claim − s0.
         assert_eq!(
             old_result.prover_messages.len(),
             new_result.round_polys.len()
@@ -124,8 +129,8 @@ mod tests {
             .zip(&new_result.round_polys)
             .enumerate()
         {
+            assert_eq!(new_evals.len(), 1, "round {i}: EvalsInfty emits 1 value");
             assert_eq!(old_msg.0, new_evals[0], "round {i}: s0 mismatch");
-            assert_eq!(old_msg.1, new_evals[1], "round {i}: s1 mismatch");
         }
 
         // Compare challenges.

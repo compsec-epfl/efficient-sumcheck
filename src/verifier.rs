@@ -11,6 +11,17 @@
 //! - **Standalone:** compare `result.final_claim == proof.final_value`
 //! - **Composed (WHIR, GKR):** pass `result.final_claim` to the next layer
 //! - **Custom (WARP):** compute the expected value from `result.challenges`
+//!
+//! # Wire format
+//!
+//! Round polynomials are communicated in the **EvalsInfty** format (see
+//! [`crate::sumcheck_prover::SumcheckProver::round`]). The prover sends
+//! `d = degree` values per round:
+//!
+//! - `d == 1`: `[h(0)]` — verifier derives `h(1) = claim - h(0)`.
+//! - `d >= 2`: `[h(0), h(∞), h(2), ..., h(d-1)]`, where `h(∞)` is the
+//!   leading coefficient. Verifier derives `h(1) = claim - h(0)` from the
+//!   consistency constraint `h(0) + h(1) = claim`.
 
 extern crate alloc;
 use crate::field::SumcheckField;
@@ -37,11 +48,12 @@ pub struct SumcheckResult<F: SumcheckField> {
 /// Verify a sum-check proof against a claimed sum.
 ///
 /// For each round j:
-/// 1. Reads `degree + 1` evaluations from the transcript.
-/// 2. Checks `g_j(0) + g_j(1) == current_claim`.
+/// 1. Reads `degree` values from the transcript (EvalsInfty wire format).
+/// 2. Derives `h_j(1) = claim - h_j(0)` from the consistency constraint.
 /// 3. Invokes `hook(round, transcript)`.
 /// 4. Reads the verifier challenge `r_j`.
-/// 5. Updates `current_claim = g_j(r_j)` via Lagrange interpolation.
+/// 5. Updates `claim = h_j(r_j)` via a polynomial reconstruction that
+///    combines the given finite-point values with the leading coefficient.
 ///
 /// Returns [`SumcheckResult`] containing the challenges and final claim.
 /// The caller is responsible for the oracle check — verifying that
@@ -55,23 +67,21 @@ pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
 ) -> Result<SumcheckResult<F>, SumcheckError> {
     let mut claim = claimed_sum;
     let mut challenges = Vec::with_capacity(num_rounds);
+    let d = expected_degree;
 
     for round in 0..num_rounds {
-        // Receive round polynomial evaluations from the prover.
-        let num_evals = expected_degree + 1;
-        let mut evals = Vec::with_capacity(num_evals);
-        for _ in 0..num_evals {
+        // EvalsInfty wire format: receive `d` values per round (min 1).
+        let n_wire = d.max(1);
+        let mut recv = Vec::with_capacity(n_wire);
+        for _ in 0..n_wire {
             let v = transcript
                 .receive()
                 .map_err(|_| SumcheckError::TranscriptError { round })?;
-            evals.push(v);
+            recv.push(v);
         }
 
-        // Consistency check: g_j(0) + g_j(1) == claim.
-        let sum_01 = evals[0] + evals[1];
-        if sum_01 != claim {
-            return Err(SumcheckError::ConsistencyCheck { round });
-        }
+        let h0 = recv[0];
+        let h1 = claim - h0;
 
         // Per-round hook (e.g., PoW verification for WHIR).
         hook(round, transcript)?;
@@ -80,8 +90,46 @@ pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
         let r = transcript.challenge();
         challenges.push(r);
 
-        // Update claim: g_j(r_j) via Lagrange interpolation.
-        claim = evaluate_from_evals(&evals, r);
+        // Update claim: h_j(r_j).
+        claim = if d == 0 {
+            // Constant polynomial — claim stays equal to h0.
+            h0
+        } else {
+            // h_inf = leading coefficient.
+            // For d == 1: derive as h(1) - h(0) (slope).
+            // For d >= 2: prover sends it explicitly as recv[1].
+            let h_inf = if d >= 2 { recv[1] } else { h1 - h0 };
+
+            // Build q-values at points {0, 1, ..., d-1}, where
+            // q(x) = p(x) - h_inf * x^d has degree d-1.
+            //   q(0) = h(0)
+            //   q(1) = h(1) - h_inf
+            //   q(i) = h(i) - h_inf * i^d   for i in 2..d  (d >= 3 only)
+            let mut q_vals = Vec::with_capacity(d);
+            q_vals.push(h0);
+            if d >= 1 {
+                q_vals.push(h1 - h_inf);
+            }
+            for i in 2..d {
+                let hi = recv[i];
+                let i_f = F::from_u64(i as u64);
+                let mut i_d = F::ONE;
+                for _ in 0..d {
+                    i_d *= i_f;
+                }
+                q_vals.push(hi - h_inf * i_d);
+            }
+
+            // Degree-(d-1) Lagrange interpolation of q over {0, 1, ..., d-1}.
+            let q_r = evaluate_from_evals(&q_vals, r);
+
+            // p(r) = q(r) + h_inf * r^d
+            let mut r_d = F::ONE;
+            for _ in 0..d {
+                r_d *= r;
+            }
+            q_r + h_inf * r_d
+        };
     }
 
     Ok(SumcheckResult {
@@ -90,12 +138,12 @@ pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
     })
 }
 
-/// Evaluate a univariate polynomial from its evaluations at `{0, 1, ..., d}`
+/// Evaluate a univariate polynomial from its evaluations at `{0, 1, ..., d-1}`
 /// at an arbitrary point `r`.
 ///
 /// Uses Lagrange interpolation:
 ///   g(r) = Σ_i g(i) · Π_{j≠i} (r − j) / (i − j)
-fn evaluate_from_evals<F: SumcheckField>(evals: &[F], r: F) -> F {
+pub(crate) fn evaluate_from_evals<F: SumcheckField>(evals: &[F], r: F) -> F {
     let d = evals.len(); // degree + 1
     if d == 0 {
         return F::ZERO;

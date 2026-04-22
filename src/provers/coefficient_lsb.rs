@@ -171,11 +171,19 @@ where
 
         // Compute coefficient representation.
         let coeffs = self.evaluate_coefficients();
+        let d = self.deg;
 
-        // Convert coefficients → evaluations at {0, 1, ..., degree}.
-        let mut evals = Vec::with_capacity(self.deg + 1);
-        for i in 0..=self.deg {
-            evals.push(eval_poly_at(&coeffs, F::from(i as u64)));
+        // EvalsInfty wire format:
+        //   d <= 1: [h(0)]
+        //   d >= 2: [h(0), h(∞), h(2), h(3), ..., h(d-1)]
+        if d <= 1 {
+            return vec![eval_poly_at(&coeffs, F::ZERO)];
+        }
+        let mut evals = Vec::with_capacity(d);
+        evals.push(eval_poly_at(&coeffs, F::ZERO)); // h(0) = coeffs[0]
+        evals.push(coeffs[d]); // h(∞) = leading coefficient
+        for i in 2..d {
+            evals.push(eval_poly_at(&coeffs, F::from(i as u64))); // h(i)
         }
         evals
     }
@@ -420,18 +428,13 @@ mod tests {
         let mut t = SanityTranscript::new(&mut trng);
         let proof = sumcheck(&mut prover, 4, &mut t, |_, _| {});
 
-        // Round-0 consistency.
-        assert_eq!(
-            proof.round_polys[0][0] + proof.round_polys[0][1],
-            claimed_sum
-        );
-
-        // All-round consistency via Lagrange.
+        // EvalsInfty: degree-1 → wire is [h(0)]; derive h(1) = claim - h(0).
         let mut claim = claimed_sum;
         for (rp, &r) in proof.round_polys.iter().zip(&proof.challenges) {
-            assert_eq!(rp[0] + rp[1], claim, "consistency check failed");
-            // degree 1: q(r) = q(0) + r*(q(1) - q(0))
-            claim = rp[0] + r * (rp[1] - rp[0]);
+            assert_eq!(rp.len(), 1, "EvalsInfty degree-1 wire length");
+            let h0 = rp[0];
+            let h1 = claim - h0;
+            claim = h0 + r * (h1 - h0);
         }
         assert_eq!(proof.final_value, claim);
     }
@@ -466,9 +469,8 @@ mod tests {
         // Same challenges (same transcript seed).
         assert_eq!(old_result.verifier_messages, new_result.challenges);
 
-        // Round polynomials: old is coefficients, new is evaluations.
-        // Verify consistency: old coeffs evaluated at {0,1} should match
-        // new evals[0] and evals[1].
+        // Round polynomials: old is coefficients, new is EvalsInfty [h(0)]
+        // for degree 1. Check h(0) agrees.
         for (i, (old_poly, new_evals)) in old_result
             .prover_messages
             .iter()
@@ -476,10 +478,9 @@ mod tests {
             .enumerate()
         {
             use ark_poly::Polynomial;
+            assert_eq!(new_evals.len(), 1, "round {i}: EvalsInfty degree-1 wire length");
             let old_at_0 = old_poly.evaluate(&F64::from(0u64));
-            let old_at_1 = old_poly.evaluate(&F64::from(1u64));
-            assert_eq!(old_at_0, new_evals[0], "round {i}: q(0) mismatch");
-            assert_eq!(old_at_1, new_evals[1], "round {i}: q(1) mismatch");
+            assert_eq!(old_at_0, new_evals[0], "round {i}: h(0) mismatch");
         }
     }
 
@@ -497,12 +498,12 @@ mod tests {
         let mut t = SanityTranscript::new(&mut trng);
         let proof = sumcheck(&mut prover, 3, &mut t, |_, _| {});
 
+        // EvalsInfty: degree-2 wire is [q(0), q(∞)] — 2 values per round.
         for rp in &proof.round_polys {
-            assert_eq!(rp.len(), 3, "degree-2 should have 3 evaluations");
+            assert_eq!(rp.len(), 2, "degree-2 EvalsInfty wire length");
         }
-        assert_eq!(
-            proof.round_polys[0][0] + proof.round_polys[0][1],
-            claimed_sum
-        );
+        // Consistency: q(0) + q(1) = claim, with q(1) = claim - q(0) by construction.
+        let q1 = claimed_sum - proof.round_polys[0][0];
+        assert_eq!(proof.round_polys[0][0] + q1, claimed_sum);
     }
 }

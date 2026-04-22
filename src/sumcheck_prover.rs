@@ -39,7 +39,19 @@ pub trait SumcheckProver<F: SumcheckField> {
 
     /// Compute the round polynomial and advance state.
     ///
-    /// Returns evaluations of g_j at `{0, 1, ..., degree()}`.
+    /// Returns `d = degree()` values per round in the **EvalsInfty** wire
+    /// format:
+    ///
+    /// - `d == 1`: `[g_j(0)]` — verifier derives `g_j(1) = claim - g_j(0)`.
+    /// - `d >= 2`: `[g_j(0), g_j(∞), g_j(2), g_j(3), ..., g_j(d-1)]`
+    ///   where `g_j(∞)` is the leading coefficient (coefficient of `x^d`).
+    ///   The verifier derives `g_j(1) = claim - g_j(0)` from the consistency
+    ///   constraint `g_j(0) + g_j(1) = claim`.
+    ///
+    /// One wire element per round is saved versus sending explicit
+    /// evaluations at `{0, 1, ..., d}`. The leading-coefficient form is
+    /// also typically the cheapest round-polynomial contribution to compute
+    /// for product-structured summands (see BDDT25, ePrint 2025/1117).
     ///
     /// - `challenge = None`: round 0 — compute from initial state.
     /// - `challenge = Some(r)`: fold/update state with the previous round's

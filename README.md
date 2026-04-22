@@ -70,6 +70,25 @@ let proof = sumcheck(
 );
 ```
 
+### Eq-Factored Sumcheck
+
+Proves $H = \sum_{x \in \lbrace 0,1 \rbrace^v} \mathrm{eq}(w, x) \cdot p(x)$ for a fixed point $w \in F^v$ and a multilinear polynomial $p$. Degree-2 round polynomials. Shows up in lookup arguments and any reduction that couples a public point to a witness polynomial via the multilinear equality predicate.
+
+```rust
+use effsc::{noop_hook, runner::sumcheck};
+use effsc::provers::eq_factored::EqFactoredProver;
+
+let mut prover = EqFactoredProver::new(w, p_evals);
+let proof = sumcheck(
+    &mut prover,
+    num_vars,
+    &mut transcript,
+    noop_hook,
+);
+// final_value = p(r) · eq(w, r)
+let (p_r, eq_wr) = prover.final_factors();
+```
+
 ### Verification
 
 One verifier for any degree $d$. Returns `SumcheckResult { challenges, final_claim }` — ⚠️ the caller is responsible for the oracle check ([Thaler Remark 4.2](https://people.cs.georgetown.edu/jthaler/ProofsArgsAndZK.pdf)).
@@ -104,6 +123,7 @@ Each prover comes in two variants:
 | `MultilinearProver` | `MultilinearProverLSB` |
 | `InnerProductProver` | `InnerProductProverLSB` |
 | `CoefficientProver` | `CoefficientProverLSB` |
+| `EqFactoredProver` | — |
 | `GkrProver` | — |
 
 See [`docs/design.md`](docs/design.md) for details.

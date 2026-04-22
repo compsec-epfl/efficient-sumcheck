@@ -7,7 +7,7 @@ use ark_ff::{AdditiveGroup, UniformRand};
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 
 use effsc::noop_hook_verify;
-use effsc::proof::{SumcheckError, SumcheckProof};
+use effsc::proof::SumcheckProof;
 use effsc::provers::inner_product::InnerProductProver;
 use effsc::provers::multilinear::MultilinearProver;
 use effsc::runner::sumcheck;
@@ -120,24 +120,30 @@ fn multilinear_honest_proof_accepted() {
 }
 
 // ─── Multilinear: corrupted round poly ────────────────────────────────────
+//
+// Under the EvalsInfty wire format, the consistency check `h(0) + h(1) = claim`
+// is structural (h(1) is derived from claim), so corruption is not caught by
+// an early `ConsistencyCheck` error. Instead, the `final_claim` returned by
+// the verifier diverges from the prover's `final_value`, and the caller's
+// oracle check catches the discrepancy. Soundness is preserved; detection
+// moves from the per-round consistency check to the final oracle check.
 
 #[test]
 fn multilinear_corrupted_round_poly_rejected() {
     let mut t = ReplayTranscript::new(42);
-    let (claimed_sum, _proof) = make_multilinear_proof(6, &mut t);
+    let (claimed_sum, proof) = make_multilinear_proof(6, &mut t);
 
-    // Corrupt the first evaluation of round 2 in the tape.
-    // Each round for degree-1: 2 evals + 1 challenge = 3 elements.
-    // Round 2 starts at offset 6, corrupt index 6.
+    // Degree-1 EvalsInfty: 1 eval + 1 challenge = 2 tape elements per round.
+    // Round 3 begins at offset 6 — corrupt h(0) of round 3.
     t.tape[6] += F64::from(1u64);
 
     t.rewind();
     let result = sumcheck_verify(claimed_sum, 1, 6, &mut t, noop_hook_verify);
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        SumcheckError::ConsistencyCheck { round } => assert_eq!(round, 2),
-        e => panic!("expected ConsistencyCheck at round 2, got {e:?}"),
-    }
+    // Verifier accepts (no per-round consistency error), but final_claim
+    // diverges from the honest prover's final_value — the oracle check
+    // catches the corruption.
+    let r = result.expect("verifier returns Ok even under corruption");
+    assert_ne!(r.final_claim, proof.final_value);
 }
 
 // ─── Multilinear: wrong claimed sum ───────────────────────────────────────
@@ -145,7 +151,7 @@ fn multilinear_corrupted_round_poly_rejected() {
 #[test]
 fn multilinear_wrong_claimed_sum_rejected() {
     let mut t = ReplayTranscript::new(42);
-    let (claimed_sum, _proof) = make_multilinear_proof(6, &mut t);
+    let (claimed_sum, proof) = make_multilinear_proof(6, &mut t);
 
     t.rewind();
     let result = sumcheck_verify(
@@ -155,11 +161,12 @@ fn multilinear_wrong_claimed_sum_rejected() {
         &mut t,
         noop_hook_verify,
     );
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        SumcheckError::ConsistencyCheck { round } => assert_eq!(round, 0),
-        e => panic!("expected ConsistencyCheck at round 0, got {e:?}"),
-    }
+    // Under EvalsInfty, the wrong claim propagates into derived h(1) values
+    // and the reconstructed round polynomials. Verifier does not reject
+    // mid-protocol; the final_claim disagrees with proof.final_value, which
+    // the caller's oracle check catches.
+    let r = result.expect("verifier returns Ok even with wrong claimed sum");
+    assert_ne!(r.final_claim, proof.final_value);
 }
 
 // ─── Multilinear: caller catches wrong final value ────────────────────────
@@ -197,19 +204,17 @@ fn inner_product_honest_proof_accepted() {
 #[test]
 fn inner_product_corrupted_round_poly_rejected() {
     let mut t = ReplayTranscript::new(77);
-    let (claimed_sum, _proof) = make_inner_product_proof(6, &mut t);
+    let (claimed_sum, proof) = make_inner_product_proof(6, &mut t);
 
-    // Degree-2: 3 evals + 1 challenge = 4 elements per round.
-    // Corrupt round 1, first eval at offset 4.
-    t.tape[4] += F64::from(1u64);
+    // Degree-2 EvalsInfty: 2 evals + 1 challenge = 3 tape elements per round.
+    // Corrupt q(0) of round 1 at offset 3.
+    t.tape[3] += F64::from(1u64);
 
     t.rewind();
     let result = sumcheck_verify(claimed_sum, 2, 6, &mut t, noop_hook_verify);
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        SumcheckError::ConsistencyCheck { round } => assert_eq!(round, 1),
-        e => panic!("expected ConsistencyCheck at round 1, got {e:?}"),
-    }
+    // Verifier accepts; oracle check catches the corruption via final_claim.
+    let r = result.expect("verifier returns Ok even under corruption");
+    assert_ne!(r.final_claim, proof.final_value);
 }
 
 // ─── Inner product: caller catches wrong final value ──────────────────────
@@ -281,26 +286,23 @@ mod gkr_tests {
     fn gkr_corrupted_round_poly_rejected() {
         let k = 3;
         let mut t = ReplayTranscript::new(99);
-        let (claimed_sum, _proof, _prover) = make_gkr_proof(k, &mut t);
+        let (claimed_sum, proof, _prover) = make_gkr_proof(k, &mut t);
 
-        // Degree-2: 3 evals + 1 challenge = 4 elements per round.
-        // Corrupt round 3, first eval at offset 12.
-        t.tape[12] += F64::from(1u64);
+        // Degree-2 EvalsInfty: 2 evals + 1 challenge = 3 tape elements per round.
+        // Corrupt q(0) of round 3 at offset 9.
+        t.tape[9] += F64::from(1u64);
 
         t.rewind();
         let result = sumcheck_verify(claimed_sum, 2, 2 * k, &mut t, noop_hook_verify);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            SumcheckError::ConsistencyCheck { round } => assert_eq!(round, 3),
-            e => panic!("expected ConsistencyCheck at round 3, got {e:?}"),
-        }
+        let r = result.expect("verifier returns Ok even under corruption");
+        assert_ne!(r.final_claim, proof.final_value);
     }
 
     #[test]
     fn gkr_wrong_claimed_sum_rejected() {
         let k = 3;
         let mut t = ReplayTranscript::new(99);
-        let (claimed_sum, _proof, _prover) = make_gkr_proof(k, &mut t);
+        let (claimed_sum, proof, _prover) = make_gkr_proof(k, &mut t);
 
         t.rewind();
         let result = sumcheck_verify(
@@ -310,11 +312,8 @@ mod gkr_tests {
             &mut t,
             noop_hook_verify,
         );
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            SumcheckError::ConsistencyCheck { round } => assert_eq!(round, 0),
-            e => panic!("expected ConsistencyCheck at round 0, got {e:?}"),
-        }
+        let r = result.expect("verifier returns Ok even with wrong claimed sum");
+        assert_ne!(r.final_claim, proof.final_value);
     }
 
     /// Demonstrates that the caller is responsible for the oracle check.

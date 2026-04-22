@@ -261,10 +261,20 @@ where
         }
 
         let coeffs = self.evaluate_coefficients();
+        let d = self.deg;
 
-        let mut evals = Vec::with_capacity(self.deg + 1);
-        for i in 0..=self.deg {
-            evals.push(eval_poly_at(&coeffs, F::from(i as u64)));
+        // EvalsInfty wire format:
+        //   d == 0: [h(0)]
+        //   d == 1: [h(0)]                               (h(∞) derived from claim)
+        //   d >= 2: [h(0), h(∞), h(2), h(3), ..., h(d-1)]
+        if d <= 1 {
+            return vec![eval_poly_at(&coeffs, F::ZERO)];
+        }
+        let mut evals = Vec::with_capacity(d);
+        evals.push(eval_poly_at(&coeffs, F::ZERO)); // h(0) = coeffs[0]
+        evals.push(coeffs[d]); // h(∞) = leading coefficient
+        for i in 2..d {
+            evals.push(eval_poly_at(&coeffs, F::from(i as u64))); // h(i)
         }
         evals
     }
@@ -340,15 +350,13 @@ mod tests {
         let mut t = SanityTranscript::new(&mut trng);
         let proof = sumcheck(&mut prover, 4, &mut t, |_, _| {});
 
-        assert_eq!(
-            proof.round_polys[0][0] + proof.round_polys[0][1],
-            claimed_sum
-        );
-
+        // EvalsInfty: degree-1 round poly → wire is [h(0)]; h(1) = claim - h(0).
         let mut claim = claimed_sum;
         for (rp, &r) in proof.round_polys.iter().zip(&proof.challenges) {
-            assert_eq!(rp[0] + rp[1], claim);
-            claim = rp[0] + r * (rp[1] - rp[0]);
+            assert_eq!(rp.len(), 1, "EvalsInfty degree-1 wire length");
+            let h0 = rp[0];
+            let h1 = claim - h0;
+            claim = h0 + r * (h1 - h0);
         }
         assert_eq!(proof.final_value, claim);
     }
@@ -378,15 +386,16 @@ mod tests {
         // Same challenges (same transcript seed).
         assert_eq!(ml_proof.challenges, cp_proof.challenges);
 
-        // Same round polynomial evaluations.
+        // Same wire (EvalsInfty): both provers emit [h(0)] per round.
         for (i, (ml_rp, cp_rp)) in ml_proof
             .round_polys
             .iter()
             .zip(&cp_proof.round_polys)
             .enumerate()
         {
-            assert_eq!(ml_rp[0], cp_rp[0], "round {i}: q(0) mismatch");
-            assert_eq!(ml_rp[1], cp_rp[1], "round {i}: q(1) mismatch");
+            assert_eq!(ml_rp.len(), 1, "round {i}: EvalsInfty degree-1 wire length");
+            assert_eq!(cp_rp.len(), 1, "round {i}: EvalsInfty degree-1 wire length");
+            assert_eq!(ml_rp[0], cp_rp[0], "round {i}: h(0) mismatch");
         }
     }
 }
