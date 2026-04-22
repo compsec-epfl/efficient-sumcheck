@@ -181,7 +181,11 @@ mod tests {
             .enumerate()
         {
             let (c0, c2) = *old_msg;
-            assert_eq!(new_evals.len(), 2, "round {i}: EvalsInfty degree-2 wire length");
+            assert_eq!(
+                new_evals.len(),
+                2,
+                "round {i}: EvalsInfty degree-2 wire length"
+            );
             assert_eq!(c0, new_evals[0], "round {i}: q(0) mismatch");
             assert_eq!(c2, new_evals[1], "round {i}: q(∞) mismatch");
         }

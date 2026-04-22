@@ -330,8 +330,9 @@ where
 
 ```rust
 pub struct SumcheckProof<F: Field> {
-    /// g_j evaluations per round: round_polys[j] has degree + 1 entries.
-    pub round_polynomials: Vec<Vec<F>>,
+    /// Round polynomial values per round, EvalsInfty wire format.
+    /// `round_polys[j]` has `d = degree()` entries (see §7a).
+    pub round_polys: Vec<Vec<F>>,
     /// Verifier challenges r_1, ..., r_v.
     pub challenges: Vec<F>,
     /// g(r_1, ..., r_v) -- the prover's claimed final evaluation.
@@ -339,9 +340,44 @@ pub struct SumcheckProof<F: Field> {
 }
 ```
 
-This matches the protocol description exactly. The verifier can
-reconstruct any round's consistency check from `round_polynomials`
-and `challenges`.
+The verifier can reconstruct any round's consistency check from
+`round_polys` and `challenges`.
+
+### 7a. Wire format: EvalsInfty
+
+All provers emit round polynomials in **EvalsInfty** form — `d` values
+per round for a degree-`d` polynomial, one fewer than a full
+evaluation table:
+
+| d | Wire | Verifier recovers |
+|---|------|-------------------|
+| 1 | `[h(0)]` | `h(1) = claim − h(0)` |
+| ≥ 2 | `[h(0), h(∞), h(2), ..., h(d−1)]` | `h(1) = claim − h(0)` |
+
+`h(∞)` is the leading coefficient (coefficient of `x^d`). The
+verifier reconstructs `h(r)` by Lagrange-interpolating the
+degree-`(d−1)` residual `q(x) = h(x) − h(∞)·x^d` over the finite
+points `{0, 1, ..., d−1}` and then adding `h(∞)·r^d`.
+
+**Why this shape.**
+
+1. *Cheapest for product-structured summands.* The leading
+   coefficient is a difference-of-shifted-evaluations form
+   (see [BDDT25](https://eprint.iacr.org/2025/1117.pdf), Algorithm 3),
+   which is the minimal additional work beyond computing `h(0)`.
+2. *Consistency is structural.* The check `h(0) + h(1) = claim` is
+   enforced by the wire format rather than a runtime equality test.
+   The consequence is that a dishonest prover's misbehaviour no
+   longer surfaces as a mid-protocol `ConsistencyCheck` error — it
+   surfaces at the caller's oracle check, where `final_claim`
+   diverges from `proof.final_value`. Soundness is preserved; the
+   detection point moves by one step.
+3. *One byte saved per round* (compared to sending `d + 1`
+   evaluations), worth noting for transcript-size-sensitive callers.
+
+The runner and the verifier are both written once against this
+format; every concrete prover (multilinear, inner-product, GKR,
+eq-factored, coefficient of any degree, MSB or LSB) produces it.
 
 ## 8. The verifier
 
@@ -351,8 +387,11 @@ polynomial's degree:
 ```rust
 /// Verify a sum-check proof against a claimed sum.
 ///
-/// Checks per round: g_j(0) + g_j(1) = previous claim, and
-/// deg(g_j) <= expected_degree.
+/// Per round (EvalsInfty wire — see §7a): receives `d` values,
+/// derives `h_j(1) = claim − h_j(0)` from the consistency constraint,
+/// reconstructs the round polynomial from the received finite-point
+/// evaluations plus the leading coefficient, and evaluates at the
+/// challenge `r_j` to obtain the next round's claim.
 ///
 /// Returns the final claimed value and the challenge vector on success.
 /// The caller is responsible for the oracle check: verifying that
@@ -539,7 +578,7 @@ impl SumcheckInstanceProver<F, T> for Adapter<P> {
   performance. The adapter converts via `Into<F>` at the boundary.
 
 - **Return type**: Jolt expects `UniPoly<F>` (coefficients). Our trait
-  returns evaluations at {0, 1, ..., d}. Convert via interpolation or
+  returns the EvalsInfty wire (§7a). Convert via reconstruction or
   have the prover return coefficients directly.
 
 - **Batching**: Jolt's `BatchedSumcheck::prove` combines multiple instances
@@ -587,9 +626,9 @@ and use Toom-Cook to reduce the number of ss multiplications from
 
 **Trait compatibility**: this is entirely internal to `round()`. The prover
 maintains richer internal state (categorized accumulator tables) and uses
-cheaper multiplication routines, but returns the same `Vec<F>` of degree+1
-evaluations. A `SmallValueProver<F>` implements `SumcheckProver<F>` with
-unchanged `degree()` and `final_value()`.
+cheaper multiplication routines, but returns the same EvalsInfty wire (§7a).
+A `SmallValueProver<F>` implements `SumcheckProver<F>` with unchanged
+`degree()` and `final_value()`.
 
 ### Algorithms 5--6: EqPoly optimization
 

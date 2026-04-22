@@ -184,7 +184,11 @@ impl<F: SumcheckField> EqFactoredProver<F> {
 
         let scalar = self.eq_l[0];
         if n <= 1 {
-            let v = if n == 1 { scalar * self.eq_r[0] * self.p[0] } else { F::ZERO };
+            let v = if n == 1 {
+                scalar * self.eq_r[0] * self.p[0]
+            } else {
+                F::ZERO
+            };
             return vec![v, F::ZERO];
         }
 
@@ -303,7 +307,11 @@ mod tests {
         for j in 0..v {
             // MSB-first indexing: bit (v-1-j) of x_bits corresponds to w[j].
             let xj = (x_bits >> (v - 1 - j)) & 1;
-            acc *= if xj == 1 { w[j] } else { F64::from(1u64) - w[j] };
+            acc *= if xj == 1 {
+                w[j]
+            } else {
+                F64::from(1u64) - w[j]
+            };
         }
         acc
     }

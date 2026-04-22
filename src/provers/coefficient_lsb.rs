@@ -193,38 +193,31 @@ where
     }
 
     fn final_value(&self) -> F {
-        // After all rounds, each pairwise table should have 1 element,
-        // each tablewise table should have 1 row. The final value is
-        // the evaluator applied to these singletons.
-        let mut coeffs = vec![F::ZERO; self.deg + 1];
-        let n_pairs = self.n_pairs();
-        if n_pairs > 0 {
-            sequential_evaluate_into(
-                self.evaluator,
-                &self.tablewise,
-                &self.pairwise,
-                self.n_tw,
-                self.n_pw,
-                n_pairs,
-                &mut coeffs,
-            );
-        }
-        // final_value = h(0) + h(1) = sum of evaluations at 0 and 1
-        // Actually: the "final value" for coefficient sumcheck is the
-        // claimed sum at the last point, which is eval of the polynomial
-        // at the last challenge. But after finalize(), the tables are
-        // fully reduced — there's only 1 "pair" left (of size 1).
-        // The claim is h(0) + h(1) from the last round's perspective,
-        // but that's the *next* claim, not the evaluation.
-        //
-        // For consistency with the other provers: final_value should be
-        // the polynomial evaluated at the random point. After full
-        // reduction, the single remaining element in pairwise[0] IS
-        // the evaluation (for degree-1 single-pairwise case).
+        // Degree-1 single-pairwise fast path: the singleton *is* the evaluation.
         if self.is_degree1_simd_path && !self.pairwise.is_empty() && self.pairwise[0].len() == 1 {
             return self.pairwise[0][0];
         }
-        // General case: sum the contributions.
+
+        // General case: after full reduction each pairwise table holds one
+        // element and each tablewise table holds one row. Feed these
+        // singletons to the evaluator as `(singleton, F::ZERO)` pairs and
+        // return `h(0) + h(1)`. For product-shaped evaluators this evaluates
+        // to `Π_i singleton_i`, matching the MSB variant.
+        let mut coeffs = vec![F::ZERO; self.deg + 1];
+        let mut tw_buf: [(&[F], &[F]); 16] = [(&[], &[]); 16];
+        let mut pw_buf: [(F, F); 16] = [(F::ZERO, F::ZERO); 16];
+        for (i, table) in self.tablewise.iter().enumerate() {
+            if table.len() == 1 {
+                tw_buf[i] = (&table[0], &[]);
+            }
+        }
+        for (i, table) in self.pairwise.iter().enumerate() {
+            if table.len() == 1 {
+                pw_buf[i] = (table[0], F::ZERO);
+            }
+        }
+        self.evaluator
+            .accumulate_pair(&mut coeffs, &tw_buf[..self.n_tw], &pw_buf[..self.n_pw]);
         eval_poly_at(&coeffs, F::ZERO) + eval_poly_at(&coeffs, F::ONE)
     }
 }
@@ -478,7 +471,11 @@ mod tests {
             .enumerate()
         {
             use ark_poly::Polynomial;
-            assert_eq!(new_evals.len(), 1, "round {i}: EvalsInfty degree-1 wire length");
+            assert_eq!(
+                new_evals.len(),
+                1,
+                "round {i}: EvalsInfty degree-1 wire length"
+            );
             let old_at_0 = old_poly.evaluate(&F64::from(0u64));
             assert_eq!(old_at_0, new_evals[0], "round {i}: h(0) mismatch");
         }

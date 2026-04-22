@@ -110,8 +110,8 @@ pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
             if d >= 1 {
                 q_vals.push(h1 - h_inf);
             }
-            for i in 2..d {
-                let hi = recv[i];
+            for (offset, &hi) in recv[2..d].iter().enumerate() {
+                let i = offset + 2;
                 let i_f = F::from_u64(i as u64);
                 let mut i_d = F::ONE;
                 for _ in 0..d {
@@ -144,7 +144,7 @@ pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
 /// Uses Lagrange interpolation:
 ///   g(r) = Σ_i g(i) · Π_{j≠i} (r − j) / (i − j)
 pub(crate) fn evaluate_from_evals<F: SumcheckField>(evals: &[F], r: F) -> F {
-    let d = evals.len(); // degree + 1
+    let d = evals.len(); // number of interpolation nodes
     if d == 0 {
         return F::ZERO;
     }

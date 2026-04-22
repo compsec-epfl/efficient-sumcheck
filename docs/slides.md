@@ -202,7 +202,7 @@ full evaluation table.
 
 ```rust
 pub struct SumcheckProof<F: SumcheckField> {
-    pub round_polys: Vec<Vec<F>>,  // g_j at {0,1,...,d}
+    pub round_polys: Vec<Vec<F>>,  // g_j in EvalsInfty wire format
     pub challenges: Vec<F>,        // r_1, ..., r_v
     pub final_value: F,            // g(r_1, ..., r_v)
 }
@@ -223,7 +223,7 @@ lives on the prover via `&mut P` ownership, not in the proof.
 | `InnerProductProver` | 2 | `final_evaluations() -> (F, F)` |
 | `CoefficientProver` | d | — |
 | `GkrProver` | 2 | `claimed_w_values() -> (F, F)` |
-| `EqFactoredProver` | 2 | `final_factors() -> (F, F)` |
+| `EqFactoredProver` *(available)* | 2 | `final_factors() -> (F, F)` |
 
 MSB and LSB variants exist for the first three; `GkrProver` and
 `EqFactoredProver` are MSB-only.
@@ -357,7 +357,7 @@ Reduce-to-one is a separate composable sub-protocol (Thaler §4.5.2).
 
 ---
 
-## Eq-Factored Sumcheck
+## Eq-Factored Sumcheck *(available)*
 
 Proves `H = Σ_{x ∈ {0,1}^v} eq(w, x) · p(x)` for fixed `w ∈ F^v` and
 multilinear `p`. Degree 2. Shows up in lookup arguments and any
@@ -386,6 +386,37 @@ product.
 - **Eq storage:** `O(2^v)` → `O(2^{v/2})`
 - First `v_L` rounds fold `eq_L`; remaining `v_R` rounds fold `eq_R`.
 - After the last round, `eq(w, r) = eq_L[0] · eq_R[0]`.
+
+---
+
+## BatchedEqFactoredProver *(future possibility)*
+
+WHIR's covector is an RLC of equality polynomials:
+
+```
+b(x) = Σ_i α_i · eq(ρ_i, x)
+```
+
+A batched split-value prover would take `Vec<(ρ_i, α_i)>` + witness
+`a` instead of a materialized covector, store each `eq(ρ_i, ·)` in
+split form, and stream all `k` factors through the nested-sum kernel
+per round.
+
+| | Time | Memory |
+|---|------|--------|
+| Current WHIR (`InnerProductProver` + materialized `b`) | `O(k · 2^v)` | `O(2^v)` |
+| Batched split-value | `O(k · 2^v)` | `O(k · 2^{v/2})` |
+
+- **Memory win** when `k < 2^{v/2}` — typical for WHIR (`v ~ 20`, `k`
+  in the dozens).
+- **Time essentially unchanged.** You skip the upfront covector
+  build but pay `k×` more per sumcheck round. Split-value is a
+  space optimization, not a time optimization — per-round
+  multiplication count is the same.
+
+**Status.** Not implemented. Requires coordination with the WHIR crate
+to thread `(ρ, α)` pairs through `update_covector` rather than RLC'ing
+into a flat table each round.
 
 ---
 
