@@ -110,7 +110,7 @@ pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
             if d >= 1 {
                 q_vals.push(h1 - h_inf);
             }
-            for (offset, &hi) in recv[2..d].iter().enumerate() {
+            for (offset, &hi) in recv.get(2..d).unwrap_or(&[]).iter().enumerate() {
                 let i = offset + 2;
                 let i_f = F::from_u64(i as u64);
                 let mut i_d = F::ONE;
