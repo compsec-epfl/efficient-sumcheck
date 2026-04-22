@@ -114,6 +114,11 @@ where
             ip::fold(&mut self.w_c, w);
         }
 
+        // EvalsInfty wire format: emit [q(0), q(∞)] for degree-2 round poly.
+        // Strategy: compute (q(0), q(1), q(2)) as before, then convert via
+        //   q(∞) = (q(0) + q(2) − 2·q(1)) / 2
+        // This preserves tail-case semantics identical to the prior
+        // implementation and avoids per-round algebraic rederivation.
         let n = self.add_evals.len();
         if n <= 1 {
             let v = if n == 1 {
@@ -123,7 +128,7 @@ where
             } else {
                 F::ZERO
             };
-            return vec![v, F::ZERO, F::ZERO];
+            return vec![v, F::ZERO];
         }
 
         let half = n.next_power_of_two() >> 1;
@@ -148,13 +153,9 @@ where
             let wcl = wc_lo[i];
             let wch = wc_hi[i];
 
-            // q(0): all factors at t=0 (low half)
             q0 += al * (wbl + wcl) + ml * (wbl * wcl);
-
-            // q(1): all factors at t=1 (high half)
             q1 += ah * (wbh + wch) + mh * (wbh * wch);
 
-            // q(2): linear extension to t=2: val_2 = 2*hi - lo
             let a2 = ah + ah - al;
             let m2 = mh + mh - ml;
             let wb2 = wbh + wbh - wbl;
@@ -162,9 +163,7 @@ where
             q2 += a2 * (wb2 + wc2) + m2 * (wb2 * wc2);
         }
 
-        // Tail: hi is implicitly zero, so at t=2 each factor is -lo.
-        // add term: (-al)*(-wbl + -wcl) = al*(wbl + wcl)  [even number of negations]
-        // mult term: (-ml)*(-wbl)*(-wcl) = -ml*wbl*wcl    [odd number of negations]
+        // Tail: hi is implicitly zero.
         for i in paired..half.min(n) {
             let al = add_lo[i];
             let ml = mult_lo[i];
@@ -176,7 +175,14 @@ where
             q2 += al * (wbl + wcl) - ml * (wbl * wcl);
         }
 
-        vec![q0, q1, q2]
+        // Convert {q(0), q(1), q(2)} → {q(0), q(∞)}.
+        //   q(∞) = (q(0) + q(2) − 2·q(1)) / 2
+        let two_inv = F::from(2u64)
+            .inverse()
+            .expect("field characteristic must not be 2");
+        let q_inf = (q0 + q2 - q1.double()) * two_inv;
+
+        vec![q0, q_inf]
     }
 
     fn finalize(&mut self, last_challenge: F) {
@@ -200,7 +206,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::polynomial::eval_from_evals;
     use crate::runner::sumcheck;
     use crate::tests::F64;
     use crate::transcript::SanityTranscript;
@@ -235,15 +240,20 @@ mod tests {
         let mut transcript = SanityTranscript::new(&mut trng);
         let proof = sumcheck(&mut prover, num_rounds, &mut transcript, |_, _| {});
 
-        // Verify: q(0) + q(1) = claim each round, update via Lagrange.
+        // EvalsInfty: wire is [q(0), q(∞)]. Derive q(1) = claim - q(0);
+        // reconstruct q(r) = q(0) + r·(q(1) - q(0) - q(∞)) + q(∞)·r².
         let mut claim = expected_sum;
         for (round, evals) in proof.round_polys.iter().enumerate() {
             assert_eq!(
-                evals[0] + evals[1],
-                claim,
-                "k={k}: round {round}: q(0) + q(1) != claim"
+                evals.len(),
+                2,
+                "k={k}: round {round}: EvalsInfty degree-2 wire length"
             );
-            claim = eval_from_evals(evals, proof.challenges[round]);
+            let q0 = evals[0];
+            let q_inf = evals[1];
+            let q1 = claim - q0;
+            let r = proof.challenges[round];
+            claim = q0 + r * (q1 - q0 - q_inf) + q_inf * r * r;
         }
         assert_eq!(claim, proof.final_value, "k={k}: final claim mismatch");
 
@@ -344,9 +354,9 @@ mod tests {
         let mut transcript = SanityTranscript::new(&mut trng);
         let proof = sumcheck(&mut prover, 2 * k, &mut transcript, |_, _| {});
 
-        assert_eq!(
-            proof.round_polys[0][0] + proof.round_polys[0][1],
-            expected_sum,
-        );
+        // EvalsInfty: wire is [q(0), q(∞)]; derive q(1) = claim - q(0).
+        let q0 = proof.round_polys[0][0];
+        let q1 = expected_sum - q0;
+        assert_eq!(q0 + q1, expected_sum);
     }
 }

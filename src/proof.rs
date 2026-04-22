@@ -16,8 +16,14 @@ use core::fmt;
 /// `final_value == g(r_1, ..., r_v)`) is the caller's responsibility.
 #[derive(Clone, Debug)]
 pub struct SumcheckProof<F: SumcheckField> {
-    /// Round polynomial evaluations: `round_polys[j]` contains
-    /// `g_j(0), g_j(1), ..., g_j(degree)`.
+    /// Round polynomial values, EvalsInfty wire format: `round_polys[j]`
+    /// contains `d = degree` values per round.
+    ///
+    /// - `d == 1`: `[g_j(0)]`. `g_j(1)` is derived from the consistency
+    ///   check `g_j(0) + g_j(1) = claim`.
+    /// - `d >= 2`: `[g_j(0), g_j(∞), g_j(2), g_j(3), ..., g_j(d-1)]` where
+    ///   `g_j(∞)` is the leading coefficient (coefficient of `x^d`).
+    ///   `g_j(1)` is derived from the consistency check as above.
     pub round_polys: Vec<Vec<F>>,
 
     /// Verifier challenges `r_1, ..., r_v`.

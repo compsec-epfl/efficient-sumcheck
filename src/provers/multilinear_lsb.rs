@@ -173,12 +173,13 @@ impl<F: SumcheckField> SumcheckProver<F> for MultilinearProverLSB<F> {
     }
 
     fn round(&mut self, challenge: Option<F>) -> Vec<F> {
-        let (s0, s1) = if let Some(w) = challenge {
+        // EvalsInfty: degree 1 → emit [h(0)].
+        let (s0, _s1) = if let Some(w) = challenge {
             fused_fold_and_compute_lsb(&mut self.evals, w)
         } else {
             compute_lsb(&self.evals)
         };
-        vec![s0, s1]
+        vec![s0]
     }
 
     fn finalize(&mut self, last_challenge: F) {
@@ -219,20 +220,18 @@ mod tests {
         let mut t = SanityTranscript::new(&mut trng);
         let proof = sumcheck(&mut prover, num_vars, &mut t, |_, _| {});
 
-        // Round-0 consistency.
-        assert_eq!(
-            proof.round_polys[0][0] + proof.round_polys[0][1],
-            claimed_sum
-        );
-
-        // All-round consistency.
-        let mut claim = claimed_sum;
-        for (rp, &r) in proof.round_polys.iter().zip(&proof.challenges) {
-            assert_eq!(rp[0] + rp[1], claim, "consistency check failed");
-            claim = rp[0] + r * (rp[1] - rp[0]);
+        // EvalsInfty: each round emits exactly 1 value for degree-1 provers.
+        for rp in &proof.round_polys {
+            assert_eq!(rp.len(), 1, "EvalsInfty degree-1 wire length");
         }
 
-        // Final value matches claim after all rounds.
+        // Replay the reductions: h(1) = claim - h(0), then h(r) = (1-r)·h(0) + r·h(1).
+        let mut claim = claimed_sum;
+        for (rp, &r) in proof.round_polys.iter().zip(&proof.challenges) {
+            let h0 = rp[0];
+            let h1 = claim - h0;
+            claim = h0 + r * (h1 - h0);
+        }
         assert_eq!(proof.final_value, claim);
         assert_eq!(prover.evals().len(), 1);
     }
@@ -244,24 +243,20 @@ mod tests {
         let evals: Vec<F64> = (0..32).map(|_| F64::rand(&mut rng)).collect();
         let claimed_sum: F64 = evals.iter().copied().sum();
 
-        // LSB.
+        // LSB. Under EvalsInfty, h(1) = claim - h(0).
         let mut lsb = MultilinearProverLSB::new(evals.clone());
         let mut trng = StdRng::seed_from_u64(99);
         let mut t = SanityTranscript::new(&mut trng);
         let lsb_proof = sumcheck(&mut lsb, 5, &mut t, |_, _| {});
-        assert_eq!(
-            lsb_proof.round_polys[0][0] + lsb_proof.round_polys[0][1],
-            claimed_sum
-        );
+        let lsb_h1 = claimed_sum - lsb_proof.round_polys[0][0];
+        assert_eq!(lsb_proof.round_polys[0][0] + lsb_h1, claimed_sum);
 
         // MSB.
         let mut msb = MultilinearProver::new(evals);
         let mut trng2 = StdRng::seed_from_u64(99);
         let mut t2 = SanityTranscript::new(&mut trng2);
         let msb_proof = sumcheck(&mut msb, 5, &mut t2, |_, _| {});
-        assert_eq!(
-            msb_proof.round_polys[0][0] + msb_proof.round_polys[0][1],
-            claimed_sum
-        );
+        let msb_h1 = claimed_sum - msb_proof.round_polys[0][0];
+        assert_eq!(msb_proof.round_polys[0][0] + msb_h1, claimed_sum);
     }
 }

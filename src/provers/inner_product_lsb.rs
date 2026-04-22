@@ -50,36 +50,30 @@ impl<F: SumcheckField> InnerProductProverLSB<F> {
 
 // ─── LSB fold and compute ──────────────────────────────────────────────────
 
-/// Compute round polynomial evaluations at {0, 1, 2} from LSB pair-split layout.
+/// Compute EvalsInfty round polynomial `(q(0), q(∞))` from LSB pair-split layout.
 ///
-/// q(0) = sum a[2k] * b[2k]
-/// q(1) = sum a[2k+1] * b[2k+1]
-/// q(2) = sum (2*a[2k+1] - a[2k]) * (2*b[2k+1] - b[2k])
-fn compute_lsb<F: SumcheckField>(a: &[F], b: &[F]) -> (F, F, F) {
+/// q(0)  = sum a[2k] * b[2k]
+/// q(∞)  = [x²] q(x) = sum (a[2k+1] - a[2k]) * (b[2k+1] - b[2k])
+fn compute_lsb<F: SumcheckField>(a: &[F], b: &[F]) -> (F, F) {
     debug_assert_eq!(a.len(), b.len());
     if a.is_empty() {
-        return (F::ZERO, F::ZERO, F::ZERO);
+        return (F::ZERO, F::ZERO);
     }
     if a.len() == 1 {
-        return (a[0] * b[0], F::ZERO, F::ZERO);
+        return (a[0] * b[0], F::ZERO);
     }
 
     let mut q0 = F::ZERO;
-    let mut q1 = F::ZERO;
-    let mut q2 = F::ZERO;
+    let mut q_inf = F::ZERO;
     for i in (0..a.len()).step_by(2) {
         let a_even = a[i];
         let a_odd = a[i + 1];
         let b_even = b[i];
         let b_odd = b[i + 1];
         q0 += a_even * b_even;
-        q1 += a_odd * b_odd;
-        // f(2) = 2*a_odd - a_even, g(2) = 2*b_odd - b_even
-        let a2 = a_odd + a_odd - a_even;
-        let b2 = b_odd + b_odd - b_even;
-        q2 += a2 * b2;
+        q_inf += (a_odd - a_even) * (b_odd - b_even);
     }
-    (q0, q1, q2)
+    (q0, q_inf)
 }
 
 /// In-place LSB fold: `new[k] = f[2k] + w * (f[2k+1] - f[2k])`.
@@ -97,12 +91,12 @@ fn fold_lsb<F: SumcheckField>(v: &mut Vec<F>, weight: F) {
 }
 
 /// Fused fold + compute: fold both vectors with `weight`, then compute
-/// the next round's (q0, q1, q2) in one pass over quads.
+/// the next round's EvalsInfty `(q(0), q(∞))` in one pass over quads.
 fn fused_fold_and_compute_lsb<F: SumcheckField>(
     a: &mut Vec<F>,
     b: &mut Vec<F>,
     weight: F,
-) -> (F, F, F) {
+) -> (F, F) {
     let n = a.len();
     debug_assert_eq!(n, b.len());
     if n < 4 {
@@ -113,8 +107,7 @@ fn fused_fold_and_compute_lsb<F: SumcheckField>(
 
     let new_len = n / 2;
     let mut q0 = F::ZERO;
-    let mut q1 = F::ZERO;
-    let mut q2 = F::ZERO;
+    let mut q_inf = F::ZERO;
 
     // Process quads: indices (4k, 4k+1, 4k+2, 4k+3)
     // Fold produces: new_a[2k]   = a[4k]   + w*(a[4k+1] - a[4k])
@@ -134,10 +127,7 @@ fn fused_fold_and_compute_lsb<F: SumcheckField>(
         b[2 * q + 1] = nb_odd;
 
         q0 += na_even * nb_even;
-        q1 += na_odd * nb_odd;
-        let a2 = na_odd + na_odd - na_even;
-        let b2 = nb_odd + nb_odd - nb_even;
-        q2 += a2 * b2;
+        q_inf += (na_odd - na_even) * (nb_odd - nb_even);
     }
 
     // Handle remainder if new_len is odd.
@@ -152,7 +142,7 @@ fn fused_fold_and_compute_lsb<F: SumcheckField>(
 
     a.truncate(new_len);
     b.truncate(new_len);
-    (q0, q1, q2)
+    (q0, q_inf)
 }
 
 // ─── SumcheckProver impl ───────────────────────────────────────────────────
@@ -167,12 +157,13 @@ where
     }
 
     fn round(&mut self, challenge: Option<F>) -> Vec<F> {
-        let (q0, q1, q2) = if let Some(w) = challenge {
+        // EvalsInfty: degree 2 → emit [q(0), q(∞)].
+        let (q0, q_inf) = if let Some(w) = challenge {
             fused_fold_and_compute_lsb(&mut self.a, &mut self.b, w)
         } else {
             compute_lsb(&self.a, &self.b)
         };
-        vec![q0, q1, q2]
+        vec![q0, q_inf]
     }
 
     fn finalize(&mut self, last_challenge: F) {
@@ -213,22 +204,15 @@ mod tests {
         let mut t = SanityTranscript::new(&mut trng);
         let proof = sumcheck(&mut prover, num_vars, &mut t, |_, _| {});
 
-        // Round-0 consistency.
-        assert_eq!(
-            proof.round_polys[0][0] + proof.round_polys[0][1],
-            claimed_sum
-        );
-
-        // All-round consistency via Lagrange on {0, 1, 2}.
+        // EvalsInfty: degree-2 wire is [q(0), q(∞)]. Derive q(1) = claim - q(0),
+        // then reconstruct q(r) = q(0) + r·(q(1) - q(0) - q(∞)) + q(∞)·r².
         let mut claim = claimed_sum;
         for (rp, &r) in proof.round_polys.iter().zip(&proof.challenges) {
-            assert_eq!(rp.len(), 3);
-            assert_eq!(rp[0] + rp[1], claim, "consistency check failed");
-            let two = F64::from(2u64);
-            let l0 = (r - F64::from(1u64)) * (r - two) / two;
-            let l1 = -r * (r - two);
-            let l2 = r * (r - F64::from(1u64)) / two;
-            claim = rp[0] * l0 + rp[1] * l1 + rp[2] * l2;
+            assert_eq!(rp.len(), 2, "EvalsInfty degree-2 wire length");
+            let q0 = rp[0];
+            let q_inf = rp[1];
+            let q1 = claim - q0;
+            claim = q0 + r * (q1 - q0 - q_inf) + q_inf * r * r;
         }
         assert_eq!(proof.final_value, claim);
 
@@ -245,24 +229,20 @@ mod tests {
         let b: Vec<F64> = (0..n).map(|_| F64::rand(&mut rng)).collect();
         let claimed_sum: F64 = a.iter().zip(&b).map(|(&x, &y)| x * y).sum();
 
-        // LSB.
+        // Both provers emit EvalsInfty [q(0), q(∞)]; verify by reconstructing
+        // q(1) = claim - q(0) and checking the sum equals the claimed sum.
         let mut lsb = InnerProductProverLSB::new(a.clone(), b.clone());
         let mut trng = StdRng::seed_from_u64(99);
         let mut t = SanityTranscript::new(&mut trng);
         let lsb_proof = sumcheck(&mut lsb, 5, &mut t, |_, _| {});
-        assert_eq!(
-            lsb_proof.round_polys[0][0] + lsb_proof.round_polys[0][1],
-            claimed_sum
-        );
+        let lsb_q1 = claimed_sum - lsb_proof.round_polys[0][0];
+        assert_eq!(lsb_proof.round_polys[0][0] + lsb_q1, claimed_sum);
 
-        // MSB.
         let mut msb = InnerProductProver::new(a, b);
         let mut trng2 = StdRng::seed_from_u64(99);
         let mut t2 = SanityTranscript::new(&mut trng2);
         let msb_proof = sumcheck(&mut msb, 5, &mut t2, |_, _| {});
-        assert_eq!(
-            msb_proof.round_polys[0][0] + msb_proof.round_polys[0][1],
-            claimed_sum
-        );
+        let msb_q1 = claimed_sum - msb_proof.round_polys[0][0];
+        assert_eq!(msb_proof.round_polys[0][0] + msb_q1, claimed_sum);
     }
 }

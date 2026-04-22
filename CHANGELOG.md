@@ -13,6 +13,7 @@ Major revision: unified API, one verifier, one proof type, 7 provers, SIMD accel
 - **Single proof type** — `SumcheckProof<F>` replaces `Sumcheck<F>` and `ProductSumcheck<F>`.
 - **Transcript redesigned** — `send()`/`receive()`/`challenge()` replace `read()`/`write()`.
 - **Legacy entry points demoted** — use `runner::sumcheck()` with a prover type.
+- **Wire format: EvalsInfty.** `d` values per round instead of `d + 1`; consistency is now structural. Details in [docs/design.md §7a](docs/design.md).
 
 ### Added
 

@@ -104,6 +104,7 @@ Each prover comes in two variants:
 | `MultilinearProver` | `MultilinearProverLSB` |
 | `InnerProductProver` | `InnerProductProverLSB` |
 | `CoefficientProver` | `CoefficientProverLSB` |
+| `EqFactoredProver` | — |
 | `GkrProver` | — |
 
 See [`docs/design.md`](docs/design.md) for details.

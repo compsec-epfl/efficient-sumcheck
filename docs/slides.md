@@ -159,8 +159,9 @@ pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
 ) -> Result<SumcheckResult<F>, SumcheckError>
 ```
 
-- Checks g_j(0) + g_j(1) = claim each round
-- Evaluates g_j(r_j) via Lagrange interpolation (any degree)
+- Receives `d` values per round (EvalsInfty wire format — next slide)
+- Consistency `g_j(0) + g_j(1) = claim` is structural, not a runtime check
+- Evaluates g_j(r_j) via polynomial reconstruction (any degree)
 - Returns `SumcheckResult { challenges, final_claim }`
 
 The verifier doesn't know g ([Thaler Remark 4.2](https://people.cs.georgetown.edu/jthaler/ProofsArgsAndZK.pdf)), so the oracle check
@@ -174,11 +175,34 @@ next_claim = result.final_claim;                   // WHIR, GKR (next layer)
 
 ---
 
+## Wire Format — EvalsInfty
+
+All provers emit round polynomials in the **EvalsInfty** format:
+`d` values per round for a degree-`d` polynomial, one fewer than a
+full evaluation table.
+
+| d | Wire | Recovered by verifier |
+|---|------|-----------------------|
+| 1 | `[h(0)]` | `h(1) = claim − h(0)` |
+| ≥ 2 | `[h(0), h(∞), h(2), …, h(d−1)]` | `h(1) = claim − h(0)` |
+
+`h(∞)` is the leading coefficient (coefficient of `x^d`).
+
+- **Cheapest for product-structured summands** — the leading
+  coefficient is a difference-of-shifted-evaluations form
+  ([BDDT25](https://eprint.iacr.org/2025/1117.pdf), Algorithm 3).
+- **Consistency is structural.** `h(0) + h(1) = claim` is enforced by
+  the wire format rather than a runtime check — a dishonest prover's
+  misbehavior surfaces at the caller's oracle check rather than
+  mid-protocol.
+
+---
+
 ## Unified Proof Type
 
 ```rust
 pub struct SumcheckProof<F: SumcheckField> {
-    pub round_polys: Vec<Vec<F>>,  // g_j at {0,1,...,d}
+    pub round_polys: Vec<Vec<F>>,  // g_j in EvalsInfty wire format
     pub challenges: Vec<F>,        // r_1, ..., r_v
     pub final_value: F,            // g(r_1, ..., r_v)
 }
@@ -199,8 +223,10 @@ lives on the prover via `&mut P` ownership, not in the proof.
 | `InnerProductProver` | 2 | `final_evaluations() -> (F, F)` |
 | `CoefficientProver` | d | — |
 | `GkrProver` | 2 | `claimed_w_values() -> (F, F)` |
+| `EqFactoredProver` *(available)* | 2 | `final_factors() -> (F, F)` |
 
-Each has MSB and LSB variants (except GkrProver: MSB only).
+MSB and LSB variants exist for the first three; `GkrProver` and
+`EqFactoredProver` are MSB-only.
 
 Same runner. Same verifier. Same proof type.
 
@@ -328,6 +354,69 @@ let (w_b, w_c) = prover.claimed_w_values();  // for reduce-to-one
 Same runner, same verifier, same proof type. GKR is just another prover.
 
 Reduce-to-one is a separate composable sub-protocol (Thaler §4.5.2).
+
+---
+
+## Eq-Factored Sumcheck *(available)*
+
+Proves `H = Σ_{x ∈ {0,1}^v} eq(w, x) · p(x)` for fixed `w ∈ F^v` and
+multilinear `p`. Degree 2. Shows up in lookup arguments and any
+reduction that couples a public point to a witness polynomial via the
+multilinear equality predicate.
+
+```rust
+let mut prover = EqFactoredProver::new(w, p_evals);
+let proof = sumcheck(&mut prover, v, &mut t, noop_hook);
+let (p_r, eq_wr) = prover.final_factors();
+// proof.final_value == p_r · eq_wr
+```
+
+**Split-Value Optimization ([BDDT25](https://eprint.iacr.org/2025/1117.pdf) Algorithm 5).**
+`eq` factors over any split of the variables:
+
+```
+eq(w, x) = eq(w_L, x_L) · eq(w_R, x_R)
+```
+
+`eq(w, ·)` is stored as two half-tables of `2^{v/2}` entries each
+rather than a single `2^v` table, and round-polynomial contributions
+are streamed through a nested-sum kernel without materializing the
+product.
+
+- **Eq storage:** `O(2^v)` → `O(2^{v/2})`
+- First `v_L` rounds fold `eq_L`; remaining `v_R` rounds fold `eq_R`.
+- After the last round, `eq(w, r) = eq_L[0] · eq_R[0]`.
+
+---
+
+## BatchedEqFactoredProver *(future possibility)*
+
+WHIR's covector is an RLC of equality polynomials:
+
+```
+b(x) = Σ_i α_i · eq(ρ_i, x)
+```
+
+A batched split-value prover would take `Vec<(ρ_i, α_i)>` + witness
+`a` instead of a materialized covector, store each `eq(ρ_i, ·)` in
+split form, and stream all `k` factors through the nested-sum kernel
+per round.
+
+| | Time | Memory |
+|---|------|--------|
+| Current WHIR (`InnerProductProver` + materialized `b`) | `O(k · 2^v)` | `O(2^v)` |
+| Batched split-value | `O(k · 2^v)` | `O(k · 2^{v/2})` |
+
+- **Memory win** when `k < 2^{v/2}` — typical for WHIR (`v ~ 20`, `k`
+  in the dozens).
+- **Time essentially unchanged.** You skip the upfront covector
+  build but pay `k×` more per sumcheck round. Split-value is a
+  space optimization, not a time optimization — per-round
+  multiplication count is the same.
+
+**Status.** Not implemented. Requires coordination with the WHIR crate
+to thread `(ρ, α)` pairs through `update_covector` rather than RLC'ing
+into a flat table each round.
 
 ---
 

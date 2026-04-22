@@ -11,8 +11,9 @@ use crate::sumcheck_prover::SumcheckProver;
 /// Computes `∑_x f(x)·g(x)` where `f` and `g` are multilinear polynomials
 /// specified by their evaluations over the Boolean hypercube.
 ///
-/// Wire format: evaluations `[q(0), q(1), q(2)]` where `q` is the degree-2
-/// round polynomial.
+/// Wire format (EvalsInfty): `[q(0), q(∞)]` where `q` is the degree-2
+/// round polynomial and `q(∞) = Σ (a_hi − a_lo)·(b_hi − b_lo)` is the
+/// leading coefficient. Verifier derives `q(1) = claim - q(0)`.
 ///
 /// # Construction
 ///
@@ -67,15 +68,11 @@ where
             ip::fold(&mut self.b, w);
         }
 
-        // Compute round polynomial evaluations at {0, 1, 2}.
-        //
-        // The round polynomial q(X) = Σ_{x'} f(r, X, x') · g(r, X, x').
-        // With MSB half-split:
-        //   f(r, X, x') = (1−X)·a_lo[x'] + X·a_hi[x']
-        //
-        // q(0) = dot(a_lo, b_lo)
-        // q(1) = dot(a_hi, b_hi)
-        // q(2) = dot(2·a_hi − a_lo, 2·b_hi − b_lo)
+        // EvalsInfty: emit [q(0), q(∞)] where
+        //   q(0)  = dot(a_lo, b_lo)
+        //   q(∞)  = [x²] q(x) = dot(a_hi − a_lo, b_hi − b_lo)
+        //         = Σ (ah − al)·(bh − bl)
+        // The verifier derives q(1) = claim - q(0).
         let n = self.a.len();
         if n <= 1 {
             let v = if n == 1 {
@@ -83,7 +80,7 @@ where
             } else {
                 F::ZERO
             };
-            return vec![v, F::ZERO, F::ZERO];
+            return vec![v, F::ZERO];
         }
 
         let half = n.next_power_of_two() >> 1;
@@ -98,28 +95,24 @@ where
         let b_lo_tail = &b_lo[paired..];
 
         let mut q0 = F::ZERO;
-        let mut q1 = F::ZERO;
-        let mut q2 = F::ZERO;
+        let mut q_inf = F::ZERO;
         for i in 0..paired {
             let al = a_lo_paired[i];
             let ah = a_hi[i];
             let bl = b_lo_paired[i];
             let bh = b_hi[i];
             q0 += al * bl;
-            q1 += ah * bh;
-            // f(2) = 2·ah − al, g(2) = 2·bh − bl
-            let a2 = ah + ah - al;
-            let b2 = bh + bh - bl;
-            q2 += a2 * b2;
+            q_inf += (ah - al) * (bh - bl);
         }
 
-        // Tail (hi is implicitly zero): contributes to q0 only.
-        // q(0) += dot(tail_a, tail_b), q(1) += 0, q(2) += dot(-tail_a, -tail_b) = dot(tail_a, tail_b).
+        // Tail (hi implicitly zero): ah = bh = 0, so
+        //   q(0)  += al·bl
+        //   q(∞)  += (0 − al)·(0 − bl) = al·bl
         let tail_dot: F = a_lo_tail.iter().zip(b_lo_tail).map(|(&a, &b)| a * b).sum();
         q0 += tail_dot;
-        q2 += tail_dot;
+        q_inf += tail_dot;
 
-        vec![q0, q1, q2]
+        vec![q0, q_inf]
     }
 
     fn finalize(&mut self, last_challenge: F) {
@@ -175,7 +168,8 @@ mod tests {
         let mut t_new = SanityTranscript::new(&mut trng2);
         let new_result = sumcheck(&mut prover, num_rounds, &mut t_new, |_, _| {});
 
-        // Compare round-by-round consistency.
+        // Both APIs now emit the same wire format: (c0, c2) in difference
+        // form (= EvalsInfty for degree 2 where c2 is the x² coefficient).
         assert_eq!(
             old_result.prover_messages.len(),
             new_result.round_polys.len()
@@ -187,20 +181,13 @@ mod tests {
             .enumerate()
         {
             let (c0, c2) = *old_msg;
-            // Old API: c0 = q(0), and q(0) + q(1) = claim.
-            // New API: [q(0), q(1), q(2)].
-            assert_eq!(c0, new_evals[0], "round {i}: q(0) mismatch");
-            // c2 from old = x² coefficient. Verify via:
-            // q(X) = c0 + c1·X + c2·X²
-            // q(2) = c0 + 2·c1 + 4·c2
-            // c1 = q(1) - c0 - c2
-            let q1 = new_evals[1];
-            let c1_derived = q1 - c0 - c2;
-            let q2_expected = c0 + c1_derived.double() + c2.double().double();
             assert_eq!(
-                q2_expected, new_evals[2],
-                "round {i}: q(2) inconsistent with (c0, c2)"
+                new_evals.len(),
+                2,
+                "round {i}: EvalsInfty degree-2 wire length"
             );
+            assert_eq!(c0, new_evals[0], "round {i}: q(0) mismatch");
+            assert_eq!(c2, new_evals[1], "round {i}: q(∞) mismatch");
         }
 
         // Compare challenges (should be identical since same transcript seed).
