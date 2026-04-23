@@ -105,7 +105,12 @@ fn is_goldilocks_based<F: SumcheckField>() -> bool {
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-pub(crate) fn try_simd_reduce<F: SumcheckField>(evals: &mut Vec<F>, challenge: F) -> bool {
+pub(crate) fn try_simd_reduce<
+    F: SumcheckField + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+>(
+    evals: &mut Vec<F>,
+    challenge: F,
+) -> bool {
     if !is_goldilocks::<F>() {
         return false;
     }
@@ -136,7 +141,12 @@ pub(crate) fn try_simd_reduce<F: SumcheckField>(evals: &mut Vec<F>, challenge: F
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-pub(crate) fn try_simd_reduce_msb<F: SumcheckField>(evals: &mut Vec<F>, challenge: F) -> bool {
+pub(crate) fn try_simd_reduce_msb<
+    F: SumcheckField + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+>(
+    evals: &mut Vec<F>,
+    challenge: F,
+) -> bool {
     if !is_goldilocks::<F>() {
         return false;
     }
@@ -168,7 +178,9 @@ pub(crate) fn try_simd_reduce_msb<F: SumcheckField>(evals: &mut Vec<F>, challeng
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: SumcheckField>(
+pub(crate) fn try_simd_fused_reduce_evaluate_degree1<
+    F: SumcheckField + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+>(
     pw: &mut Vec<F>,
     challenge: F,
 ) -> Option<Vec<F>> {
@@ -209,7 +221,11 @@ pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: SumcheckField>(
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-pub(crate) fn try_simd_ext_evaluate<EF: SumcheckField>(evals: &[EF]) -> Option<(EF, EF)> {
+pub(crate) fn try_simd_ext_evaluate<
+    EF: SumcheckField + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+>(
+    evals: &[EF],
+) -> Option<(EF, EF)> {
     if !is_goldilocks_based::<EF>() {
         return None;
     }
@@ -252,7 +268,11 @@ pub(crate) fn try_simd_ext_evaluate<EF: SumcheckField>(evals: &[EF]) -> Option<(
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-pub(crate) fn try_simd_evaluate_degree1<F: SumcheckField>(pw: &[F]) -> Option<Vec<F>> {
+pub(crate) fn try_simd_evaluate_degree1<
+    F: SumcheckField + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+>(
+    pw: &[F],
+) -> Option<Vec<F>> {
     if !is_goldilocks::<F>() {
         return None;
     }

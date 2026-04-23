@@ -52,7 +52,7 @@ impl<F: SumcheckField> MultilinearProver<F> {
 #[cfg(feature = "arkworks")]
 impl<F> SumcheckProver<F> for MultilinearProver<F>
 where
-    F: ark_ff::Field,
+    F: ark_ff::Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
 {
     fn degree(&self) -> usize {
         1

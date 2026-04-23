@@ -99,7 +99,7 @@ impl<F: SumcheckField> GkrProver<F> {
 #[cfg(feature = "arkworks")]
 impl<F> SumcheckProver<F> for GkrProver<F>
 where
-    F: ark_ff::Field,
+    F: ark_ff::Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
 {
     fn degree(&self) -> usize {
         2

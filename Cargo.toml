@@ -52,7 +52,9 @@ path = "benches/sumcheck.rs"
 harness = false
 
 [patch.crates-io]
-ark-ff = { git = "https://github.com/arkworks-rs/algebra.git", branch = "master" }
-ark-poly = { git = "https://github.com/arkworks-rs/algebra.git", branch = "master" }
-ark-serialize = { git = "https://github.com/arkworks-rs/algebra.git", branch = "master" }
+ark-ff = { git = "https://github.com/arkworks-rs/algebra.git", branch = "z-tech/zero-copy" }
+ark-poly = { git = "https://github.com/arkworks-rs/algebra.git", branch = "z-tech/zero-copy" }
+ark-serialize = { git = "https://github.com/arkworks-rs/algebra.git", branch = "z-tech/zero-copy" }
 spongefish = { git = "https://github.com/z-tech/spongefish.git", branch = "smallfp-support" }
+zerocopy = { git = "https://github.com/z-tech/zerocopy", branch = "z-tech/support-structs-with-same-type" }
+zerocopy-derive = { git = "https://github.com/z-tech/zerocopy", branch = "z-tech/support-structs-with-same-type" }

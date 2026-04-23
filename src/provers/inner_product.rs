@@ -55,7 +55,7 @@ impl<F: SumcheckField> InnerProductProver<F> {
 #[cfg(feature = "arkworks")]
 impl<F> SumcheckProver<F> for InnerProductProver<F>
 where
-    F: ark_ff::Field,
+    F: ark_ff::Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
 {
     fn degree(&self) -> usize {
         2

@@ -8,7 +8,9 @@ use crate::reductions::{pairwise, tablewise};
 use crate::transcript::ProverTranscript;
 
 #[derive(Debug)]
-pub struct CoefficientSumcheck<F: Field> {
+pub struct CoefficientSumcheck<
+    F: Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+> {
     pub prover_messages: Vec<DensePolynomial<F>>,
     pub verifier_messages: Vec<F>,
 }
@@ -46,7 +48,10 @@ pub struct CoefficientSumcheck<F: Field> {
 ///     }
 /// }
 /// ```
-pub trait RoundPolyEvaluator<F: Field>: Sync {
+pub trait RoundPolyEvaluator<
+    F: Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+>: Sync
+{
     /// The degree of the round polynomial (number of coefficients = degree + 1).
     fn degree(&self) -> usize;
 
@@ -79,7 +84,11 @@ pub trait RoundPolyEvaluator<F: Field>: Sync {
 /// SIMD fast path for degree-1 with a single pairwise table.
 ///
 /// Returns `[sum_even, sum_odd - sum_even]` = coefficients of `h(x) = c0 + c1*x`.
-fn simd_evaluate_degree1<F: Field>(pw: &[F]) -> Vec<F> {
+fn simd_evaluate_degree1<
+    F: Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+>(
+    pw: &[F],
+) -> Vec<F> {
     // Try SIMD dispatch for Goldilocks
     #[cfg(all(
         feature = "simd",
@@ -112,7 +121,11 @@ fn simd_evaluate_degree1<F: Field>(pw: &[F]) -> Vec<F> {
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-fn try_simd_evaluate_degree1<F: ark_ff::Field>(pw: &[F]) -> Option<Vec<F>> {
+fn try_simd_evaluate_degree1<
+    F: ark_ff::Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+>(
+    pw: &[F],
+) -> Option<Vec<F>> {
     crate::simd_sumcheck::dispatch::try_simd_evaluate_degree1(pw)
 }
 
@@ -128,7 +141,12 @@ fn try_simd_evaluate_degree1<F: ark_ff::Field>(pw: &[F]) -> Option<Vec<F>> {
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-fn try_simd_fused_reduce_evaluate<F: Field>(pw: &mut Vec<F>, challenge: F) -> Option<Vec<F>> {
+fn try_simd_fused_reduce_evaluate<
+    F: Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+>(
+    pw: &mut Vec<F>,
+    challenge: F,
+) -> Option<Vec<F>> {
     crate::simd_sumcheck::dispatch::try_simd_fused_reduce_evaluate_degree1(pw, challenge)
 }
 
@@ -139,13 +157,18 @@ fn try_simd_fused_reduce_evaluate<F: Field>(pw: &mut Vec<F>, challenge: F) -> Op
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 )))]
-fn try_simd_fused_reduce_evaluate<F: Field>(_pw: &mut Vec<F>, _challenge: F) -> Option<Vec<F>> {
+fn try_simd_fused_reduce_evaluate<
+    F: Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+>(
+    _pw: &mut Vec<F>,
+    _challenge: F,
+) -> Option<Vec<F>> {
     None
 }
 
 /// Parallel evaluate using rayon (for heavy evaluators).
 #[cfg(feature = "parallel")]
-fn parallel_evaluate<F: Field>(
+fn parallel_evaluate<F: Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable>(
     evaluator: &impl RoundPolyEvaluator<F>,
     tablewise: &[Vec<Vec<F>>],
     pairwise: &[Vec<F>],
@@ -184,7 +207,7 @@ fn parallel_evaluate<F: Field>(
 
 /// Fallback when parallel feature is disabled.
 #[cfg(not(feature = "parallel"))]
-fn parallel_evaluate<F: Field>(
+fn parallel_evaluate<F: Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable>(
     evaluator: &impl RoundPolyEvaluator<F>,
     tablewise: &[Vec<Vec<F>>],
     pairwise: &[Vec<F>],
@@ -209,7 +232,9 @@ fn parallel_evaluate<F: Field>(
 /// Sequential evaluate (for trivial evaluators where rayon overhead dominates).
 ///
 /// Fills `coeffs_out` with accumulated coefficients (zeroes it first).
-fn sequential_evaluate_into<F: Field>(
+fn sequential_evaluate_into<
+    F: Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+>(
     evaluator: &impl RoundPolyEvaluator<F>,
     tablewise: &[Vec<Vec<F>>],
     pairwise: &[Vec<F>],
@@ -245,7 +270,9 @@ fn sequential_evaluate_into<F: Field>(
 /// - Transcript interaction (d-coefficient optimization: leading coefficient omitted)
 /// - SIMD-accelerated pairwise reduce (auto-dispatched for Goldilocks)
 /// - Tablewise reduce
-pub fn coefficient_sumcheck<F: Field>(
+pub fn coefficient_sumcheck<
+    F: Field + zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::Immutable,
+>(
     evaluator: &impl RoundPolyEvaluator<F>,
     tablewise: &mut [Vec<Vec<F>>],
     pairwise: &mut [Vec<F>],
