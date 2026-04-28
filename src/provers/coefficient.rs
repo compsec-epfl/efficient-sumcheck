@@ -47,6 +47,21 @@ impl<'a, F: Field, E: RoundPolyEvaluator<F>> CoefficientProver<'a, F, E> {
         &self.pairwise
     }
 
+    /// Consume the prover and return the (tablewise, pairwise) tables by move.
+    ///
+    /// Intended for end-of-sumcheck extraction: callers that have completed
+    /// all rounds and want to forward the reduced state to a downstream
+    /// protocol (witness, transcript, accumulator) without cloning. Returning
+    /// both buffers in one call avoids the partial-move trap that single-field
+    /// `self`-consuming accessors would create.
+    ///
+    /// If called before sumcheck has run to completion the buffers reflect
+    /// the current partial-fold state — meaningful only if the caller is
+    /// tracking rounds explicitly.
+    pub fn finalize(self) -> (Vec<Vec<Vec<F>>>, Vec<Vec<F>>) {
+        (self.tablewise, self.pairwise)
+    }
+
     fn half(&self) -> usize {
         if self.n_tw > 0 {
             self.tablewise[0].len() / 2
