@@ -20,6 +20,7 @@ ark-serialize = { version = "0.6.0", optional = true }
 ark-std = { version = "0.6.0", optional = true }
 memmap2 = "0.9.5"
 nohash-hasher = "0.2.0"
+rand_core = { version = "0.6", default-features = false }
 rayon = { version = "1.10", optional = true }
 spongefish = { version = "0.7.0", features = ["ark-ff"], optional = true }
 zerocopy = { version = "0.8", features = ["derive"] }
@@ -30,14 +31,14 @@ p3-field = "0.5"
 p3-goldilocks = "0.5"
 
 [features]
-default = ["arkworks", "parallel", "simd"]
+default = ["arkworks", "spongefish", "parallel", "simd"]
 arkworks = [
   "dep:ark-ff",
   "dep:ark-poly",
   "dep:ark-serialize",
   "dep:ark-std",
-  "dep:spongefish",
 ]
+spongefish = ["dep:spongefish", "arkworks"]
 simd = []
 parallel = [
   "dep:rayon",

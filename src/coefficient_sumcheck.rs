@@ -464,8 +464,6 @@ mod tests {
 
     #[test]
     fn test_spongefish_transcript() {
-        use crate::transcript::SpongefishTranscript;
-
         let mut rng = test_rng();
         let n = 1 << 3;
         let num_rounds = 3;
@@ -475,8 +473,7 @@ mod tests {
             .without_session()
             .instance(b"test");
 
-        let prover_state = domsep.std_prover();
-        let mut transcript = SpongefishTranscript::new(prover_state);
+        let mut prover_state = domsep.std_prover();
 
         let mut pairwise = vec![evals];
         let mut tablewise: Vec<Vec<Vec<F64>>> = vec![];
@@ -486,7 +483,7 @@ mod tests {
             &mut tablewise,
             &mut pairwise,
             num_rounds,
-            &mut transcript,
+            &mut prover_state,
         );
 
         assert_eq!(result.prover_messages.len(), num_rounds);
