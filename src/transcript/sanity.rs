@@ -1,6 +1,6 @@
-use ark_ff::Field;
-use ark_std::rand::Rng;
+use rand_core::RngCore;
 
+use crate::field::SumcheckField;
 use crate::transcript::{ProverTranscript, VerifierTranscript};
 
 /// Test transcript: sends are no-ops, receives return `Ok(random)`,
@@ -19,33 +19,36 @@ impl<'a, R> TestTranscript<'a, R> {
     }
 }
 
+// Randomness is `from_u64(rng.next_u64())` — base-field-width lifted into
+// extensions. Adequate for a test transcript whose only soundness need is
+// avoiding accidental collisions.
 impl<'a, F, R> ProverTranscript<F> for TestTranscript<'a, R>
 where
-    F: Field,
-    R: Rng,
+    F: SumcheckField,
+    R: RngCore,
 {
     fn send(&mut self, _value: F) {
         // no-op
     }
 
     fn challenge(&mut self) -> F {
-        F::rand(&mut self.rng)
+        F::from_u64(self.rng.next_u64())
     }
 }
 
 impl<'a, F, R> VerifierTranscript<F> for TestTranscript<'a, R>
 where
-    F: Field,
-    R: Rng,
+    F: SumcheckField,
+    R: RngCore,
 {
     type Error = core::convert::Infallible;
 
     fn receive(&mut self) -> Result<F, Self::Error> {
-        Ok(F::rand(&mut self.rng))
+        Ok(F::from_u64(self.rng.next_u64()))
     }
 
     fn challenge(&mut self) -> F {
-        F::rand(&mut self.rng)
+        F::from_u64(self.rng.next_u64())
     }
 }
 
