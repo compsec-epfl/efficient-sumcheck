@@ -9,6 +9,8 @@ extern crate alloc;
 // ─── Generic field trait ─────────────────────────────────────────────────────
 
 pub mod field;
+#[macro_use]
+mod macros;
 pub mod proof;
 
 // ─── New canonical API (Thaler §4.1) ────────────────────────────────────────

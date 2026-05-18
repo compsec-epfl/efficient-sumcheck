@@ -3,10 +3,10 @@
 //! Shows that any ecosystem's field type works with the sumcheck library
 //! via a thin `SumcheckField` impl — no arkworks dependency required.
 
-use effsc::field::SumcheckField;
 use effsc::noop_hook;
 use effsc::provers::multilinear_lsb::MultilinearProverLSB;
 use effsc::runner::sumcheck;
+use effsc::sumcheck_field_newtype;
 use effsc::transcript::{ProverTranscript, VerifierTranscript};
 use effsc::verifier::sumcheck_verify;
 
@@ -14,91 +14,15 @@ use p3_field::integers::QuotientMap;
 use p3_field::Field;
 use p3_goldilocks::Goldilocks;
 
-use core::fmt;
-use core::iter::Sum;
-use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-
 // ─── Newtype wrapper ───────────────────────────────────────────────────────
 
-/// Thin wrapper around Plonky3's Goldilocks to implement `SumcheckField`.
-#[derive(Copy, Clone, Debug, PartialEq)]
-struct P3Goldilocks(Goldilocks);
-
-impl P3Goldilocks {
-    fn new(val: u64) -> Self {
-        Self(Goldilocks::from_int(val))
-    }
-}
-
-impl fmt::Display for P3Goldilocks {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0)
-    }
-}
-
-impl Add for P3Goldilocks {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self {
-        Self(self.0 + rhs.0)
-    }
-}
-
-impl Sub for P3Goldilocks {
-    type Output = Self;
-    fn sub(self, rhs: Self) -> Self {
-        Self(self.0 - rhs.0)
-    }
-}
-
-impl Mul for P3Goldilocks {
-    type Output = Self;
-    fn mul(self, rhs: Self) -> Self {
-        Self(self.0 * rhs.0)
-    }
-}
-
-impl Neg for P3Goldilocks {
-    type Output = Self;
-    fn neg(self) -> Self {
-        Self(-self.0)
-    }
-}
-
-impl AddAssign for P3Goldilocks {
-    fn add_assign(&mut self, rhs: Self) {
-        self.0 += rhs.0;
-    }
-}
-
-impl SubAssign for P3Goldilocks {
-    fn sub_assign(&mut self, rhs: Self) {
-        self.0 -= rhs.0;
-    }
-}
-
-impl MulAssign for P3Goldilocks {
-    fn mul_assign(&mut self, rhs: Self) {
-        self.0 *= rhs.0;
-    }
-}
-
-impl Sum for P3Goldilocks {
-    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.fold(Self::ZERO, |acc, x| acc + x)
-    }
-}
-
-impl SumcheckField for P3Goldilocks {
-    const ZERO: Self = Self(Goldilocks::new(0));
-    const ONE: Self = Self(Goldilocks::new(1));
-
-    fn from_u64(val: u64) -> Self {
-        Self(Goldilocks::from_int(val))
-    }
-
-    fn inverse(&self) -> Option<Self> {
-        self.0.try_inverse().map(Self)
-    }
+sumcheck_field_newtype! {
+    /// Thin wrapper around Plonky3's Goldilocks to implement `SumcheckField`.
+    struct P3Goldilocks(Goldilocks);
+    const ZERO = Goldilocks::new(0);
+    const ONE = Goldilocks::new(1);
+    fn from_u64(val) { Goldilocks::from_int(val) }
+    fn inverse(self) { self.0.try_inverse() }
 }
 
 // ─── Minimal transcript ────────────────────────────────────────────────────
