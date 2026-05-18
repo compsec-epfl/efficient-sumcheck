@@ -4,9 +4,9 @@
 //! via a thin `SumcheckField` impl — no arkworks dependency required.
 
 use effsc::noop_hook;
-use effsc::sumcheck_field_newtype;
 use effsc::provers::multilinear_lsb::MultilinearProverLSB;
 use effsc::runner::sumcheck;
+use effsc::sumcheck_field_newtype;
 use effsc::transcript::{ProverTranscript, VerifierTranscript};
 use effsc::verifier::sumcheck_verify;
 
