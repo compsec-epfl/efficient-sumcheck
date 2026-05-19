@@ -240,10 +240,9 @@ pub(crate) fn build_eq_table<F: SumcheckField>(w: &[F]) -> Vec<F> {
     table
 }
 
-#[cfg(feature = "arkworks")]
 impl<F> SumcheckProver<F> for EqFactoredProver<F>
 where
-    F: ark_ff::Field,
+    F: SumcheckField,
 {
     fn degree(&self) -> usize {
         2

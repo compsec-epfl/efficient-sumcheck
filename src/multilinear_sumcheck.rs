@@ -17,7 +17,7 @@
 //! 4 reads + 2 writes per quadruple (fused) vs. 6 reads + 2 writes
 //! (fold + compute separately) — a ~33% memory-traffic reduction.
 
-use ark_ff::Field;
+use crate::field::SumcheckField;
 #[cfg(feature = "parallel")]
 use rayon::join;
 #[cfg(feature = "parallel")]
@@ -27,7 +27,7 @@ use crate::transcript::ProverTranscript;
 
 /// Legacy return type for `multilinear_sumcheck`.
 #[derive(Debug)]
-pub struct Sumcheck<F: Field> {
+pub struct Sumcheck<F: SumcheckField> {
     pub prover_messages: Vec<(F, F)>,
     pub verifier_messages: Vec<F>,
     pub final_evaluation: F,
@@ -60,7 +60,7 @@ const fn workload_size<T: Sized>() -> usize {
 
 // ─── Scalar helpers ─────────────────────────────────────────────────────────
 
-fn sum_slice<F: Field>(v: &[F]) -> F {
+fn sum_slice<F: SumcheckField>(v: &[F]) -> F {
     #[cfg(feature = "parallel")]
     if v.len() > workload_size::<F>() {
         return v.par_iter().copied().sum();
@@ -68,7 +68,7 @@ fn sum_slice<F: Field>(v: &[F]) -> F {
     v.iter().copied().sum()
 }
 
-fn scalar_mul<F: Field>(v: &mut [F], w: F) {
+fn scalar_mul<F: SumcheckField>(v: &mut [F], w: F) {
     for x in v.iter_mut() {
         *x *= w;
     }
@@ -81,8 +81,8 @@ fn scalar_mul<F: Field>(v: &mut [F], w: F) {
 /// `values` is implicitly zero-extended to the next power of two.
 ///   - `s0 = Σ v[0..L/2]` (low half, possibly with tail contributions)
 ///   - `s1 = Σ v[L/2..L]`
-pub fn compute_sumcheck_polynomial<F: Field>(values: &[F]) -> (F, F) {
-    fn recurse<F: Field>(lo: &[F], hi: &[F]) -> (F, F) {
+pub fn compute_sumcheck_polynomial<F: SumcheckField>(values: &[F]) -> (F, F) {
+    fn recurse<F: SumcheckField>(lo: &[F], hi: &[F]) -> (F, F) {
         debug_assert_eq!(lo.len(), hi.len());
 
         #[cfg(feature = "parallel")]
@@ -127,7 +127,7 @@ pub fn compute_sumcheck_polynomial<F: Field>(values: &[F]) -> (F, F) {
 ///
 /// SIMD-accelerated for Goldilocks base field on NEON and AVX-512 IFMA.
 /// Falls back to a scalar recursive `rayon::join` fold for other fields.
-pub fn fold<F: Field>(values: &mut Vec<F>, weight: F) {
+pub fn fold<F: SumcheckField>(values: &mut Vec<F>, weight: F) {
     // SIMD fast path for base-field Goldilocks (MSB layout).
     #[cfg(all(
         feature = "simd",
@@ -142,7 +142,7 @@ pub fn fold<F: Field>(values: &mut Vec<F>, weight: F) {
             return;
         }
     }
-    fn recurse_both<F: Field>(low: &mut [F], high: &[F], weight: F) {
+    fn recurse_both<F: SumcheckField>(low: &mut [F], high: &[F], weight: F) {
         #[cfg(feature = "parallel")]
         if low.len() > workload_size::<F>() {
             let split = low.len() / 2;
@@ -176,7 +176,7 @@ pub fn fold<F: Field>(values: &mut Vec<F>, weight: F) {
 }
 
 /// Two-pass fold-then-compute. Reference only.
-pub fn fold_and_compute_polynomial<F: Field>(values: &mut Vec<F>, weight: F) -> (F, F) {
+pub fn fold_and_compute_polynomial<F: SumcheckField>(values: &mut Vec<F>, weight: F) -> (F, F) {
     fold(values, weight);
     compute_sumcheck_polynomial(values)
 }
@@ -184,13 +184,13 @@ pub fn fold_and_compute_polynomial<F: Field>(values: &mut Vec<F>, weight: F) -> 
 /// Fused fold + compute: folds `values` by `weight` *and* returns the
 /// next-round `(s0, s1)` in one sweep over the quadruple
 /// `(v[k], v[k+L/4], v[k+L/2], v[k+3L/4])`.
-pub fn fused_fold_and_compute_polynomial<F: Field>(values: &mut Vec<F>, weight: F) -> (F, F) {
+pub fn fused_fold_and_compute_polynomial<F: SumcheckField>(values: &mut Vec<F>, weight: F) -> (F, F) {
     let l = values.len();
     if !l.is_power_of_two() || l < 4 {
         return fold_and_compute_polynomial(values, weight);
     }
 
-    fn kernel<F: Field>(v0: &mut [F], v1: &mut [F], v2: &[F], v3: &[F], weight: F) -> (F, F) {
+    fn kernel<F: SumcheckField>(v0: &mut [F], v1: &mut [F], v2: &[F], v3: &[F], weight: F) -> (F, F) {
         debug_assert_eq!(v0.len(), v1.len());
         debug_assert_eq!(v0.len(), v2.len());
         debug_assert_eq!(v0.len(), v3.len());
@@ -258,7 +258,7 @@ pub fn multilinear_sumcheck_partial<F, T, H>(
     mut hook: H,
 ) -> Sumcheck<F>
 where
-    F: Field,
+    F: SumcheckField,
     T: ProverTranscript<F>,
     H: FnMut(usize, &mut T),
 {
@@ -314,7 +314,7 @@ pub fn multilinear_sumcheck<F, T, H>(
     hook: H,
 ) -> Sumcheck<F>
 where
-    F: Field,
+    F: SumcheckField,
     T: ProverTranscript<F>,
     H: FnMut(usize, &mut T),
 {
