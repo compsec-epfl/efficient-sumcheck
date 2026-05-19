@@ -6,7 +6,7 @@
 //! For sequential streaming (Jolt-style), use
 //! [`CoefficientProverLSB`](super::coefficient_lsb::CoefficientProverLSB).
 
-use ark_ff::Field;
+use crate::field::SumcheckField;
 
 use crate::coefficient_sumcheck::RoundPolyEvaluator;
 use crate::sumcheck_prover::SumcheckProver;
@@ -15,7 +15,7 @@ use crate::sumcheck_prover::SumcheckProver;
 use rayon::prelude::*;
 
 /// MSB coefficient sumcheck prover (arbitrary degree d, half-split layout).
-pub struct CoefficientProver<'a, F: Field, E: RoundPolyEvaluator<F>> {
+pub struct CoefficientProver<'a, F: SumcheckField, E: RoundPolyEvaluator<F>> {
     evaluator: &'a E,
     tablewise: Vec<Vec<Vec<F>>>,
     pairwise: Vec<Vec<F>>,
@@ -24,7 +24,7 @@ pub struct CoefficientProver<'a, F: Field, E: RoundPolyEvaluator<F>> {
     deg: usize,
 }
 
-impl<'a, F: Field, E: RoundPolyEvaluator<F>> CoefficientProver<'a, F, E> {
+impl<'a, F: SumcheckField, E: RoundPolyEvaluator<F>> CoefficientProver<'a, F, E> {
     pub fn new(evaluator: &'a E, tablewise: Vec<Vec<Vec<F>>>, pairwise: Vec<Vec<F>>) -> Self {
         let n_tw = tablewise.len();
         let n_pw = pairwise.len();
@@ -128,7 +128,7 @@ impl<'a, F: Field, E: RoundPolyEvaluator<F>> CoefficientProver<'a, F, E> {
 // ─── MSB fold helpers ──────────────────────────────────────────────────────
 
 /// In-place MSB fold for a flat vector: `new[k] = v[k] + c*(v[k+half] - v[k])`.
-fn msb_fold_vec<F: Field>(v: &mut Vec<F>, challenge: F) {
+fn msb_fold_vec<F: SumcheckField>(v: &mut Vec<F>, challenge: F) {
     if v.len() <= 1 {
         return;
     }
@@ -141,7 +141,7 @@ fn msb_fold_vec<F: Field>(v: &mut Vec<F>, challenge: F) {
 
 /// MSB fold for tablewise: each row-vector is folded by pairing
 /// `(table[k], table[k+half])` and producing a new row.
-fn msb_fold_tablewise<F: Field>(table: &mut Vec<Vec<F>>, challenge: F) {
+fn msb_fold_tablewise<F: SumcheckField>(table: &mut Vec<Vec<F>>, challenge: F) {
     if table.len() <= 1 {
         return;
     }
@@ -162,7 +162,7 @@ fn msb_fold_tablewise<F: Field>(table: &mut Vec<Vec<F>>, challenge: F) {
 // ─── MSB evaluate helpers ──────────────────────────────────────────────────
 
 /// MSB pairing: pair index `k` with `k + half` (not `2k` with `2k+1`).
-fn msb_sequential_evaluate_into<F: Field>(
+fn msb_sequential_evaluate_into<F: SumcheckField>(
     evaluator: &impl RoundPolyEvaluator<F>,
     tablewise: &[Vec<Vec<F>>],
     pairwise: &[Vec<F>],
@@ -189,7 +189,7 @@ fn msb_sequential_evaluate_into<F: Field>(
 }
 
 #[cfg(feature = "parallel")]
-fn msb_parallel_evaluate<F: Field>(
+fn msb_parallel_evaluate<F: SumcheckField>(
     evaluator: &impl RoundPolyEvaluator<F>,
     tablewise: &[Vec<Vec<F>>],
     pairwise: &[Vec<F>],
@@ -222,7 +222,7 @@ fn msb_parallel_evaluate<F: Field>(
 }
 
 #[cfg(not(feature = "parallel"))]
-fn msb_parallel_evaluate<F: Field>(
+fn msb_parallel_evaluate<F: SumcheckField>(
     evaluator: &impl RoundPolyEvaluator<F>,
     tablewise: &[Vec<Vec<F>>],
     pairwise: &[Vec<F>],
@@ -247,7 +247,7 @@ fn msb_parallel_evaluate<F: Field>(
 // ─── Horner evaluation ─────────────────────────────────────────────────────
 
 #[inline]
-fn eval_poly_at<F: Field>(coeffs: &[F], x: F) -> F {
+fn eval_poly_at<F: SumcheckField>(coeffs: &[F], x: F) -> F {
     if coeffs.is_empty() {
         return F::ZERO;
     }
@@ -260,10 +260,9 @@ fn eval_poly_at<F: Field>(coeffs: &[F], x: F) -> F {
 
 // ─── SumcheckProver impl ───────────────────────────────────────────────────
 
-#[cfg(feature = "arkworks")]
 impl<'a, F, E> SumcheckProver<F> for CoefficientProver<'a, F, E>
 where
-    F: ark_ff::Field,
+    F: SumcheckField,
     E: RoundPolyEvaluator<F>,
 {
     fn degree(&self) -> usize {
@@ -289,7 +288,7 @@ where
         evals.push(eval_poly_at(&coeffs, F::ZERO)); // h(0) = coeffs[0]
         evals.push(coeffs[d]); // h(∞) = leading coefficient
         for i in 2..d {
-            evals.push(eval_poly_at(&coeffs, F::from(i as u64))); // h(i)
+            evals.push(eval_poly_at(&coeffs, F::from_u64(i as u64))); // h(i)
         }
         evals
     }

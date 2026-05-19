@@ -33,9 +33,7 @@ use crate::field::SumcheckField;
 use crate::inner_product_sumcheck as ip;
 use crate::sumcheck_prover::SumcheckProver;
 
-extern crate alloc;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 /// GKR round sumcheck prover (degree 2).
 ///
@@ -96,10 +94,9 @@ impl<F: SumcheckField> GkrProver<F> {
     }
 }
 
-#[cfg(feature = "arkworks")]
 impl<F> SumcheckProver<F> for GkrProver<F>
 where
-    F: ark_ff::Field,
+    F: SumcheckField,
 {
     fn degree(&self) -> usize {
         2
@@ -177,7 +174,7 @@ where
 
         // Convert {q(0), q(1), q(2)} → {q(0), q(∞)}.
         //   q(∞) = (q(0) + q(2) − 2·q(1)) / 2
-        let two_inv = F::from(2u64)
+        let two_inv = F::from_u64(2)
             .inverse()
             .expect("field characteristic must not be 2");
         let q_inf = (q0 + q2 - q1.double()) * two_inv;

@@ -43,9 +43,7 @@ use crate::field::SumcheckField;
 use crate::inner_product_sumcheck as ip;
 use crate::sumcheck_prover::SumcheckProver;
 
-extern crate alloc;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 /// Eq-factored sumcheck prover for `∑_x eq(w, x) · p(x)` (degree 2).
 ///
@@ -240,10 +238,9 @@ pub(crate) fn build_eq_table<F: SumcheckField>(w: &[F]) -> Vec<F> {
     table
 }
 
-#[cfg(feature = "arkworks")]
 impl<F> SumcheckProver<F> for EqFactoredProver<F>
 where
-    F: ark_ff::Field,
+    F: SumcheckField,
 {
     fn degree(&self) -> usize {
         2

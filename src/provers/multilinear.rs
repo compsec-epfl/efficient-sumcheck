@@ -8,6 +8,7 @@ use crate::multilinear_sumcheck::{
     compute_sumcheck_polynomial, fold, fused_fold_and_compute_polynomial,
 };
 use crate::sumcheck_prover::SumcheckProver;
+use alloc::{vec, vec::Vec};
 
 /// Multilinear sumcheck prover (degree 1).
 ///
@@ -46,13 +47,9 @@ impl<F: SumcheckField> MultilinearProver<F> {
     }
 }
 
-// NOTE: The `ark_ff::Field` bound is temporary — required because the
-// underlying functions in `multilinear_sumcheck.rs` use `F: Field`.
-// It will be removed when those functions are ported to `SumcheckField`.
-#[cfg(feature = "arkworks")]
 impl<F> SumcheckProver<F> for MultilinearProver<F>
 where
-    F: ark_ff::Field,
+    F: SumcheckField,
 {
     fn degree(&self) -> usize {
         1

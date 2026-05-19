@@ -5,13 +5,9 @@
 pub mod coefficient;
 #[cfg(feature = "arkworks")]
 pub mod coefficient_lsb;
-#[cfg(feature = "arkworks")]
 pub mod eq_factored;
-#[cfg(feature = "arkworks")]
 pub mod gkr;
-#[cfg(feature = "arkworks")]
 pub mod inner_product;
 pub mod inner_product_lsb;
-#[cfg(feature = "arkworks")]
 pub mod multilinear;
 pub mod multilinear_lsb;
