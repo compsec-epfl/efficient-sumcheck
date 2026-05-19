@@ -113,7 +113,10 @@ pub fn pairwise_product_evaluate<F: SumcheckField>(src: &[Vec<F>]) -> (F, F) {
 /// Cross-field reduce: fold `BF` evaluations with an `EF` challenge, producing `Vec<EF>`.
 ///
 /// For each adjacent pair `(a, b)` in `src`: `EF::from(a) + challenge * (EF::from(b) - EF::from(a))`.
-pub fn cross_field_reduce<BF: SumcheckField, EF: SumcheckField + From<BF>>(src: &[BF], challenge: EF) -> Vec<EF> {
+pub fn cross_field_reduce<BF: SumcheckField, EF: SumcheckField + From<BF>>(
+    src: &[BF],
+    challenge: EF,
+) -> Vec<EF> {
     cfg_chunks!(src, 2)
         .map(|chunk| {
             let a = EF::from(chunk[0]);

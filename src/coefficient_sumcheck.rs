@@ -1,5 +1,5 @@
-use ark_ff::Field;
 use crate::field::SumcheckField;
+use ark_ff::Field;
 use ark_poly::univariate::DensePolynomial;
 
 #[cfg(feature = "parallel")]
@@ -129,7 +129,10 @@ fn try_simd_evaluate_degree1<F: SumcheckField>(pw: &[F]) -> Option<Vec<F>> {
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-fn try_simd_fused_reduce_evaluate<F: SumcheckField>(pw: &mut Vec<F>, challenge: F) -> Option<Vec<F>> {
+fn try_simd_fused_reduce_evaluate<F: SumcheckField>(
+    pw: &mut Vec<F>,
+    challenge: F,
+) -> Option<Vec<F>> {
     crate::simd_sumcheck::dispatch::try_simd_fused_reduce_evaluate_degree1(pw, challenge)
 }
 
@@ -140,7 +143,10 @@ fn try_simd_fused_reduce_evaluate<F: SumcheckField>(pw: &mut Vec<F>, challenge: 
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 )))]
-fn try_simd_fused_reduce_evaluate<F: SumcheckField>(_pw: &mut Vec<F>, _challenge: F) -> Option<Vec<F>> {
+fn try_simd_fused_reduce_evaluate<F: SumcheckField>(
+    _pw: &mut Vec<F>,
+    _challenge: F,
+) -> Option<Vec<F>> {
     None
 }
 

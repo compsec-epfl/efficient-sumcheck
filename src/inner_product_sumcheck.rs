@@ -174,7 +174,11 @@ pub fn fold<F: SumcheckField>(values: &mut Vec<F>, weight: F) {
 }
 
 /// Two-pass fold-then-compute; reference version kept for testing.
-pub fn fold_and_compute_polynomial<F: SumcheckField>(a: &mut Vec<F>, b: &mut Vec<F>, weight: F) -> (F, F) {
+pub fn fold_and_compute_polynomial<F: SumcheckField>(
+    a: &mut Vec<F>,
+    b: &mut Vec<F>,
+    weight: F,
+) -> (F, F) {
     fold(a, weight);
     fold(b, weight);
     compute_sumcheck_polynomial(a, b)

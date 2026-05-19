@@ -184,13 +184,22 @@ pub fn fold_and_compute_polynomial<F: SumcheckField>(values: &mut Vec<F>, weight
 /// Fused fold + compute: folds `values` by `weight` *and* returns the
 /// next-round `(s0, s1)` in one sweep over the quadruple
 /// `(v[k], v[k+L/4], v[k+L/2], v[k+3L/4])`.
-pub fn fused_fold_and_compute_polynomial<F: SumcheckField>(values: &mut Vec<F>, weight: F) -> (F, F) {
+pub fn fused_fold_and_compute_polynomial<F: SumcheckField>(
+    values: &mut Vec<F>,
+    weight: F,
+) -> (F, F) {
     let l = values.len();
     if !l.is_power_of_two() || l < 4 {
         return fold_and_compute_polynomial(values, weight);
     }
 
-    fn kernel<F: SumcheckField>(v0: &mut [F], v1: &mut [F], v2: &[F], v3: &[F], weight: F) -> (F, F) {
+    fn kernel<F: SumcheckField>(
+        v0: &mut [F],
+        v1: &mut [F],
+        v2: &[F],
+        v3: &[F],
+        weight: F,
+    ) -> (F, F) {
         debug_assert_eq!(v0.len(), v1.len());
         debug_assert_eq!(v0.len(), v2.len());
         debug_assert_eq!(v0.len(), v3.len());

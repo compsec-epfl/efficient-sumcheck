@@ -275,7 +275,10 @@ fn simd_evaluate_degree1<F: SumcheckField>(pw: &[F]) -> Vec<F> {
     vec![s0, s1 - s0]
 }
 
-fn try_simd_fused_reduce_evaluate<F: SumcheckField>(pw: &mut Vec<F>, challenge: F) -> Option<Vec<F>> {
+fn try_simd_fused_reduce_evaluate<F: SumcheckField>(
+    pw: &mut Vec<F>,
+    challenge: F,
+) -> Option<Vec<F>> {
     #[cfg(all(
         feature = "simd",
         any(
