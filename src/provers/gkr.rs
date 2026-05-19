@@ -33,9 +33,7 @@ use crate::field::SumcheckField;
 use crate::inner_product_sumcheck as ip;
 use crate::sumcheck_prover::SumcheckProver;
 
-extern crate alloc;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 /// GKR round sumcheck prover (degree 2).
 ///

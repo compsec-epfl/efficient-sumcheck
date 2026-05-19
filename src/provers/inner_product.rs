@@ -5,6 +5,7 @@
 use crate::field::SumcheckField;
 use crate::inner_product_sumcheck as ip;
 use crate::sumcheck_prover::SumcheckProver;
+use alloc::{vec, vec::Vec};
 
 /// Inner-product sumcheck prover (degree 2).
 ///

@@ -8,6 +8,7 @@ use crate::multilinear_sumcheck::{
     compute_sumcheck_polynomial, fold, fused_fold_and_compute_polynomial,
 };
 use crate::sumcheck_prover::SumcheckProver;
+use alloc::{vec, vec::Vec};
 
 /// Multilinear sumcheck prover (degree 1).
 ///

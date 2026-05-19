@@ -20,6 +20,7 @@
 //! simultaneously.
 
 use crate::field::SumcheckField;
+use alloc::vec::Vec;
 #[cfg(feature = "parallel")]
 use rayon::join;
 #[cfg(feature = "parallel")]
@@ -38,6 +39,7 @@ pub struct ProductSumcheck<F: SumcheckField> {
 // ─── Workload threshold ─────────────────────────────────────────────────────
 
 /// Target single-thread workload size for `T`. Close to L1 cache.
+#[cfg(feature = "parallel")]
 const fn workload_size<T: Sized>() -> usize {
     #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
     const CACHE_SIZE: usize = 1 << 17;

@@ -8,10 +8,9 @@
 //! workloads, prefer [`InnerProductProver`](super::inner_product::InnerProductProver)
 //! (MSB layout).
 
-extern crate alloc;
 use crate::field::SumcheckField;
 use crate::sumcheck_prover::SumcheckProver;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 /// LSB inner-product sumcheck prover (degree 2, pair-split layout).
 ///

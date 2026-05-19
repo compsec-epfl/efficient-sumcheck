@@ -1,7 +1,9 @@
 //! Concrete [`SumcheckProver`](crate::sumcheck_prover::SumcheckProver)
 //! implementations for each polynomial shape.
 
+#[cfg(feature = "arkworks")]
 pub mod coefficient;
+#[cfg(feature = "arkworks")]
 pub mod coefficient_lsb;
 pub mod eq_factored;
 pub mod gkr;
