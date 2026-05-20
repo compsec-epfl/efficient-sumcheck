@@ -2,7 +2,7 @@
 //!
 //! Implements [`SumcheckProver`] for the quadratic sumcheck `∑_x f(x)·g(x)`.
 
-use crate::field::SumcheckField;
+use crate::field::SumcheckRing;
 use crate::inner_product_sumcheck as ip;
 use crate::sumcheck_prover::SumcheckProver;
 use alloc::{vec, vec::Vec};
@@ -23,12 +23,12 @@ use alloc::{vec, vec::Vec};
 /// let proof = sumcheck(&mut prover, num_rounds, &mut transcript, |_, _| {});
 /// let (f_eval, g_eval) = prover.final_evaluations();
 /// ```
-pub struct InnerProductProver<F: SumcheckField> {
+pub struct InnerProductProver<F: SumcheckRing> {
     a: Vec<F>,
     b: Vec<F>,
 }
 
-impl<F: SumcheckField> InnerProductProver<F> {
+impl<F: SumcheckRing> InnerProductProver<F> {
     /// Time strategy prover: holds both evaluation vectors in memory.
     pub fn new(a: Vec<F>, b: Vec<F>) -> Self {
         assert_eq!(a.len(), b.len(), "a and b must have equal length");
@@ -52,7 +52,7 @@ impl<F: SumcheckField> InnerProductProver<F> {
 
 impl<F> SumcheckProver<F> for InnerProductProver<F>
 where
-    F: SumcheckField,
+    F: SumcheckRing,
 {
     fn degree(&self) -> usize {
         2

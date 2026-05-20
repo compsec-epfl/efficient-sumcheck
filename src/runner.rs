@@ -10,7 +10,7 @@
 //! commit/open).
 
 extern crate alloc;
-use crate::field::SumcheckField;
+use crate::field::SumcheckRing;
 use crate::proof::SumcheckProof;
 use crate::sumcheck_prover::SumcheckProver;
 use crate::transcript::ProverTranscript;
@@ -26,7 +26,7 @@ use alloc::vec::Vec;
 /// If `num_rounds == v` (full execution), `proof.final_value` is the
 /// prover's claimed evaluation at the random point. For partial execution,
 /// the caller retains `prover` and can continue or inspect post-state.
-pub fn sumcheck<F: SumcheckField, T: ProverTranscript<F>>(
+pub fn sumcheck<F: SumcheckRing, T: ProverTranscript<F>>(
     prover: &mut impl SumcheckProver<F>,
     num_rounds: usize,
     transcript: &mut T,

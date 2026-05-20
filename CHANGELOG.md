@@ -19,7 +19,7 @@ Major revision: unified API, one verifier, one proof type, 7 provers, SIMD accel
 
 - **`SumcheckProver<F>` trait** — single extension point for all polynomial shapes.
 - **7 concrete provers** — `MultilinearProver`, `InnerProductProver`, `CoefficientProver` (each with MSB + LSB variants), `GkrProver`.
-- **`SumcheckField` trait** — generic field interface; blanket impl for `ark_ff::Field` behind `feature = "arkworks"`.
+- **`SumcheckRing` trait** — generic field interface; blanket impl for `ark_ff::Field` behind `feature = "arkworks"`.
 - **`SimdRepr` trait** — safe SIMD opt-in with `zerocopy` layout verification.
 - **`runner::sumcheck()`** — single runner with partial execution and per-round hooks.
 - **Eq polynomial utilities** — `eq_poly`, `eq_poly_non_binary`, O(2^v) incremental `compute_hypercube_eq_evals`.

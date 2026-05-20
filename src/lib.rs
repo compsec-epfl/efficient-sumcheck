@@ -6,7 +6,7 @@
 
 extern crate alloc;
 
-// ─── Generic field trait ─────────────────────────────────────────────────────
+// ─── Generic ring trait ─────────────────────────────────────────────────────
 
 pub mod field;
 pub mod proof;

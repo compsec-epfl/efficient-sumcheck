@@ -4,7 +4,7 @@
 
 extern crate alloc;
 
-use crate::field::SumcheckField;
+use crate::field::SumcheckRing;
 use alloc::vec::Vec;
 use core::fmt;
 
@@ -15,7 +15,7 @@ use core::fmt;
 /// consistency checks from this data; the final oracle check (verifying
 /// `final_value == g(r_1, ..., r_v)`) is the caller's responsibility.
 #[derive(Clone, Debug)]
-pub struct SumcheckProof<F: SumcheckField> {
+pub struct SumcheckProof<F: SumcheckRing> {
     /// Round polynomial values, EvalsInfty wire format: `round_polys[j]`
     /// contains `d = degree` values per round.
     ///

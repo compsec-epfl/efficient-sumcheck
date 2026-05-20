@@ -1,7 +1,7 @@
 //! Polynomial evaluation: Horner's method and barycentric Lagrange interpolation.
 
 extern crate alloc;
-use crate::field::SumcheckField;
+use crate::field::SumcheckRing;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 ///
 /// Cost: `d` multiplications + `d` additions. Zero allocation.
 #[inline]
-pub fn eval_horner<F: SumcheckField>(coeffs: &[F], x: F) -> F {
+pub fn eval_horner<F: SumcheckRing>(coeffs: &[F], x: F) -> F {
     if coeffs.is_empty() {
         return F::ZERO;
     }
@@ -29,7 +29,7 @@ pub fn eval_horner<F: SumcheckField>(coeffs: &[F], x: F) -> F {
 ///
 /// Cost: O(d) with precomputed [`BarycentricWeights`], O(d²) without.
 /// For repeated evaluations at the same degree, precompute weights once.
-pub fn eval_from_evals<F: SumcheckField>(evals: &[F], x: F) -> F {
+pub fn eval_from_evals<F: SumcheckRing>(evals: &[F], x: F) -> F {
     let d = evals.len();
     if d == 0 {
         return F::ZERO;
@@ -51,12 +51,12 @@ pub fn eval_from_evals<F: SumcheckField>(evals: &[F], x: F) -> F {
 ///
 /// Weight `w_i = 1 / Π_{j≠i} (i − j)` for `i, j ∈ {0, ..., d}`.
 /// For consecutive integer nodes these are `(-1)^{d-i} / (i! · (d-i)!)`.
-pub struct BarycentricWeights<F: SumcheckField> {
+pub struct BarycentricWeights<F: SumcheckRing> {
     /// Precomputed `w_i` for each node `i ∈ {0, ..., d}`.
     weights: Vec<F>,
 }
 
-impl<F: SumcheckField> BarycentricWeights<F> {
+impl<F: SumcheckRing> BarycentricWeights<F> {
     /// Precompute weights for interpolation at `{0, 1, ..., degree}`.
     pub fn new(degree: usize) -> Self {
         let d = degree + 1; // number of nodes
@@ -131,7 +131,7 @@ impl<F: SumcheckField> BarycentricWeights<F> {
 mod tests {
     use super::*;
 
-    // A simple field-like wrapper for f64 won't work with SumcheckField
+    // A simple ring-like wrapper for f64 won't work with SumcheckRing
     // (needs Copy + all the ops). Tests use the arkworks F64 type.
     #[cfg(feature = "arkworks")]
     mod ark_tests {

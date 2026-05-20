@@ -12,7 +12,7 @@
 //! The amortized cost per step is O(1) (geometric series: 1 + 1/2 + 1/4 + ... = 2).
 
 extern crate alloc;
-use crate::field::SumcheckField;
+use crate::field::SumcheckRing;
 use alloc::vec::Vec;
 
 /// Sequential Lagrange polynomial `eq(r, ·)` with incremental updates.
@@ -32,7 +32,7 @@ use alloc::vec::Vec;
 ///     // use eq_val...
 /// }
 /// ```
-pub struct SequentialLagrange<F: SumcheckField> {
+pub struct SequentialLagrange<F: SumcheckRing> {
     /// Precomputed factors: `factor_one[j] = r_j`, `factor_zero[j] = 1 − r_j`.
     factor_one: Vec<F>,
     factor_zero: Vec<F>,
@@ -44,7 +44,7 @@ pub struct SequentialLagrange<F: SumcheckField> {
     num_vars: usize,
 }
 
-impl<F: SumcheckField> SequentialLagrange<F> {
+impl<F: SumcheckRing> SequentialLagrange<F> {
     /// Initialize at the origin (index 0): `eq(r, 0) = Π_j (1 − r_j)`.
     pub fn new(point: &[F]) -> Self {
         let num_vars = point.len();

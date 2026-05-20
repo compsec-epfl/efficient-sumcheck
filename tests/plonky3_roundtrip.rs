@@ -1,9 +1,9 @@
 //! Roundtrip test demonstrating effsc with a Plonky3 field.
 //!
 //! Shows that any ecosystem's field type works with the sumcheck library
-//! via a thin `SumcheckField` impl — no arkworks dependency required.
+//! via a thin `SumcheckRing` impl — no arkworks dependency required.
 
-use effsc::field::SumcheckField;
+use effsc::field::SumcheckRing;
 use effsc::noop_hook;
 use effsc::provers::multilinear_lsb::MultilinearProverLSB;
 use effsc::runner::sumcheck;
@@ -20,7 +20,7 @@ use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 // ─── Newtype wrapper ───────────────────────────────────────────────────────
 
-/// Thin wrapper around Plonky3's Goldilocks to implement `SumcheckField`.
+/// Thin wrapper around Plonky3's Goldilocks to implement `SumcheckRing`.
 #[derive(Copy, Clone, Debug, PartialEq)]
 struct P3Goldilocks(Goldilocks);
 
@@ -88,7 +88,7 @@ impl Sum for P3Goldilocks {
     }
 }
 
-impl SumcheckField for P3Goldilocks {
+impl SumcheckRing for P3Goldilocks {
     const ZERO: Self = Self(Goldilocks::new(0));
     const ONE: Self = Self(Goldilocks::new(1));
 

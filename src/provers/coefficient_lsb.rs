@@ -8,7 +8,7 @@
 //! workloads, prefer [`CoefficientProver`](super::coefficient::CoefficientProver)
 //! (MSB layout).
 
-use crate::field::SumcheckField;
+use crate::field::SumcheckRing;
 
 use crate::coefficient_sumcheck::RoundPolyEvaluator;
 use crate::reductions::{pairwise, tablewise};
@@ -34,7 +34,7 @@ use rayon::prelude::*;
 /// );
 /// let proof = sumcheck(&mut prover, num_rounds, &mut transcript, |_, _| {});
 /// ```
-pub struct CoefficientProverLSB<'a, F: SumcheckField, E: RoundPolyEvaluator<F>> {
+pub struct CoefficientProverLSB<'a, F: SumcheckRing, E: RoundPolyEvaluator<F>> {
     evaluator: &'a E,
     tablewise: Vec<Vec<Vec<F>>>,
     pairwise: Vec<Vec<F>>,
@@ -47,7 +47,7 @@ pub struct CoefficientProverLSB<'a, F: SumcheckField, E: RoundPolyEvaluator<F>> 
     is_degree1_simd_path: bool,
 }
 
-impl<'a, F: SumcheckField, E: RoundPolyEvaluator<F>> CoefficientProverLSB<'a, F, E> {
+impl<'a, F: SumcheckRing, E: RoundPolyEvaluator<F>> CoefficientProverLSB<'a, F, E> {
     pub fn new(evaluator: &'a E, tablewise: Vec<Vec<Vec<F>>>, pairwise: Vec<Vec<F>>) -> Self {
         let n_tw = tablewise.len();
         let n_pw = pairwise.len();
@@ -170,7 +170,7 @@ impl<'a, F: SumcheckField, E: RoundPolyEvaluator<F>> CoefficientProverLSB<'a, F,
 
 impl<'a, F, E> SumcheckProver<F> for CoefficientProverLSB<'a, F, E>
 where
-    F: SumcheckField,
+    F: SumcheckRing,
     E: RoundPolyEvaluator<F>,
 {
     fn degree(&self) -> usize {
@@ -240,7 +240,7 @@ where
 
 /// Evaluate polynomial with coefficients `coeffs` at point `x` via Horner's method.
 #[inline]
-fn eval_poly_at<F: SumcheckField>(coeffs: &[F], x: F) -> F {
+fn eval_poly_at<F: SumcheckRing>(coeffs: &[F], x: F) -> F {
     if coeffs.is_empty() {
         return F::ZERO;
     }
@@ -253,7 +253,7 @@ fn eval_poly_at<F: SumcheckField>(coeffs: &[F], x: F) -> F {
 
 // ─── Evaluate strategies (same as coefficient_sumcheck.rs) ─────────────────
 
-fn simd_evaluate_degree1<F: SumcheckField>(pw: &[F]) -> Vec<F> {
+fn simd_evaluate_degree1<F: SumcheckRing>(pw: &[F]) -> Vec<F> {
     #[cfg(all(
         feature = "simd",
         any(
@@ -275,7 +275,7 @@ fn simd_evaluate_degree1<F: SumcheckField>(pw: &[F]) -> Vec<F> {
     vec![s0, s1 - s0]
 }
 
-fn try_simd_fused_reduce_evaluate<F: SumcheckField>(
+fn try_simd_fused_reduce_evaluate<F: SumcheckRing>(
     pw: &mut Vec<F>,
     challenge: F,
 ) -> Option<Vec<F>> {
@@ -303,7 +303,7 @@ fn try_simd_fused_reduce_evaluate<F: SumcheckField>(
 }
 
 #[cfg(feature = "parallel")]
-fn parallel_evaluate<F: SumcheckField>(
+fn parallel_evaluate<F: SumcheckRing>(
     evaluator: &impl RoundPolyEvaluator<F>,
     tablewise: &[Vec<Vec<F>>],
     pairwise: &[Vec<F>],
@@ -336,7 +336,7 @@ fn parallel_evaluate<F: SumcheckField>(
 }
 
 #[cfg(not(feature = "parallel"))]
-fn parallel_evaluate<F: SumcheckField>(
+fn parallel_evaluate<F: SumcheckRing>(
     evaluator: &impl RoundPolyEvaluator<F>,
     tablewise: &[Vec<Vec<F>>],
     pairwise: &[Vec<F>],
@@ -358,7 +358,7 @@ fn parallel_evaluate<F: SumcheckField>(
     coeffs
 }
 
-fn sequential_evaluate_into<F: SumcheckField>(
+fn sequential_evaluate_into<F: SumcheckRing>(
     evaluator: &impl RoundPolyEvaluator<F>,
     tablewise: &[Vec<Vec<F>>],
     pairwise: &[Vec<F>],

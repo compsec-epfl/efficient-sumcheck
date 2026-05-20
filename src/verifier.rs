@@ -24,7 +24,7 @@
 //!   consistency constraint `h(0) + h(1) = claim`.
 
 extern crate alloc;
-use crate::field::SumcheckField;
+use crate::field::SumcheckRing;
 use crate::proof::SumcheckError;
 use crate::transcript::VerifierTranscript;
 use alloc::vec;
@@ -35,7 +35,7 @@ use alloc::vec::Vec;
 /// The caller **must** verify `final_claim` — either by direct comparison,
 /// PCS opening, or delegation to the next protocol layer.
 #[derive(Clone, Debug)]
-pub struct SumcheckResult<F: SumcheckField> {
+pub struct SumcheckResult<F: SumcheckRing> {
     /// Verifier challenges `r_1, ..., r_v`.
     pub challenges: Vec<F>,
     /// The reduced claim after all rounds: `g_v(r_v)`.
@@ -58,7 +58,7 @@ pub struct SumcheckResult<F: SumcheckField> {
 /// Returns [`SumcheckResult`] containing the challenges and final claim.
 /// The caller is responsible for the oracle check — verifying that
 /// `final_claim == g(r_1, ..., r_v)`.
-pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
+pub fn sumcheck_verify<F: SumcheckRing, T: VerifierTranscript<F>>(
     claimed_sum: F,
     expected_degree: usize,
     num_rounds: usize,
@@ -143,7 +143,7 @@ pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
 ///
 /// Uses Lagrange interpolation:
 ///   g(r) = Σ_i g(i) · Π_{j≠i} (r − j) / (i − j)
-pub(crate) fn evaluate_from_evals<F: SumcheckField>(evals: &[F], r: F) -> F {
+pub(crate) fn evaluate_from_evals<F: SumcheckRing>(evals: &[F], r: F) -> F {
     let d = evals.len(); // number of interpolation nodes
     if d == 0 {
         return F::ZERO;
@@ -184,7 +184,7 @@ pub(crate) fn evaluate_from_evals<F: SumcheckField>(evals: &[F], r: F) -> F {
 }
 
 /// Barycentric weight: Π_{j≠i, 0≤j<d} (i − j).
-fn barycentric_weight<F: SumcheckField>(i: usize, d: usize) -> F {
+fn barycentric_weight<F: SumcheckRing>(i: usize, d: usize) -> F {
     let mut w = F::ONE;
     for j in 0..d {
         if j != i {

@@ -8,7 +8,7 @@
 //! - **aarch64**: NEON backend (2-wide, scalar mul fallback)
 //! - **x86_64 + AVX-512 IFMA**: AVX-512 backend (8-wide, true IFMA mul)
 //!
-//! Detection uses [`SumcheckField::_simd_field_config()`] — the arkworks
+//! Detection uses [`SumcheckRing::_simd_field_config()`] — the arkworks
 //! blanket impl returns the actual modulus, non-arkworks fields return
 //! `None` by default (no SIMD). After monomorphization the check is
 //! constant-folded by LLVM, so the dead branch is eliminated entirely.
@@ -16,7 +16,7 @@
 //! # Safety
 //!
 //! This module contains **no `unsafe` code**. All field ↔ `u64`
-//! reinterpretation is delegated to the safe `SumcheckField` trait methods
+//! reinterpretation is delegated to the safe `SumcheckRing` trait methods
 //! (`_to_raw_u64`, `_from_raw_u64`, `_as_u64_slice`, `_as_u64_slice_mut`,
 //! `_from_u64_components`), whose implementations centralize the necessary
 //! `unsafe` in the arkworks blanket impl with full SAFETY documentation.
@@ -28,7 +28,7 @@
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-use crate::field::SumcheckField;
+use crate::field::SumcheckRing;
 
 /// Goldilocks modulus: p = 2^64 − 2^32 + 1.
 #[cfg(all(
@@ -43,7 +43,7 @@ const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
 /// Returns `true` when `F` is a Goldilocks prime field stored as a
 /// single `u64` in Montgomery form.
 ///
-/// Uses [`SumcheckField::_simd_field_config()`] for detection.
+/// Uses [`SumcheckRing::_simd_field_config()`] for detection.
 /// After monomorphization every operand is a compile-time constant,
 /// so LLVM folds the entire function to `true` or `false`.
 #[cfg(all(
@@ -54,7 +54,7 @@ const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
     )
 ))]
 #[inline(always)]
-fn is_goldilocks<F: SumcheckField>() -> bool {
+fn is_goldilocks<F: SumcheckRing>() -> bool {
     if F::extension_degree() != 1 {
         return false;
     }
@@ -78,7 +78,7 @@ fn is_goldilocks<F: SumcheckField>() -> bool {
     )
 ))]
 #[inline(always)]
-fn is_goldilocks_based<F: SumcheckField>() -> bool {
+fn is_goldilocks_based<F: SumcheckRing>() -> bool {
     match F::_simd_field_config() {
         Some(cfg) => {
             if cfg.modulus != GOLDILOCKS_P || cfg.element_bytes != 8 {
@@ -105,7 +105,7 @@ fn is_goldilocks_based<F: SumcheckField>() -> bool {
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-pub(crate) fn try_simd_reduce<F: SumcheckField>(evals: &mut Vec<F>, challenge: F) -> bool {
+pub(crate) fn try_simd_reduce<F: SumcheckRing>(evals: &mut Vec<F>, challenge: F) -> bool {
     if !is_goldilocks::<F>() {
         return false;
     }
@@ -136,7 +136,7 @@ pub(crate) fn try_simd_reduce<F: SumcheckField>(evals: &mut Vec<F>, challenge: F
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-pub(crate) fn try_simd_reduce_msb<F: SumcheckField>(evals: &mut Vec<F>, challenge: F) -> bool {
+pub(crate) fn try_simd_reduce_msb<F: SumcheckRing>(evals: &mut Vec<F>, challenge: F) -> bool {
     if !is_goldilocks::<F>() {
         return false;
     }
@@ -168,7 +168,7 @@ pub(crate) fn try_simd_reduce_msb<F: SumcheckField>(evals: &mut Vec<F>, challeng
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: SumcheckField>(
+pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: SumcheckRing>(
     pw: &mut Vec<F>,
     challenge: F,
 ) -> Option<Vec<F>> {
@@ -209,7 +209,7 @@ pub(crate) fn try_simd_fused_reduce_evaluate_degree1<F: SumcheckField>(
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-pub(crate) fn try_simd_ext_evaluate<EF: SumcheckField>(evals: &[EF]) -> Option<(EF, EF)> {
+pub(crate) fn try_simd_ext_evaluate<EF: SumcheckRing>(evals: &[EF]) -> Option<(EF, EF)> {
     if !is_goldilocks_based::<EF>() {
         return None;
     }
@@ -252,7 +252,7 @@ pub(crate) fn try_simd_ext_evaluate<EF: SumcheckField>(evals: &[EF]) -> Option<(
         all(target_arch = "x86_64", target_feature = "avx512ifma")
     )
 ))]
-pub(crate) fn try_simd_evaluate_degree1<F: SumcheckField>(pw: &[F]) -> Option<Vec<F>> {
+pub(crate) fn try_simd_evaluate_degree1<F: SumcheckRing>(pw: &[F]) -> Option<Vec<F>> {
     if !is_goldilocks::<F>() {
         return None;
     }
@@ -282,6 +282,6 @@ pub(crate) fn try_simd_evaluate_degree1<F: SumcheckField>(pw: &[F]) -> Option<Ve
     )
 ))]
 #[inline(always)]
-pub fn is_goldilocks_pub<F: SumcheckField>() -> bool {
+pub fn is_goldilocks_pub<F: SumcheckRing>() -> bool {
     is_goldilocks::<F>()
 }

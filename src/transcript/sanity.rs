@@ -1,6 +1,6 @@
 use rand_core::RngCore;
 
-use crate::field::SumcheckField;
+use crate::field::SumcheckRing;
 use crate::transcript::{ProverTranscript, VerifierTranscript};
 
 /// Test transcript: sends are no-ops, receives return `Ok(random)`,
@@ -24,7 +24,7 @@ impl<'a, R> TestTranscript<'a, R> {
 // avoiding accidental collisions.
 impl<'a, F, R> ProverTranscript<F> for TestTranscript<'a, R>
 where
-    F: SumcheckField,
+    F: SumcheckRing,
     R: RngCore,
 {
     fn send(&mut self, _value: F) {
@@ -38,7 +38,7 @@ where
 
 impl<'a, F, R> VerifierTranscript<F> for TestTranscript<'a, R>
 where
-    F: SumcheckField,
+    F: SumcheckRing,
     R: RngCore,
 {
     type Error = core::convert::Infallible;

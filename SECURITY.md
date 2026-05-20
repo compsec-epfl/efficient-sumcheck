@@ -19,7 +19,7 @@ verifier challenges. This library implements plain (non-ZK) sumcheck.
   side-channel adversaries has not been formally verified**. Fixed-size
   Montgomery multiplication is inherently data-independent, but this has
   not been audited, and no constant-time claim is made for arbitrary
-  `SumcheckField` implementations. Callers in that threat model must
+  `SumcheckRing` implementations. Callers in that threat model must
   supply constant-time field operations.
 
 ## Oracle check
@@ -56,7 +56,7 @@ SIMD subsystem, `unsafe` is confined to two categories:
    evaluate/reduce loops that call them.
 
 2. **Field ↔ `u64` reinterpretation** — arkworks field types do not yet derive
-   `zerocopy`, so the blanket `SumcheckField` impl for `ark_ff::Field` uses
+   `zerocopy`, so the blanket `SumcheckRing` impl for `ark_ff::Field` uses
    `transmute_copy` and `from_raw_parts` to reinterpret Goldilocks elements as
    their underlying Montgomery-form `u64` values. These are centralized in five
    trait methods (`_to_raw_u64`, `_from_raw_u64`, `_as_u64_slice`,

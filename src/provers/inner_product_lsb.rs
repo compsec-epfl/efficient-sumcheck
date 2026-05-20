@@ -8,7 +8,7 @@
 //! workloads, prefer [`InnerProductProver`](super::inner_product::InnerProductProver)
 //! (MSB layout).
 
-use crate::field::SumcheckField;
+use crate::field::SumcheckRing;
 use crate::sumcheck_prover::SumcheckProver;
 use alloc::{vec, vec::Vec};
 
@@ -22,12 +22,12 @@ use alloc::{vec, vec::Vec};
 /// let proof = sumcheck(&mut prover, num_rounds, &mut transcript, |_, _| {});
 /// let (f_r, g_r) = prover.final_evaluations();
 /// ```
-pub struct InnerProductProverLSB<F: SumcheckField> {
+pub struct InnerProductProverLSB<F: SumcheckRing> {
     a: Vec<F>,
     b: Vec<F>,
 }
 
-impl<F: SumcheckField> InnerProductProverLSB<F> {
+impl<F: SumcheckRing> InnerProductProverLSB<F> {
     pub fn new(a: Vec<F>, b: Vec<F>) -> Self {
         assert_eq!(a.len(), b.len(), "a and b must have equal length");
         Self { a, b }
@@ -52,7 +52,7 @@ impl<F: SumcheckField> InnerProductProverLSB<F> {
 ///
 /// q(0)  = sum a[2k] * b[2k]
 /// q(∞)  = [x²] q(x) = sum (a[2k+1] - a[2k]) * (b[2k+1] - b[2k])
-fn compute_lsb<F: SumcheckField>(a: &[F], b: &[F]) -> (F, F) {
+fn compute_lsb<F: SumcheckRing>(a: &[F], b: &[F]) -> (F, F) {
     debug_assert_eq!(a.len(), b.len());
     if a.is_empty() {
         return (F::ZERO, F::ZERO);
@@ -75,7 +75,7 @@ fn compute_lsb<F: SumcheckField>(a: &[F], b: &[F]) -> (F, F) {
 }
 
 /// In-place LSB fold: `new[k] = f[2k] + w * (f[2k+1] - f[2k])`.
-fn fold_lsb<F: SumcheckField>(v: &mut Vec<F>, weight: F) {
+fn fold_lsb<F: SumcheckRing>(v: &mut Vec<F>, weight: F) {
     if v.len() <= 1 {
         return;
     }
@@ -90,7 +90,7 @@ fn fold_lsb<F: SumcheckField>(v: &mut Vec<F>, weight: F) {
 
 /// Fused fold + compute: fold both vectors with `weight`, then compute
 /// the next round's EvalsInfty `(q(0), q(∞))` in one pass over quads.
-fn fused_fold_and_compute_lsb<F: SumcheckField>(
+fn fused_fold_and_compute_lsb<F: SumcheckRing>(
     a: &mut Vec<F>,
     b: &mut Vec<F>,
     weight: F,
@@ -147,7 +147,7 @@ fn fused_fold_and_compute_lsb<F: SumcheckField>(
 
 impl<F> SumcheckProver<F> for InnerProductProverLSB<F>
 where
-    F: SumcheckField,
+    F: SumcheckRing,
 {
     fn degree(&self) -> usize {
         2

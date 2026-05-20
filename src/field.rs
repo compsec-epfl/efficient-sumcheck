@@ -1,6 +1,6 @@
-//! Generic field trait for sumcheck.
+//! Generic ring trait for sumcheck.
 //!
-//! [`SumcheckField`] captures the minimum arithmetic interface needed by the
+//! [`SumcheckRing`] captures the minimum arithmetic interface needed by the
 //! sumcheck protocol. Any type with field-like operations (add, sub, mul,
 //! negate, invert) and two distinguished constants (zero, one) can implement
 //! this trait and use the full sumcheck library.
@@ -27,7 +27,7 @@ use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 /// opt-in via [`_simd_field_config`](Self::_simd_field_config). Non-Goldilocks
 /// fields leave the default (returns `None`) and the library transparently
 /// falls back to scalar code.
-pub trait SumcheckField:
+pub trait SumcheckRing:
     Sized
     + Copy
     + Send
@@ -176,7 +176,7 @@ pub const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
 /// #[repr(transparent)]
 /// struct MyGoldilocks(u64);
 ///
-/// impl SumcheckField for MyGoldilocks {
+/// impl SumcheckRing for MyGoldilocks {
 ///     // ... arithmetic ...
 ///     fn _simd_field_config() -> Option<SimdFieldConfig> {
 ///         Some(SimdFieldConfig { modulus: GOLDILOCKS_P, element_bytes: 8 })
@@ -196,7 +196,7 @@ pub const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
 /// #[repr(transparent)]
 /// struct MyExt3([u64; 3]);
 ///
-/// impl SumcheckField for MyExt3 {
+/// impl SumcheckRing for MyExt3 {
 ///     fn extension_degree() -> u64 { 3 }
 ///     fn _simd_field_config() -> Option<SimdFieldConfig> {
 ///         Some(SimdFieldConfig { modulus: GOLDILOCKS_P, element_bytes: 8 })
@@ -209,7 +209,7 @@ pub const GOLDILOCKS_P: u64 = 0xFFFF_FFFF_0000_0001;
 /// }
 /// ```
 pub trait SimdRepr:
-    SumcheckField + zerocopy::IntoBytes + zerocopy::FromBytes + zerocopy::Immutable
+    SumcheckRing + zerocopy::IntoBytes + zerocopy::FromBytes + zerocopy::Immutable
 {
     /// The base prime field modulus as a single `u64` limb.
     ///
@@ -240,7 +240,7 @@ pub struct SimdFieldConfig {
 ///    `zerocopy::IntoBytes + FromBytes + Immutable` — compiler-verified
 ///    layout) and override `_simd_field_config()`.
 #[inline(always)]
-pub fn simd_config<F: SumcheckField>() -> Option<SimdFieldConfig> {
+pub fn simd_config<F: SumcheckRing>() -> Option<SimdFieldConfig> {
     F::_simd_field_config()
 }
 
@@ -248,7 +248,7 @@ pub fn simd_config<F: SumcheckField>() -> Option<SimdFieldConfig> {
 ///
 /// The prover starts with evaluations in `BF` and folds into `EF` once
 /// the first challenge arrives.
-pub trait ExtensionOf<BF: SumcheckField>: SumcheckField + From<BF> {}
+pub trait ExtensionOf<BF: SumcheckRing>: SumcheckRing + From<BF> {}
 
 // ─── Arkworks blanket implementation ────────────────────────────────────────
 
@@ -256,7 +256,7 @@ pub trait ExtensionOf<BF: SumcheckField>: SumcheckField + From<BF> {}
 mod ark_impl {
     use super::*;
 
-    impl<F> SumcheckField for F
+    impl<F> SumcheckRing for F
     where
         F: ark_ff::Field,
     {
