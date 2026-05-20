@@ -9,7 +9,7 @@
 //! workloads, prefer [`MultilinearProver`](super::multilinear::MultilinearProver)
 //! (MSB layout).
 
-use crate::field::SumcheckRing;
+use crate::field::SumcheckField;
 use crate::sumcheck_prover::SumcheckProver;
 use alloc::{vec, vec::Vec};
 
@@ -26,11 +26,11 @@ use rayon::prelude::*;
 /// let mut prover = MultilinearProverLSB::new(evals);
 /// let proof = sumcheck(&mut prover, num_rounds, &mut transcript, |_, _| {});
 /// ```
-pub struct MultilinearProverLSB<F: SumcheckRing> {
+pub struct MultilinearProverLSB<F: SumcheckField> {
     evals: Vec<F>,
 }
 
-impl<F: SumcheckRing> MultilinearProverLSB<F> {
+impl<F: SumcheckField> MultilinearProverLSB<F> {
     /// Time strategy prover with LSB (pair-split) layout.
     pub fn new(evals: Vec<F>) -> Self {
         Self { evals }
@@ -57,7 +57,7 @@ impl<F: SumcheckRing> MultilinearProverLSB<F> {
 ///
 /// `s0 = sum of even-indexed elements = sum f[2k]`
 /// `s1 = sum of odd-indexed elements  = sum f[2k+1]`
-fn compute_lsb<F: SumcheckRing>(evals: &[F]) -> (F, F) {
+fn compute_lsb<F: SumcheckField>(evals: &[F]) -> (F, F) {
     if evals.is_empty() {
         return (F::ZERO, F::ZERO);
     }
@@ -96,7 +96,7 @@ fn compute_lsb<F: SumcheckRing>(evals: &[F]) -> (F, F) {
 }
 
 /// In-place LSB (pair-split) fold: `new[k] = f[2k] + w * (f[2k+1] - f[2k])`.
-fn fold_lsb<F: SumcheckRing>(evals: &mut Vec<F>, weight: F) {
+fn fold_lsb<F: SumcheckField>(evals: &mut Vec<F>, weight: F) {
     if evals.len() <= 1 {
         return;
     }
@@ -125,7 +125,7 @@ fn fold_lsb<F: SumcheckRing>(evals: &mut Vec<F>, weight: F) {
 
 /// Fused fold + compute: fold with `weight`, then compute the next round's
 /// (s0, s1) from the folded data. Single pass over pairs of pairs.
-fn fused_fold_and_compute_lsb<F: SumcheckRing>(evals: &mut Vec<F>, weight: F) -> (F, F) {
+fn fused_fold_and_compute_lsb<F: SumcheckField>(evals: &mut Vec<F>, weight: F) -> (F, F) {
     let n = evals.len();
     if n < 4 {
         fold_lsb(evals, weight);
@@ -165,7 +165,7 @@ fn fused_fold_and_compute_lsb<F: SumcheckRing>(evals: &mut Vec<F>, weight: F) ->
 
 // ─── SumcheckProver impl ───────────────────────────────────────────────────
 
-impl<F: SumcheckRing> SumcheckProver<F> for MultilinearProverLSB<F> {
+impl<F: SumcheckField> SumcheckProver<F> for MultilinearProverLSB<F> {
     fn degree(&self) -> usize {
         1
     }

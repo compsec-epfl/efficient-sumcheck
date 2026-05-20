@@ -29,7 +29,7 @@
 //! let (w_b, w_c) = prover.claimed_w_values();
 //! ```
 
-use crate::field::SumcheckRing;
+use crate::field::SumcheckField;
 use crate::inner_product_sumcheck as ip;
 use crate::sumcheck_prover::SumcheckProver;
 
@@ -38,7 +38,7 @@ use alloc::{vec, vec::Vec};
 /// GKR round sumcheck prover (degree 2).
 ///
 /// See [module docs](self) for details.
-pub struct GkrProver<F: SumcheckRing> {
+pub struct GkrProver<F: SumcheckField> {
     /// Gate add predicate: `add_i(r, b, c)`, `2^{2k}` entries.
     add_evals: Vec<F>,
     /// Gate mult predicate: `mult_i(r, b, c)`, `2^{2k}` entries.
@@ -49,7 +49,7 @@ pub struct GkrProver<F: SumcheckRing> {
     w_c: Vec<F>,
 }
 
-impl<F: SumcheckRing> GkrProver<F> {
+impl<F: SumcheckField> GkrProver<F> {
     /// Construct from gate predicates and witness evaluations.
     ///
     /// - `add_evals`: `add_i(r, b, c)` for all `(b, c) in {0,1}^{2k}`.
@@ -96,7 +96,7 @@ impl<F: SumcheckRing> GkrProver<F> {
 
 impl<F> SumcheckProver<F> for GkrProver<F>
 where
-    F: SumcheckRing,
+    F: SumcheckField,
 {
     fn degree(&self) -> usize {
         2

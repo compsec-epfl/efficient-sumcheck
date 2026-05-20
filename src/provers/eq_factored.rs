@@ -39,7 +39,7 @@
 //! EvalsInfty for degree 2: `[q(0), q(∞)]`. The verifier derives
 //! `q(1) = claim - q(0)` and reconstructs the round polynomial.
 
-use crate::field::SumcheckRing;
+use crate::field::SumcheckField;
 use crate::inner_product_sumcheck as ip;
 use crate::sumcheck_prover::SumcheckProver;
 
@@ -64,7 +64,7 @@ use alloc::{vec, vec::Vec};
 /// // final_value() = eq(w, r) · p(r)
 /// let (p_r, eq_wr) = prover.final_factors();
 /// ```
-pub struct EqFactoredProver<F: SumcheckRing> {
+pub struct EqFactoredProver<F: SumcheckField> {
     /// `p` evaluations (MSB layout), padded to `2^v` on construction.
     /// Folded in every round.
     p: Vec<F>,
@@ -82,7 +82,7 @@ pub struct EqFactoredProver<F: SumcheckRing> {
     rounds_elapsed: usize,
 }
 
-impl<F: SumcheckRing> EqFactoredProver<F> {
+impl<F: SumcheckField> EqFactoredProver<F> {
     /// Construct a prover for `∑_x eq(w, x) · p(x)`.
     ///
     /// `p_evals.len()` must be `≤ 2^{w.len()}`; shorter inputs are
@@ -214,7 +214,7 @@ impl<F: SumcheckRing> EqFactoredProver<F> {
 ///
 /// Runs in `O(2^v)` time with `O(2^v)` space. With `w.len() = v/2` this
 /// produces one of the split-value half-tables.
-pub(crate) fn build_eq_table<F: SumcheckRing>(w: &[F]) -> Vec<F> {
+pub(crate) fn build_eq_table<F: SumcheckField>(w: &[F]) -> Vec<F> {
     let v = w.len();
     if v == 0 {
         return vec![F::ONE];
@@ -240,7 +240,7 @@ pub(crate) fn build_eq_table<F: SumcheckRing>(w: &[F]) -> Vec<F> {
 
 impl<F> SumcheckProver<F> for EqFactoredProver<F>
 where
-    F: SumcheckRing,
+    F: SumcheckField,
 {
     fn degree(&self) -> usize {
         2

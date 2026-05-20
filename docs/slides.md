@@ -105,7 +105,7 @@ This motivates **one runner + one trait**, not three functions.
 ## The Prover Trait
 
 ```rust
-pub trait SumcheckProver<F: SumcheckRing> {
+pub trait SumcheckProver<F: SumcheckField> {
     fn degree(&self) -> usize;
     fn round(&mut self, challenge: Option<F>) -> Vec<F>;
     fn finalize(&mut self, last_challenge: F);
@@ -129,7 +129,7 @@ final_value()        -> g(r_0, ..., r_{v-1}) // oracle value
 ## The Protocol Runner
 
 ```rust
-pub fn sumcheck<F: SumcheckRing, T: ProverTranscript<F>>(
+pub fn sumcheck<F: SumcheckField, T: ProverTranscript<F>>(
     prover: &mut impl SumcheckProver<F>,
     num_rounds: usize,
     transcript: &mut T,
@@ -150,7 +150,7 @@ One function handles:
 ## The Verifier
 
 ```rust
-pub fn sumcheck_verify<F: SumcheckRing, T: VerifierTranscript<F>>(
+pub fn sumcheck_verify<F: SumcheckField, T: VerifierTranscript<F>>(
     claimed_sum: F,
     expected_degree: usize,
     num_rounds: usize,
@@ -201,7 +201,7 @@ full evaluation table.
 ## Unified Proof Type
 
 ```rust
-pub struct SumcheckProof<F: SumcheckRing> {
+pub struct SumcheckProof<F: SumcheckField> {
     pub round_polys: Vec<Vec<F>>,  // g_j in EvalsInfty wire format
     pub challenges: Vec<F>,        // r_1, ..., r_v
     pub final_value: F,            // g(r_1, ..., r_v)
@@ -264,7 +264,7 @@ LLVM const-folds the branch. Zero overhead on non-Goldilocks.
 
 ```rust
 pub trait SimdRepr:
-    SumcheckRing + zerocopy::IntoBytes + zerocopy::FromBytes
+    SumcheckField + zerocopy::IntoBytes + zerocopy::FromBytes
 {
     fn modulus() -> u64;  // GOLDILOCKS_P for SIMD
 }
@@ -277,7 +277,7 @@ Layout safety is **compiler-verified** via zerocopy derives. No `unsafe`.
 ## Generic Field Trait
 
 ```rust
-pub trait SumcheckRing:
+pub trait SumcheckField:
     Copy + Send + Sync + PartialEq + Debug
     + Add + Sub + Mul + Neg
     + AddAssign + SubAssign + MulAssign
@@ -304,7 +304,7 @@ Evaluations in base field BF (e.g., Goldilocks).
 Challenges from extension field EF (e.g., Goldilocks^3) for soundness.
 
 ```rust
-pub trait ExtensionOf<BF: SumcheckRing>: SumcheckRing + From<BF> {}
+pub trait ExtensionOf<BF: SumcheckField>: SumcheckField + From<BF> {}
 ```
 
 The transition is prover-internal:
@@ -556,7 +556,7 @@ parallel = ["rayon", "ark-ff?/parallel", ...]
 simd     = []
 ```
 
-- `--no-default-features`: pure `SumcheckRing` library, no arkworks, no SIMD
+- `--no-default-features`: pure `SumcheckField` library, no arkworks, no SIMD
 - `--features arkworks`: blanket impl for `ark_ff::Field`
 - `--features parallel`: rayon parallelism for fold and round computation
 - `--features simd`: SIMD backends (NEON, AVX-512 IFMA) for Goldilocks
@@ -676,7 +676,7 @@ verifier challenges. This library implements plain (non-ZK) sumcheck.
   has not been formally verified**.
 
 Fixed-size Montgomery multiplication is inherently data-independent but
-unaudited. No constant-time claim for arbitrary `SumcheckRing` impls.
+unaudited. No constant-time claim for arbitrary `SumcheckField` impls.
 Callers in that threat model must supply constant-time field operations.
 
 See [SECURITY.md](../SECURITY.md) for the full threat model and reporting policy.
@@ -705,7 +705,7 @@ See [SECURITY.md](../SECURITY.md) for the full threat model and reporting policy
 
 6. **Features are orthogonal layers.**
    `arkworks`, `parallel`, and `simd` can be enabled independently.
-   The core library works with any `SumcheckRing` and zero dependencies.
+   The core library works with any `SumcheckField` and zero dependencies.
 
 ---
 

@@ -3,7 +3,7 @@
 //! Wraps the fused fold+compute kernel from `multilinear_sumcheck.rs`
 //! behind the [`SumcheckProver`] trait.
 
-use crate::field::SumcheckRing;
+use crate::field::SumcheckField;
 use crate::multilinear_sumcheck::{
     compute_sumcheck_polynomial, fold, fused_fold_and_compute_polynomial,
 };
@@ -22,11 +22,11 @@ use alloc::{vec, vec::Vec};
 /// let mut prover = MultilinearProver::new(evals);
 /// let proof = sumcheck(&mut prover, num_rounds, &mut transcript, |_, _| {});
 /// ```
-pub struct MultilinearProver<F: SumcheckRing> {
+pub struct MultilinearProver<F: SumcheckField> {
     evals: Vec<F>,
 }
 
-impl<F: SumcheckRing> MultilinearProver<F> {
+impl<F: SumcheckField> MultilinearProver<F> {
     /// Time strategy prover: holds all evaluations in memory.
     pub fn new(evals: Vec<F>) -> Self {
         Self { evals }
@@ -49,7 +49,7 @@ impl<F: SumcheckRing> MultilinearProver<F> {
 
 impl<F> SumcheckProver<F> for MultilinearProver<F>
 where
-    F: SumcheckRing,
+    F: SumcheckField,
 {
     fn degree(&self) -> usize {
         1

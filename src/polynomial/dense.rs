@@ -1,6 +1,6 @@
 //! Zero-allocation dense polynomial arithmetic on coefficient slices.
 
-use crate::field::SumcheckRing;
+use crate::field::SumcheckField;
 
 /// Multiply polynomials `a` and `b`, writing the result into `out`.
 ///
@@ -9,7 +9,7 @@ use crate::field::SumcheckRing;
 ///
 /// `a = [a_0, a_1, ..., a_m]`, `b = [b_0, b_1, ..., b_n]`.
 /// `out[k] = Σ_{i+j=k} a_i · b_j`.
-pub fn mul_into<F: SumcheckRing>(out: &mut [F], a: &[F], b: &[F]) {
+pub fn mul_into<F: SumcheckField>(out: &mut [F], a: &[F], b: &[F]) {
     if a.is_empty() || b.is_empty() {
         for o in out.iter_mut() {
             *o = F::ZERO;
@@ -36,7 +36,7 @@ pub fn mul_into<F: SumcheckRing>(out: &mut [F], a: &[F], b: &[F]) {
 ///
 /// If `p` is longer than `out`, the extra terms are ignored.
 /// No allocation.
-pub fn add_scaled<F: SumcheckRing>(out: &mut [F], scalar: F, p: &[F]) {
+pub fn add_scaled<F: SumcheckField>(out: &mut [F], scalar: F, p: &[F]) {
     let len = out.len().min(p.len());
     for i in 0..len {
         out[i] += scalar * p[i];
@@ -47,7 +47,7 @@ pub fn add_scaled<F: SumcheckRing>(out: &mut [F], scalar: F, p: &[F]) {
 ///
 /// Alias for [`eval_horner`](super::eval_horner).
 #[inline]
-pub fn eval_at<F: SumcheckRing>(coeffs: &[F], x: F) -> F {
+pub fn eval_at<F: SumcheckField>(coeffs: &[F], x: F) -> F {
     super::eval_horner(coeffs, x)
 }
 

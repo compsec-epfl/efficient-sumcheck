@@ -19,7 +19,7 @@
 //! additional cache-locality gains from reading all four strides
 //! simultaneously.
 
-use crate::field::SumcheckRing;
+use crate::field::SumcheckField;
 use alloc::vec::Vec;
 #[cfg(feature = "parallel")]
 use rayon::join;
@@ -30,7 +30,7 @@ use crate::transcript::ProverTranscript;
 
 /// Legacy return type for `inner_product_sumcheck`.
 #[derive(Debug, PartialEq)]
-pub struct ProductSumcheck<F: SumcheckRing> {
+pub struct ProductSumcheck<F: SumcheckField> {
     pub prover_messages: Vec<(F, F)>,
     pub verifier_messages: Vec<F>,
     pub final_evaluations: (F, F),
@@ -65,7 +65,7 @@ const fn workload_size<T: Sized>() -> usize {
 
 // ─── Scalar helpers ─────────────────────────────────────────────────────────
 
-fn dot<F: SumcheckRing>(a: &[F], b: &[F]) -> F {
+fn dot<F: SumcheckField>(a: &[F], b: &[F]) -> F {
     debug_assert_eq!(a.len(), b.len());
     #[cfg(feature = "parallel")]
     if a.len() > workload_size::<F>() {
@@ -74,7 +74,7 @@ fn dot<F: SumcheckRing>(a: &[F], b: &[F]) -> F {
     a.iter().zip(b).map(|(x, y)| *x * *y).sum()
 }
 
-fn scalar_mul<F: SumcheckRing>(v: &mut [F], w: F) {
+fn scalar_mul<F: SumcheckField>(v: &mut [F], w: F) {
     for x in v.iter_mut() {
         *x *= w;
     }
@@ -85,8 +85,8 @@ fn scalar_mul<F: SumcheckRing>(v: &mut [F], w: F) {
 /// `(c0, c2)` of the round polynomial `q(x) = c0 + c1·x + c2·x²`.
 ///
 /// Vectors `a` and `b` are implicitly zero-extended to the next power of two.
-pub fn compute_sumcheck_polynomial<F: SumcheckRing>(a: &[F], b: &[F]) -> (F, F) {
-    fn recurse<F: SumcheckRing>(a0: &[F], a1: &[F], b0: &[F], b1: &[F]) -> (F, F) {
+pub fn compute_sumcheck_polynomial<F: SumcheckField>(a: &[F], b: &[F]) -> (F, F) {
+    fn recurse<F: SumcheckField>(a0: &[F], a1: &[F], b0: &[F], b1: &[F]) -> (F, F) {
         debug_assert_eq!(a0.len(), b0.len());
         debug_assert_eq!(a1.len(), b1.len());
         debug_assert!(a0.len() == a1.len());
@@ -140,8 +140,8 @@ pub fn compute_sumcheck_polynomial<F: SumcheckRing>(a: &[F], b: &[F]) -> (F, F) 
 ///
 /// `values` is implicitly zero-padded to the next power of two. On return,
 /// the length is a power of two (or zero).
-pub fn fold<F: SumcheckRing>(values: &mut Vec<F>, weight: F) {
-    fn recurse_both<F: SumcheckRing>(low: &mut [F], high: &[F], weight: F) {
+pub fn fold<F: SumcheckField>(values: &mut Vec<F>, weight: F) {
+    fn recurse_both<F: SumcheckField>(low: &mut [F], high: &[F], weight: F) {
         #[cfg(feature = "parallel")]
         if low.len() > workload_size::<F>() {
             let split = low.len() / 2;
@@ -176,7 +176,7 @@ pub fn fold<F: SumcheckRing>(values: &mut Vec<F>, weight: F) {
 }
 
 /// Two-pass fold-then-compute; reference version kept for testing.
-pub fn fold_and_compute_polynomial<F: SumcheckRing>(
+pub fn fold_and_compute_polynomial<F: SumcheckField>(
     a: &mut Vec<F>,
     b: &mut Vec<F>,
     weight: F,
@@ -196,7 +196,7 @@ pub fn fold_and_compute_polynomial<F: SumcheckRing>(
 ///
 /// Falls back to the unfused path for small or non-pow2 inputs so the
 /// implicit-zero tail accounting stays identical.
-pub fn fused_fold_and_compute_polynomial<F: SumcheckRing>(
+pub fn fused_fold_and_compute_polynomial<F: SumcheckField>(
     a: &mut Vec<F>,
     b: &mut Vec<F>,
     weight: F,
@@ -208,7 +208,7 @@ pub fn fused_fold_and_compute_polynomial<F: SumcheckRing>(
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn kernel<F: SumcheckRing>(
+    fn kernel<F: SumcheckField>(
         a0: &mut [F],
         a1: &mut [F],
         a2: &[F],
@@ -310,7 +310,7 @@ pub fn inner_product_sumcheck_partial<F, T, H>(
     mut hook: H,
 ) -> ProductSumcheck<F>
 where
-    F: SumcheckRing,
+    F: SumcheckField,
     T: ProverTranscript<F>,
     H: FnMut(usize, &mut T),
 {
@@ -370,7 +370,7 @@ pub fn inner_product_sumcheck<F, T, H>(
     hook: H,
 ) -> ProductSumcheck<F>
 where
-    F: SumcheckRing,
+    F: SumcheckField,
     T: ProverTranscript<F>,
     H: FnMut(usize, &mut T),
 {

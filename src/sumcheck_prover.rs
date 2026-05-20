@@ -8,7 +8,7 @@
 //! completes.
 
 extern crate alloc;
-use crate::field::SumcheckRing;
+use crate::field::SumcheckField;
 use alloc::vec::Vec;
 
 /// Prover side of the sum-check protocol (Thaler Proposition 4.1).
@@ -33,7 +33,7 @@ use alloc::vec::Vec;
 /// let proof = sumcheck(&mut prover, n, &mut t, |_, _| {});
 /// let (f_eval, g_eval) = prover.final_evaluations(); // prover-specific
 /// ```
-pub trait SumcheckProver<F: SumcheckRing> {
+pub trait SumcheckProver<F: SumcheckField> {
     /// Maximum degree of the round polynomial in the current variable.
     fn degree(&self) -> usize;
 

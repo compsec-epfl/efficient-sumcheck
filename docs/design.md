@@ -64,7 +64,7 @@ runner parameterized by a prover trait, not three separate functions.
 /// Implementors define how the round polynomial g_j is computed
 /// from the prover's internal state. The protocol runner calls
 /// `round()` once per round, then the caller inspects post-state.
-pub trait SumcheckProver<F: SumcheckRing> {
+pub trait SumcheckProver<F: SumcheckField> {
     /// Degree of g_j in the current variable X_j.
     fn degree(&self) -> usize;
 
@@ -191,12 +191,12 @@ how `round()` computes the polynomial from the data.
 
 ```rust
 // In-memory (MSB, time strategy).
-impl<F: SumcheckRing> MultilinearProver<F> {
+impl<F: SumcheckField> MultilinearProver<F> {
     pub fn new(evals: Vec<F>) -> Self;
 }
 
 // Streaming (LSB or MSB, blendy strategy).
-impl<F: SumcheckRing> StreamingMultilinearProver<F> {
+impl<F: SumcheckField> StreamingMultilinearProver<F> {
     /// Random-access stream, MSB ordering. Best for mmap'd data.
     pub fn new_msb<S: Stream<F>>(stream: S, k: usize) -> Self;
 
@@ -277,7 +277,7 @@ trait, whose memory layout guarantee is enforced at compile time by
 
 ```rust
 pub trait SimdRepr:
-    SumcheckRing + zerocopy::IntoBytes + zerocopy::FromBytes + zerocopy::Immutable
+    SumcheckField + zerocopy::IntoBytes + zerocopy::FromBytes + zerocopy::Immutable
 {
     fn modulus() -> u64;
 }
@@ -297,7 +297,7 @@ impl SimdRepr for JoltGoldilocks {
 }
 ```
 
-Arkworks types bypass `SimdRepr` &mdash; the blanket `SumcheckRing` impl
+Arkworks types bypass `SimdRepr` &mdash; the blanket `SumcheckField` impl
 auto-detects Goldilocks from `BasePrimeField::MODULUS` and the detection
 is const-folded by LLVM.
 
