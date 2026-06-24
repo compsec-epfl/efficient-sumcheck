@@ -9,11 +9,9 @@
 //! workloads, prefer [`MultilinearProver`](super::multilinear::MultilinearProver)
 //! (MSB layout).
 
-extern crate alloc;
 use crate::field::SumcheckField;
 use crate::sumcheck_prover::SumcheckProver;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;

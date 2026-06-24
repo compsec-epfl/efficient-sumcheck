@@ -1,3 +1,4 @@
+use crate::field::SumcheckField;
 use ark_ff::Field;
 use ark_std::vec::Vec;
 use ark_std::{cfg_chunks, cfg_into_iter};
@@ -9,7 +10,7 @@ use rayon::{
 
 use crate::streams::Stream;
 
-pub fn evaluate<F: Field>(src: &[F]) -> (F, F) {
+pub fn evaluate<F: SumcheckField>(src: &[F]) -> (F, F) {
     let even_sum = cfg_into_iter!(0..src.len())
         .step_by(2)
         .map(|i| src[i])
@@ -34,7 +35,7 @@ pub fn evaluate_from_stream<F: Field, S: Stream<F>>(src: &S) -> (F, F) {
     (even_sum, odd_sum)
 }
 
-pub fn reduce_evaluations<F: Field>(src: &mut Vec<F>, verifier_message: F) {
+pub fn reduce_evaluations<F: SumcheckField>(src: &mut Vec<F>, verifier_message: F) {
     /// Below this input size, the serial in-place path wins: rayon's
     /// fork/join overhead exceeds the actual compute, and we avoid the
     /// `.collect()` allocation entirely. Above it, parallelism outpaces
@@ -92,7 +93,7 @@ pub fn reduce_evaluations_from_stream<F: Field, S: Stream<F>>(
 /// round polynomial `q(x) = a + bx + cx²`:
 ///   - `a = Σ f_even · g_even`
 ///   - `b = Σ (f_even · g_odd + f_odd · g_even)`
-pub fn pairwise_product_evaluate<F: Field>(src: &[Vec<F>]) -> (F, F) {
+pub fn pairwise_product_evaluate<F: SumcheckField>(src: &[Vec<F>]) -> (F, F) {
     let half_len = src[0].len() / 2;
     let a: F = cfg_into_iter!(0..half_len)
         .map(|k| {
@@ -112,7 +113,10 @@ pub fn pairwise_product_evaluate<F: Field>(src: &[Vec<F>]) -> (F, F) {
 /// Cross-field reduce: fold `BF` evaluations with an `EF` challenge, producing `Vec<EF>`.
 ///
 /// For each adjacent pair `(a, b)` in `src`: `EF::from(a) + challenge * (EF::from(b) - EF::from(a))`.
-pub fn cross_field_reduce<BF: Field, EF: Field + From<BF>>(src: &[BF], challenge: EF) -> Vec<EF> {
+pub fn cross_field_reduce<BF: SumcheckField, EF: SumcheckField + From<BF>>(
+    src: &[BF],
+    challenge: EF,
+) -> Vec<EF> {
     cfg_chunks!(src, 2)
         .map(|chunk| {
             let a = EF::from(chunk[0]);

@@ -45,16 +45,12 @@ pub mod transcript;
 
 // ─── Arkworks-dependent modules ─────────────────────────────────────────────
 
-#[cfg(feature = "arkworks")]
 mod inner_product_sumcheck;
-#[cfg(feature = "arkworks")]
 mod multilinear_sumcheck;
 
-#[cfg(feature = "arkworks")]
 pub use inner_product_sumcheck::{
     inner_product_sumcheck, inner_product_sumcheck_partial, ProductSumcheck,
 };
-#[cfg(feature = "arkworks")]
 pub use multilinear_sumcheck::{
     compute_sumcheck_polynomial, fold, fused_fold_and_compute_polynomial, multilinear_sumcheck,
     multilinear_sumcheck_partial, Sumcheck,
