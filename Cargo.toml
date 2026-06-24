@@ -27,7 +27,7 @@ zerocopy = { version = "0.8", features = ["derive"] }
 
 [dev-dependencies]
 criterion = "0.8"
-p3-field = "0.5"
+p3-field = "0.6"
 p3-goldilocks = "0.5"
 
 [features]
