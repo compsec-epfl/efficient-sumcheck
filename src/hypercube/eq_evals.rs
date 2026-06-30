@@ -1,4 +1,5 @@
-use ark_ff::Field;
+use crate::field::SumcheckField;
+use alloc::vec::Vec;
 
 /// Compute eq(τ, ·) over {0,1}^v using the incremental build-up algorithm.
 ///
@@ -10,16 +11,16 @@ use ark_ff::Field;
 /// Complexity: O(2^v) — one multiply per entry. The algorithm doubles the
 /// table one variable at a time: for each `τ_j`, existing entries are
 /// split into `entry * (1 - τ_j)` (bit 0) and `entry * τ_j` (bit 1).
-pub fn compute_hypercube_eq_evals<F: Field>(num_variables: usize, point: &[F]) -> Vec<F> {
+pub fn compute_hypercube_eq_evals<F: SumcheckField>(num_variables: usize, point: &[F]) -> Vec<F> {
     let size = 1 << num_variables;
     let mut table = Vec::with_capacity(size);
-    table.push(F::one());
+    table.push(F::ONE);
 
     for &tau_j in point[..num_variables].iter().rev() {
         let len = table.len();
-        let one_minus = F::one() - tau_j;
+        let one_minus = F::ONE - tau_j;
         // Process in reverse so we can expand in place.
-        table.resize(2 * len, F::zero());
+        table.resize(2 * len, F::ZERO);
         for i in (0..len).rev() {
             table[2 * i + 1] = table[i] * tau_j;
             table[2 * i] = table[i] * one_minus;
@@ -36,13 +37,13 @@ pub fn compute_hypercube_eq_evals<F: Field>(num_variables: usize, point: &[F]) -
 /// table from [`compute_hypercube_eq_evals`].
 ///
 /// `eq_poly(τ, i) == compute_hypercube_eq_evals(τ.len(), τ)[i]`.
-pub fn eq_poly<F: Field>(tau: &[F], point: usize) -> F {
+pub fn eq_poly<F: SumcheckField>(tau: &[F], point: usize) -> F {
     let num_variables = tau.len();
-    (0..num_variables).fold(F::one(), |acc, j| {
+    (0..num_variables).fold(F::ONE, |acc, j| {
         if (point >> j) & 1 == 1 {
             acc * tau[j]
         } else {
-            acc * (F::one() - tau[j])
+            acc * (F::ONE - tau[j])
         }
     })
 }
@@ -54,14 +55,14 @@ pub fn eq_poly<F: Field>(tau: &[F], point: usize) -> F {
 /// Unlike [`eq_poly`] which takes a Boolean point as an integer, this
 /// handles non-binary evaluation points — needed for oracle checks in
 /// composed protocols (WARP, GKR reduce-to-one).
-pub fn eq_poly_non_binary<F: Field>(x: &[F], y: &[F]) -> F {
+pub fn eq_poly_non_binary<F: SumcheckField>(x: &[F], y: &[F]) -> F {
     assert_eq!(x.len(), y.len());
-    x.iter().zip(y).fold(F::one(), |acc, (x_i, y_i)| {
-        acc * (*x_i * *y_i + (F::one() - x_i) * (F::one() - y_i))
+    x.iter().zip(y).fold(F::ONE, |acc, (x_i, y_i)| {
+        acc * (*x_i * *y_i + (F::ONE - *x_i) * (F::ONE - *y_i))
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "arkworks"))]
 mod tests {
     use super::*;
     use crate::tests::F64;
